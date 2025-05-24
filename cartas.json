@@ -1,14 +1,14 @@
 [
   {
-    "id": "C001",
-    "nombre": "Sana",
-    "rareza": "común",
-    "imagen_url": "https://i.ibb.co/PsVZpnhp/Sana1.jpg"
+    "nombre": "Tzuyu",
+    "version": "V1",
+    "rareza": "Común",
+    "imagen_url": "https://i.ibb.co/35dt3MZc/Tzuyu1.jpg"
   },
   {
-    "id": "C002",
     "nombre": "Tzuyu",
-    "rareza": "rara",
+    "version": "V2",
+    "rareza": "Rara",
     "imagen_url": "https://i.ibb.co/tMzCK0cB/Tzuyu2.jpg"
   }
 ]
