@@ -1,48 +1,39 @@
-import os
-import json
-import random
+import os, json, random
 from flask import Flask, request
 from telegram import Bot, Update
 from telegram.ext import Dispatcher, CommandHandler
 from pymongo import MongoClient
 from dotenv import load_dotenv
 
-# Carga .env
+# Carga .env si existe (para desarrollo local)
 load_dotenv()
 
-# Telegram
+# Inicializa Telegram y Flask
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 bot = Bot(token=TOKEN)
 app = Flask(__name__)
 dp = Dispatcher(bot, None, workers=0, use_context=True)
 
-# MongoDB Atlas
+# Configura MongoDB Atlas
 MONGO_URI = os.getenv("MONGO_URI")
 client = MongoClient(MONGO_URI)
-db = client.get_database()                # usa la BD por defecto del URI
-cards_col = db.cards                      # colección de datos de cartas
-inv_col   = db.collection                 # inventarios de usuarios
+db = client.get_default_database()
+cards_col = db.cards
+inv_col   = db.collection
 
-# Carga cartas estáticas en Mongo (solo si no existen)
+# Pobla cartas en DB si no hay
 if cards_col.count_documents({}) == 0:
     with open("cartas.json") as f:
-        cards = json.load(f)
-    cards_col.insert_many(cards)
+        cards_col.insert_many(json.load(f))
 
 # Handlers
 def start(update, context):
-    update.message.reply_text(
-        "👋 Bienvenido al bot coleccionista.\nUsa /reclamar para tu carta."
-    )
+    update.message.reply_text("👋 ¡Bienvenido! Usa /reclamar para una carta.")
 
 def reclamar(update, context):
-    user_id = str(update.effective_user.id)
+    uid = str(update.effective_user.id)
     carta = cards_col.aggregate([{"$sample": {"size": 1}}]).next()
-    inv_col.update_one(
-        {"_id": user_id},
-        {"$push": {"cards": carta["id"]}},
-        upsert=True
-    )
+    inv_col.update_one({"_id": uid}, {"$push": {"cards": carta["id"]}}, upsert=True)
     context.bot.send_photo(
         chat_id=update.effective_chat.id,
         photo=carta["imagen_url"],
@@ -51,11 +42,10 @@ def reclamar(update, context):
     )
 
 def coleccion(update, context):
-    user_id = str(update.effective_user.id)
-    doc = inv_col.find_one({"_id": user_id}) or {"cards": []}
+    uid = str(update.effective_user.id)
+    doc = inv_col.find_one({"_id": uid}) or {"cards": []}
     if not doc["cards"]:
-        update.message.reply_text("❌ Aún no tienes cartas. Usa /reclamar.")
-        return
+        return update.message.reply_text("❌ Aún no tienes cartas.")
     from collections import Counter
     cnt = Counter(doc["cards"])
     lines = [f"- {cid}: {cnt[cid]}×" for cid in cnt]
