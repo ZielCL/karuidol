@@ -1,7 +1,7 @@
-# Imagen base
+# Usa una imagen ligera de Python
 FROM python:3.10-slim
 
-# Variables de entorno para que Python no genere .pyc
+# Evita crear archivos .pyc y buffering en logs
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
@@ -11,7 +11,8 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copia el código
+# Copia el resto del código
 COPY . .
 
+# Usa gunicorn para servir tu Flask app
 CMD ["gunicorn", "main:app", "--bind", "0.0.0.0:$PORT", "--workers", "1", "--threads", "4"]
