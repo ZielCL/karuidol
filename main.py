@@ -77,6 +77,13 @@ dp.add_handler(CommandHandler("reclamar", reclamar))
 dp.add_handler(CommandHandler("coleccion", coleccion))
 
 # ─── Endpoint para Webhook ────────────────────────────────────────────────────────
+@app.route("/_debug", methods=["GET"])
+def debug():
+    cwd = os.getcwd()
+    files = os.listdir(cwd)
+    env = {k: ("****" if k not in ["PYTHONPATH"] else v) for k, v in os.environ.items()}
+    return {"cwd": cwd, "files": files, "env": env}
+
 @app.route(f"/{TOKEN}", methods=["POST"])
 def webhook():
     update = Update.de_json(request.get_json(force=True), bot)
