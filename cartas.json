@@ -1,4 +1,14 @@
 [
-  { "id": "C001", "nombre": "Yuqi", "rareza": "común", "imagen_url": "https://i.ibb.co/twXVdXj7/Yuqi3.jpg" },
-  { "id": "C002", "nombre": "Miyeon", "rareza": "rara",   "imagen_url": "https://i.ibb.co/tMzCK0cB/Tzuyu2.jpg" }
+  {
+    "id": "C001",
+    "nombre": "Sana",
+    "rareza": "común",
+    "imagen_url": "https://i.ibb.co/PsVZpnhp/Sana1.jpg"
+  },
+  {
+    "id": "C002",
+    "nombre": "Tzuyu",
+    "rareza": "rara",
+    "imagen_url": "https://i.ibb.co/tMzCK0cB/Tzuyu2.jpg"
+  }
 ]
