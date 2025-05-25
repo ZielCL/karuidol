@@ -1,222 +1,235 @@
 import os
 import json
-import random
-import datetime
+import time
 from flask import Flask, request
+import telebot
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+from datetime import datetime, timedelta
 from pymongo import MongoClient
-import requests
 
-# Cargar variables de entorno
+# ------------- CONFIGURACIÓN BÁSICA -------------
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
 MONGO_URI = os.environ.get("MONGO_URI")
-ADMIN_IDS = os.environ.get("ADMIN_IDS", "")
-BASE_URL = os.environ.get("BASE_URL", "")  # URL pública del bot en Render
+if not TOKEN:
+    raise RuntimeError("No se encontró TELEGRAM_TOKEN en las variables de entorno.")
+if not MONGO_URI:
+    raise RuntimeError("No se encontró MONGO_URI en las variables de entorno.")
 
-if not TOKEN or not MONGO_URI:
-    raise RuntimeError("Faltan variables de entorno requeridas.")
-
-ADMIN_IDS = [int(i) for i in ADMIN_IDS.split(",") if i.strip().isdigit()]
-
-# Conexión a MongoDB
-mongo = MongoClient(MONGO_URI)
-db = mongo["karuidol"]
-usuarios = db["usuarios"]
-
-# Cargar cartas
-CARTAS_FILE = "cartas.json"
-if not os.path.exists(CARTAS_FILE):
-    with open(CARTAS_FILE, "w") as f:
-        json.dump([], f)
-with open(CARTAS_FILE, "r") as f:
-    CARTAS = json.load(f)
-
-# App Flask
+bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
 app = Flask(__name__)
 
-def send_telegram(chat_id, text, reply_markup=None, photo=None, parse_mode="HTML"):
-    url = f"https://api.telegram.org/bot{TOKEN}/sendPhoto" if photo else f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-    data = {"chat_id": chat_id, "parse_mode": parse_mode}
-    if photo:
-        data["photo"] = photo
-        data["caption"] = text
+# Conexión a MongoDB
+mongo_client = MongoClient(MONGO_URI)
+db = mongo_client["karuidol"]
+coleccion_usuarios = db["usuarios"]
+
+# --------- UTILIDADES ---------
+def cargar_cartas():
+    if not os.path.exists("cartas.json"):
+        # Si no existe, crea un ejemplo básico para editar luego
+        cartas = [
+            {
+                "id": 1,
+                "nombre": "Tzuyu",
+                "version": "V1",
+                "rareza": "Común",
+                "imagen": "https://i.imgur.com/example1.png"
+            },
+            {
+                "id": 1,
+                "nombre": "Tzuyu",
+                "version": "V2",
+                "rareza": "Rara",
+                "imagen": "https://i.imgur.com/example2.png"
+            }
+        ]
+        with open("cartas.json", "w", encoding="utf-8") as f:
+            json.dump(cartas, f, ensure_ascii=False, indent=2)
     else:
-        data["text"] = text
-    if reply_markup:
-        data["reply_markup"] = json.dumps(reply_markup)
-    resp = requests.post(url, data=data)
-    return resp
+        with open("cartas.json", "r", encoding="utf-8") as f:
+            cartas = json.load(f)
+    return cartas
 
-def es_grupo(update):
-    chat = update.get("message", {}).get("chat", {}) or update.get("callback_query", {}).get("message", {}).get("chat", {})
-    return chat.get("type") in ["group", "supergroup", "channel", "supergroup"]
+CARTAS = cargar_cartas()
 
-def usuario_admin(user_id):
-    return user_id in ADMIN_IDS
+def elegir_carta_aleatoria():
+    # 90% para V1, 10% para V2 (puedes expandirlo luego)
+    import random
+    v2_cartas = [c for c in CARTAS if c['version'] == "V2"]
+    v1_cartas = [c for c in CARTAS if c['version'] == "V1"]
+    if random.random() < 0.1 and v2_cartas:
+        return random.choice(v2_cartas)
+    else:
+        return random.choice(v1_cartas)
 
-def obtener_id_carta(nombre, version):
-    # Cuenta cuántas veces existe esa carta en la colección general
-    todas = list(usuarios.aggregate([
-        {"$unwind": "$coleccion"},
-        {"$match": {"coleccion.nombre": nombre, "coleccion.version": version}}
-    ]))
-    return len(todas) + 1
+def is_admin(chat_id, user_id):
+    try:
+        member = bot.get_chat_member(chat_id, user_id)
+        return member.status in ("administrator", "creator")
+    except Exception as e:
+        print("Error comprobando admin:", e)
+        return False
 
-def elegir_carta():
-    # Porcentajes de rareza
-    total_prob = sum(c['rareza'] for c in CARTAS)
-    dado = random.randint(1, total_prob)
-    acumulado = 0
-    for carta in CARTAS:
-        acumulado += carta['rareza']
-        if dado <= acumulado:
-            return carta
-    return CARTAS[0]
+def get_usuario(chat_id, user_id):
+    user = coleccion_usuarios.find_one({"chat_id": chat_id, "user_id": user_id})
+    if not user:
+        user = {
+            "chat_id": chat_id,
+            "user_id": user_id,
+            "cartas": [],
+            "last_idolday": 0,
+            "bonos_idolday": 0
+        }
+        coleccion_usuarios.insert_one(user)
+    return user
 
-def now_date():
-    return datetime.datetime.utcnow().strftime("%Y-%m-%d")
+def guardar_carta_usuario(chat_id, user_id, carta):
+    user = get_usuario(chat_id, user_id)
+    cartas = user["cartas"]
+    for c in cartas:
+        if c["id"] == carta["id"] and c["version"] == carta["version"]:
+            c["cantidad"] += 1
+            break
+    else:
+        nueva = {
+            "id": carta["id"],
+            "nombre": carta["nombre"],
+            "version": carta["version"],
+            "rareza": carta["rareza"],
+            "cantidad": 1,
+            "imagen": carta["imagen"]
+        }
+        cartas.append(nueva)
+    coleccion_usuarios.update_one(
+        {"chat_id": chat_id, "user_id": user_id},
+        {"$set": {"cartas": cartas}}
+    )
+
+def set_last_idolday(chat_id, user_id, timestamp):
+    coleccion_usuarios.update_one(
+        {"chat_id": chat_id, "user_id": user_id},
+        {"$set": {"last_idolday": timestamp}}
+    )
+
+def get_last_idolday(chat_id, user_id):
+    user = get_usuario(chat_id, user_id)
+    return user.get("last_idolday", 0)
+
+def get_bonos(chat_id, user_id):
+    user = get_usuario(chat_id, user_id)
+    return user.get("bonos_idolday", 0)
+
+def modificar_bonos(chat_id, user_id, cantidad):
+    coleccion_usuarios.update_one(
+        {"chat_id": chat_id, "user_id": user_id},
+        {"$inc": {"bonos_idolday": cantidad}}
+    )
+
+# ----------- FLUJO DEL WEBHOOK/FLASK -----------
 
 @app.route("/", methods=["GET"])
 def home():
-    return "Bot activo."
+    return "Bot Karuidol activo."
 
 @app.route(f"/{TOKEN}", methods=["POST"])
 def webhook():
-    update = request.get_json(force=True)
-    print("✅ Webhook recibido:")
-    print(json.dumps(update, indent=2, ensure_ascii=False), flush=True)
+    if request.method == "POST":
+        update = telebot.types.Update.de_json(request.stream.read().decode("utf-8"))
+        bot.process_new_updates([update])
+        print("✅ Webhook recibido:", update, flush=True)
+        return "ok", 200
+    return "Bot activo.", 200
 
-    message = update.get("message")
-    callback_query = update.get("callback_query")
+# ----------- COMANDOS DEL BOT ------------
 
-    if message:
-        text = message.get("text", "")
-        chat = message["chat"]
-        user = message["from"]
-        chat_id = chat["id"]
-        user_id = user["id"]
-        nombre = user.get("first_name", "")
+@bot.message_handler(commands=["start"])
+def cmd_start(message):
+    if message.chat.type not in ["group", "supergroup"]:
+        bot.reply_to(message, "Este bot solo funciona en grupos.")
+        return
+    bot.reply_to(message, f"¡Bot <b>Karuidol</b> operativo en este grupo! Usa /idolday para obtener tu carta diaria.\n\nDesarrollado por ZielCL.")
 
-        if text.startswith("/start"):
-            if es_grupo(update):
-                send_telegram(chat_id, f"✨ <b>¡Bot KaruIdol operativo en el grupo!</b>")
-            else:
-                send_telegram(chat_id, f"🌟 ¡Hola <b>{nombre}</b>! Usa los comandos solo en grupos.\nComandos disponibles: /idolday /album")
-        
-        elif text.startswith("/idolday"):
-            if not es_grupo(update):
-                send_telegram(chat_id, "🚫 Solo puedes usar este comando en grupos.")
-                return "ok", 200
+@bot.message_handler(commands=["idolday"])
+def cmd_idolday(message):
+    if message.chat.type not in ["group", "supergroup"]:
+        bot.reply_to(message, "Solo puedes usar este comando en grupos.")
+        return
+    user_id = message.from_user.id
+    chat_id = message.chat.id
 
-            user_db = usuarios.find_one({"_id": user_id, "grupo_id": chat_id})
-            hoy = now_date()
-            # Bonos
-            bono = (user_db or {}).get("bono", 0)
-            ultimo = (user_db or {}).get("ultimo_dia", "")
-            if user_db and ultimo == hoy and bono < 1:
-                send_telegram(chat_id, f"⏰ Ya reclamaste tu carta de hoy, espera a mañana.")
-                return "ok", 200
-            # Actualiza bonos y fecha
-            if bono > 0:
-                usuarios.update_one({"_id": user_id, "grupo_id": chat_id}, {"$inc": {"bono": -1}, "$set": {"ultimo_dia": hoy}})
-            else:
-                usuarios.update_one({"_id": user_id, "grupo_id": chat_id}, {"$set": {"ultimo_dia": hoy}}, upsert=True)
+    ahora = int(time.time())
+    user = get_usuario(chat_id, user_id)
+    last_time = user.get("last_idolday", 0)
+    bonos = user.get("bonos_idolday", 0)
 
-            carta = elegir_carta()
-            num_id = obtener_id_carta(carta["nombre"], carta["version"])
-            carta_str = f"<b>{carta['nombre']} [#{num_id} {carta['version']}]</b>"
+    usado_bono = False
+    # Permite usar un bono si aún no se puede reclamar normal
+    if last_time != 0 and (ahora - last_time < 86400):
+        if bonos > 0:
+            modificar_bonos(chat_id, user_id, -1)
+            usado_bono = True
+        else:
+            faltan = 86400 - (ahora - last_time)
+            horas = faltan // 3600
+            minutos = (faltan % 3600) // 60
+            bot.reply_to(message, f"⏳ Ya reclamaste tu carta hoy. Próximo reclamo en {horas}h {minutos}m.")
+            return
 
-            # Actualiza colección
-            user_db = usuarios.find_one({"_id": user_id, "grupo_id": chat_id})
-            encontrado = False
-            for c in (user_db or {}).get("coleccion", []):
-                if c["nombre"] == carta["nombre"] and c["version"] == carta["version"]:
-                    c["cantidad"] += 1
-                    encontrado = True
-                    break
-            if not encontrado:
-                if user_db:
-                    coleccion = user_db.get("coleccion", [])
-                    coleccion.append({"nombre": carta["nombre"], "version": carta["version"], "cantidad": 1, "url": carta["url"]})
-                    usuarios.update_one({"_id": user_id, "grupo_id": chat_id}, {"$set": {"coleccion": coleccion}})
-                else:
-                    usuarios.insert_one({
-                        "_id": user_id,
-                        "grupo_id": chat_id,
-                        "nombre": nombre,
-                        "coleccion": [{"nombre": carta["nombre"], "version": carta["version"], "cantidad": 1, "url": carta["url"]}],
-                        "ultimo_dia": hoy
-                    })
-            else:
-                usuarios.update_one(
-                    {"_id": user_id, "grupo_id": chat_id, "coleccion.nombre": carta["nombre"], "coleccion.version": carta["version"]},
-                    {"$inc": {"coleccion.$.cantidad": 1}}
-                )
+    carta = elegir_carta_aleatoria()
+    guardar_carta_usuario(chat_id, user_id, carta)
+    set_last_idolday(chat_id, user_id, ahora)
+    texto = f"<b>{carta['nombre']} [V{carta['version'][-1]}]</b>\nID: <code>#{carta['id']}</code>\nRareza: <b>{carta['rareza']}</b>"
+    if usado_bono:
+        texto += "\n\n<i>Has usado un bono extra para reclamar esta carta.</i>"
 
-            # Mensaje bonito
-            texto = f"""
-<b>✨ ¡Has reclamado tu carta de idol diaria!</b>
+    # Envía la carta con imagen y botón "Reclamar" (opcional: aquí solo muestra la carta, ya la reclama el usuario)
+    bot.send_photo(
+        message.chat.id,
+        carta["imagen"],
+        caption=texto,
+        reply_to_message_id=message.message_id,
+    )
 
-┌───────────────
-│ <b>{carta['nombre']} [#{num_id} {carta['version']}]</b>
-└───────────────
-""".strip()
-            send_telegram(chat_id, texto, photo=carta["url"])
-        
-        elif text.startswith("/album"):
-            if not es_grupo(update):
-                send_telegram(chat_id, "🚫 Solo puedes ver tu álbum en grupos.")
-                return "ok", 200
-            user_db = usuarios.find_one({"_id": user_id, "grupo_id": chat_id})
-            if not user_db or not user_db.get("coleccion"):
-                send_telegram(chat_id, "📭 No tienes cartas en tu colección aún. Usa /idolday para conseguir una.")
-                return "ok", 200
-            coleccion = sorted(user_db["coleccion"], key=lambda x: (x["nombre"].lower(), x["version"]))
-            # Modo lista: 10 por página
-            lista = ""
-            for idx, c in enumerate(coleccion, 1):
-                lista += f"<b>{idx}.</b> <b>{c['nombre']}</b> [{c['version']}]  <code>Cant: {c['cantidad']}</code>\n"
-            if not lista:
-                lista = "Sin cartas."
-            # Botón para cambiar modo (futuro álbum)
-            reply_markup = {
-                "inline_keyboard": [
-                    [{"text": "🖼 Ver Carta", "callback_data": f"viewcard_1"}]
-                ]
-            }
-            send_telegram(chat_id, f"🗂 <b>Tu colección:</b>\n\n{lista}", reply_markup=reply_markup)
-        
-        elif text.startswith("/bonoidolday"):
-            if not es_grupo(update):
-                send_telegram(chat_id, "Solo desde el grupo.")
-                return "ok", 200
-            if user_id not in ADMIN_IDS:
-                send_telegram(chat_id, "⛔ Solo los administradores pueden usar este comando.")
-                return "ok", 200
-            try:
-                cantidad = int(text.split(" ", 1)[1].strip())
-            except Exception:
-                cantidad = 1
-            usuarios.update_one({"_id": user_id, "grupo_id": chat_id}, {"$inc": {"bono": cantidad}}, upsert=True)
-            send_telegram(chat_id, f"✅ Bono de {cantidad} idol(s) diario(s) entregado a {user.get('first_name', 'Admin')}.")
+@bot.message_handler(commands=["album"])
+def cmd_album(message):
+    if message.chat.type not in ["group", "supergroup"]:
+        bot.reply_to(message, "Solo puedes usar este comando en grupos.")
+        return
+    user_id = message.from_user.id
+    chat_id = message.chat.id
+    user = get_usuario(chat_id, user_id)
+    cartas = user.get("cartas", [])
+    if not cartas:
+        bot.reply_to(message, "No tienes cartas aún. Usa /idolday para conseguir una.")
+        return
+    cartas.sort(key=lambda c: (c["id"], c["version"]))
+    texto = "<b>📒 Tu colección de cartas:</b>\n"
+    for c in cartas:
+        texto += f"• <b>#{c['id']} {c['version']} {c['nombre']}</b>   <b>x{c['cantidad']}</b>\n"
+    bot.reply_to(message, texto)
 
-    elif callback_query:
-        data = callback_query["data"]
-        user = callback_query["from"]
-        chat = callback_query["message"]["chat"]
-        chat_id = chat["id"]
-        user_id = user["id"]
-        # Mostrar carta detallada desde álbum (sólo si existe la carta)
-        if data.startswith("viewcard_"):
-            idx = int(data.replace("viewcard_", ""))
-            user_db = usuarios.find_one({"_id": user_id, "grupo_id": chat_id})
-            if user_db and len(user_db.get("coleccion", [])) >= idx:
-                carta = user_db["coleccion"][idx-1]
-                texto = f"""
-<b>{carta['nombre']} [{carta['version']}]</b>
-Cantidad: <b>{carta['cantidad']}</b>
-"""
-                send_telegram(chat_id, texto, photo=carta["url"])
-    return "ok", 200
+# -------- ADMIN COMMAND --------
+
+@bot.message_handler(commands=["bonoidolday"])
+def cmd_bono(message):
+    if message.chat.type not in ["group", "supergroup"]:
+        bot.reply_to(message, "Solo puedes usar este comando en grupos.")
+        return
+    user_id = message.from_user.id
+    chat_id = message.chat.id
+    args = message.text.split()
+    if not is_admin(chat_id, user_id):
+        bot.reply_to(message, "Solo los administradores pueden usar este comando.")
+        return
+    if len(args) != 2 or not args[1].isdigit():
+        bot.reply_to(message, "Uso: /bonoidolday <cantidad>")
+        return
+    cantidad = int(args[1])
+    # Asigna bono al usuario que envió el comando (puedes cambiarlo para admins que den bono a otros)
+    modificar_bonos(chat_id, user_id, cantidad)
+    bot.reply_to(message, f"🎁 Has recibido <b>{cantidad}</b> bonos de idolday.")
+
+# ----------------------
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
