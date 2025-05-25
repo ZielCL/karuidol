@@ -1,236 +1,198 @@
 import os
 import json
-import time
+import random
+import datetime
 from flask import Flask, request
 import telebot
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
-from datetime import datetime, timedelta
-from pymongo import MongoClient
 
-# ------------- CONFIGURACIÓN BÁSICA -------------
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
-MONGO_URI = os.environ.get("MONGO_URI")
 if not TOKEN:
     raise RuntimeError("No se encontró TELEGRAM_TOKEN en las variables de entorno.")
-if not MONGO_URI:
-    raise RuntimeError("No se encontró MONGO_URI en las variables de entorno.")
-
 bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
 app = Flask(__name__)
 
-# Conexión a MongoDB
-mongo_client = MongoClient(MONGO_URI)
-db = mongo_client["karuidol"]
-coleccion_usuarios = db["usuarios"]
+# --------- Datos de cartas ---------
+CARTAS_FILE = "cartas.json"
+USUARIOS_FILE = "usuarios.json"
 
-# --------- UTILIDADES ---------
 def cargar_cartas():
-    if not os.path.exists("cartas.json"):
-        # Si no existe, crea un ejemplo básico para editar luego
+    if not os.path.exists(CARTAS_FILE):
+        # Esqueleto base de cartas
         cartas = [
-            {
-                "id": 1,
-                "nombre": "Tzuyu",
-                "version": "V1",
-                "rareza": "Común",
-                "imagen": "https://i.imgur.com/example1.png"
-            },
-            {
-                "id": 1,
-                "nombre": "Tzuyu",
-                "version": "V2",
-                "rareza": "Rara",
-                "imagen": "https://i.imgur.com/example2.png"
-            }
+            {"id": 1, "nombre": "Tzuyu", "version": "V1", "rareza": "Común", "imagen": "https://i.imgur.com/eac1d9a8.png"},
+            {"id": 1, "nombre": "Tzuyu", "version": "V2", "rareza": "Rara", "imagen": "https://i.imgur.com/eac1d9a8.png"},
+            {"id": 2, "nombre": "Lisa", "version": "V1", "rareza": "Común", "imagen": "https://i.imgur.com/eac1d9a8.png"},
+            {"id": 2, "nombre": "Lisa", "version": "V2", "rareza": "Rara", "imagen": "https://i.imgur.com/eac1d9a8.png"},
+            # Agrega más cartas personalizadas aquí
         ]
-        with open("cartas.json", "w", encoding="utf-8") as f:
-            json.dump(cartas, f, ensure_ascii=False, indent=2)
+        with open(CARTAS_FILE, "w") as f:
+            json.dump(cartas, f, indent=2)
     else:
-        with open("cartas.json", "r", encoding="utf-8") as f:
+        with open(CARTAS_FILE, "r") as f:
             cartas = json.load(f)
     return cartas
 
+def cargar_usuarios():
+    if not os.path.exists(USUARIOS_FILE):
+        return {}
+    with open(USUARIOS_FILE, "r") as f:
+        return json.load(f)
+
+def guardar_usuarios(usuarios):
+    with open(USUARIOS_FILE, "w") as f:
+        json.dump(usuarios, f, indent=2)
+
 CARTAS = cargar_cartas()
 
-def elegir_carta_aleatoria():
-    # 90% para V1, 10% para V2 (puedes expandirlo luego)
-    import random
-    v2_cartas = [c for c in CARTAS if c['version'] == "V2"]
-    v1_cartas = [c for c in CARTAS if c['version'] == "V1"]
-    if random.random() < 0.1 and v2_cartas:
-        return random.choice(v2_cartas)
+# --------- Utilidades ---------
+def obtener_carta_aleatoria():
+    # 90% común, 10% rara (V2)
+    prob = random.random()
+    if prob < 0.9:
+        cartas = [c for c in CARTAS if c["version"] == "V1"]
     else:
-        return random.choice(v1_cartas)
+        cartas = [c for c in CARTAS if c["version"] == "V2"]
+    return random.choice(cartas)
 
-def is_admin(chat_id, user_id):
-    try:
-        member = bot.get_chat_member(chat_id, user_id)
-        return member.status in ("administrator", "creator")
-    except Exception as e:
-        print("Error comprobando admin:", e)
+def nombre_formato_carta(carta):
+    # Personaliza el formato bonito aquí
+    return f"<b>{carta['nombre']} [#{carta['id']} {carta['version']}]</b>"
+
+def puede_reclamar(user_id, group_id, usuarios):
+    hoy = datetime.date.today().isoformat()
+    key = f"{group_id}_{user_id}"
+    u = usuarios.get(key, {})
+    last_day = u.get("last_idolday", "")
+    bonos = u.get("bonos", 0)
+    if last_day == hoy and bonos == 0:
         return False
+    return True
 
-def get_usuario(chat_id, user_id):
-    user = coleccion_usuarios.find_one({"chat_id": chat_id, "user_id": user_id})
-    if not user:
-        user = {
-            "chat_id": chat_id,
-            "user_id": user_id,
-            "cartas": [],
-            "last_idolday": 0,
-            "bonos_idolday": 0
-        }
-        coleccion_usuarios.insert_one(user)
-    return user
-
-def guardar_carta_usuario(chat_id, user_id, carta):
-    user = get_usuario(chat_id, user_id)
-    cartas = user["cartas"]
-    for c in cartas:
-        if c["id"] == carta["id"] and c["version"] == carta["version"]:
-            c["cantidad"] += 1
-            break
+def registrar_reclamo(user_id, group_id, carta, usuarios):
+    hoy = datetime.date.today().isoformat()
+    key = f"{group_id}_{user_id}"
+    u = usuarios.get(key, {"coleccion": {}, "bonos": 0})
+    # Manejo de bonos
+    if u.get("last_idolday", "") == hoy and u.get("bonos", 0) > 0:
+        u["bonos"] -= 1
     else:
-        nueva = {
-            "id": carta["id"],
-            "nombre": carta["nombre"],
-            "version": carta["version"],
-            "rareza": carta["rareza"],
-            "cantidad": 1,
-            "imagen": carta["imagen"]
-        }
-        cartas.append(nueva)
-    coleccion_usuarios.update_one(
-        {"chat_id": chat_id, "user_id": user_id},
-        {"$set": {"cartas": cartas}}
-    )
+        u["last_idolday"] = hoy
+    # Clave carta: id_version
+    clave = f"{carta['id']}_{carta['version']}"
+    if "coleccion" not in u:
+        u["coleccion"] = {}
+    if clave not in u["coleccion"]:
+        u["coleccion"][clave] = {"nombre": carta["nombre"], "version": carta["version"], "id": carta["id"], "cantidad": 0, "imagen": carta["imagen"]}
+    u["coleccion"][clave]["cantidad"] += 1
+    usuarios[key] = u
+    guardar_usuarios(usuarios)
+    return u
 
-def set_last_idolday(chat_id, user_id, timestamp):
-    coleccion_usuarios.update_one(
-        {"chat_id": chat_id, "user_id": user_id},
-        {"$set": {"last_idolday": timestamp}}
-    )
-
-def get_last_idolday(chat_id, user_id):
-    user = get_usuario(chat_id, user_id)
-    return user.get("last_idolday", 0)
-
-def get_bonos(chat_id, user_id):
-    user = get_usuario(chat_id, user_id)
-    return user.get("bonos_idolday", 0)
-
-def modificar_bonos(chat_id, user_id, cantidad):
-    coleccion_usuarios.update_one(
-        {"chat_id": chat_id, "user_id": user_id},
-        {"$inc": {"bonos_idolday": cantidad}}
-    )
-
-# ----------- FLUJO DEL WEBHOOK/FLASK -----------
-
-@app.route("/", methods=["GET"])
-def home():
-    return "Bot Karuidol activo."
-
-@app.route(f"/{TOKEN}", methods=["POST"])
-def webhook():
-    if request.method == "POST":
-        update = telebot.types.Update.de_json(request.stream.read().decode("utf-8"))
-        bot.process_new_updates([update])
-        print("✅ Webhook recibido:", update, flush=True)
-        return "ok", 200
-    return "Bot activo.", 200
-
-# ----------- COMANDOS DEL BOT ------------
-
+# --------- Handlers ---------
 @bot.message_handler(commands=["start"])
-def cmd_start(message):
-    if message.chat.type not in ["group", "supergroup"]:
-        bot.reply_to(message, "Este bot solo funciona en grupos.")
-        return
-    bot.reply_to(message, f"¡Bot <b>Karuidol</b> operativo en este grupo! Usa /idolday para obtener tu carta diaria.\n\nDesarrollado por ZielCL.")
+def start_handler(message):
+    bot.reply_to(message, "🤖 <b>¡Estoy operativo!</b>\nUsa <code>/idolday</code> para reclamar tu carta diaria, <code>/album</code> para ver tu colección.", parse_mode="HTML")
 
 @bot.message_handler(commands=["idolday"])
-def cmd_idolday(message):
+def idolday_handler(message):
+    # Solo en grupos
     if message.chat.type not in ["group", "supergroup"]:
-        bot.reply_to(message, "Solo puedes usar este comando en grupos.")
+        bot.reply_to(message, "❌ Este comando solo funciona en grupos.")
         return
-    user_id = message.from_user.id
-    chat_id = message.chat.id
-
-    ahora = int(time.time())
-    user = get_usuario(chat_id, user_id)
-    last_time = user.get("last_idolday", 0)
-    bonos = user.get("bonos_idolday", 0)
-
-    usado_bono = False
-    # Permite usar un bono si aún no se puede reclamar normal
-    if last_time != 0 and (ahora - last_time < 86400):
-        if bonos > 0:
-            modificar_bonos(chat_id, user_id, -1)
-            usado_bono = True
-        else:
-            faltan = 86400 - (ahora - last_time)
-            horas = faltan // 3600
-            minutos = (faltan % 3600) // 60
-            bot.reply_to(message, f"⏳ Ya reclamaste tu carta hoy. Próximo reclamo en {horas}h {minutos}m.")
-            return
-
-    carta = elegir_carta_aleatoria()
-    guardar_carta_usuario(chat_id, user_id, carta)
-    set_last_idolday(chat_id, user_id, ahora)
-    texto = f"<b>{carta['nombre']} [V{carta['version'][-1]}]</b>\nID: <code>#{carta['id']}</code>\nRareza: <b>{carta['rareza']}</b>"
-    if usado_bono:
-        texto += "\n\n<i>Has usado un bono extra para reclamar esta carta.</i>"
-
-    # Envía la carta con imagen y botón "Reclamar" (opcional: aquí solo muestra la carta, ya la reclama el usuario)
+    user_id = str(message.from_user.id)
+    group_id = str(message.chat.id)
+    usuarios = cargar_usuarios()
+    if not puede_reclamar(user_id, group_id, usuarios):
+        bot.reply_to(message, "⏳ Ya reclamaste tu carta hoy. Usa /bonoidolday si tienes bonos disponibles.")
+        return
+    carta = obtener_carta_aleatoria()
+    u = registrar_reclamo(user_id, group_id, carta, usuarios)
+    texto = (
+        f"<b>Carta obtenida:</b>\n"
+        f"{nombre_formato_carta(carta)}\n"
+        f"<i>Haz clic en el nombre para ver la imagen.</i>\n"
+        f"<code>Rareza: {carta['rareza']}</code>"
+    )
     bot.send_photo(
         message.chat.id,
         carta["imagen"],
         caption=texto,
-        reply_to_message_id=message.message_id,
+        parse_mode="HTML"
     )
 
 @bot.message_handler(commands=["album"])
-def cmd_album(message):
+def album_handler(message):
+    # Solo en grupos
     if message.chat.type not in ["group", "supergroup"]:
-        bot.reply_to(message, "Solo puedes usar este comando en grupos.")
+        bot.reply_to(message, "❌ Este comando solo funciona en grupos.")
         return
-    user_id = message.from_user.id
-    chat_id = message.chat.id
-    user = get_usuario(chat_id, user_id)
-    cartas = user.get("cartas", [])
-    if not cartas:
-        bot.reply_to(message, "No tienes cartas aún. Usa /idolday para conseguir una.")
+    user_id = str(message.from_user.id)
+    group_id = str(message.chat.id)
+    usuarios = cargar_usuarios()
+    key = f"{group_id}_{user_id}"
+    u = usuarios.get(key, {})
+    coleccion = u.get("coleccion", {})
+    if not coleccion:
+        bot.reply_to(message, "📁 No tienes cartas aún. ¡Reclama una con /idolday!")
         return
-    cartas.sort(key=lambda c: (c["id"], c["version"]))
-    texto = "<b>📒 Tu colección de cartas:</b>\n"
-    for c in cartas:
-        texto += f"• <b>#{c['id']} {c['version']} {c['nombre']}</b>   <b>x{c['cantidad']}</b>\n"
-    bot.reply_to(message, texto)
-
-# -------- ADMIN COMMAND --------
+    # Ordenar por cantidad, descendente
+    lista = sorted(coleccion.values(), key=lambda c: c["cantidad"], reverse=True)
+    texto = "🗂 <b>Tu colección:</b>\n\n"
+    for carta in lista[:10]:
+        texto += f"#{carta['id']} {carta['version']} {carta['nombre']:<12}   <b>Cant:</b> <code>{carta['cantidad']}</code>\n"
+    if len(lista) > 10:
+        texto += f"\n<i>Solo se muestran 10 cartas. (¡Tienes más!)</i>"
+    bot.reply_to(message, texto, parse_mode="HTML")
+    # Opcional: despliegue de imagen al hacer clic (con inline), se puede añadir más adelante
 
 @bot.message_handler(commands=["bonoidolday"])
-def cmd_bono(message):
+def bono_handler(message):
+    # Solo admins de grupo pueden usarlo
     if message.chat.type not in ["group", "supergroup"]:
-        bot.reply_to(message, "Solo puedes usar este comando en grupos.")
+        bot.reply_to(message, "❌ Solo funciona en grupos.")
         return
-    user_id = message.from_user.id
-    chat_id = message.chat.id
-    args = message.text.split()
-    if not is_admin(chat_id, user_id):
-        bot.reply_to(message, "Solo los administradores pueden usar este comando.")
+    # Verifica admin con get_chat_member (solo funciona si el bot es admin)
+    try:
+        admin = bot.get_chat_member(message.chat.id, message.from_user.id)
+        if admin.status not in ["administrator", "creator"]:
+            bot.reply_to(message, "❌ Solo los administradores pueden usar este comando.")
+            return
+    except Exception:
+        bot.reply_to(message, "❌ No pude comprobar permisos de admin.")
         return
-    if len(args) != 2 or not args[1].isdigit():
-        bot.reply_to(message, "Uso: /bonoidolday <cantidad>")
+    # Extraer cantidad
+    partes = message.text.split()
+    if len(partes) < 2 or not partes[1].isdigit():
+        bot.reply_to(message, "Uso: <code>/bonoidolday cantidad</code>\nEjemplo: <code>/bonoidolday 2</code>", parse_mode="HTML")
         return
-    cantidad = int(args[1])
-    # Asigna bono al usuario que envió el comando (puedes cambiarlo para admins que den bono a otros)
-    modificar_bonos(chat_id, user_id, cantidad)
-    bot.reply_to(message, f"🎁 Has recibido <b>{cantidad}</b> bonos de idolday.")
+    cantidad = int(partes[1])
+    if cantidad <= 0:
+        bot.reply_to(message, "La cantidad debe ser mayor a 0.")
+        return
+    user_id = str(message.from_user.id)
+    group_id = str(message.chat.id)
+    usuarios = cargar_usuarios()
+    key = f"{group_id}_{user_id}"
+    u = usuarios.get(key, {"coleccion": {}, "bonos": 0})
+    u["bonos"] = u.get("bonos", 0) + cantidad
+    usuarios[key] = u
+    guardar_usuarios(usuarios)
+    bot.reply_to(message, f"🎁 Bono de <b>{cantidad}</b> uso(s) extra de <code>/idolday</code> añadido.", parse_mode="HTML")
 
-# ----------------------
+# --------- Webhook Flask ---------
+@app.route("/", methods=["GET"])
+def home():
+    return "Bot activo."
+
+@app.route(f"/{TOKEN}", methods=["POST"])
+def webhook():
+    if request.headers.get('content-type') == 'application/json':
+        json_str = request.get_data(as_text=True)
+        print("✅ Webhook recibido:", json_str, flush=True)
+        update = telebot.types.Update.de_json(json_str)
+        bot.process_new_updates([update])
+        return "ok", 200
+    return "método no permitido", 405
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
