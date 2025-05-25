@@ -7,6 +7,7 @@ import random
 from datetime import datetime
 from pymongo import MongoClient
 from dotenv import load_dotenv
+import re
 
 load_dotenv()
 
@@ -133,9 +134,7 @@ def comando_idolday(update, context):
     reclamos_pendientes[clave] = {"nombre": nombre, "version": version, "id": nuevo_id}
 
     col_usuarios.update_one({"user_id": usuario_id}, {"$set": {"last_idolday": ahora, "username": update.effective_user.username.lower() if update.effective_user.username else ""}}, upsert=True)
-    # Aquí va el nuevo identificador con grupo
-    id_carta = f"#{nuevo_id}{version}{nombre}{grupo}"
-    texto = f"<b>Tu drop es:</b> <code>{id_carta}</code>"
+    texto = f"<b>Tu drop es:</b> <code>#{nuevo_id} [{version}] {nombre} - {grupo}</code>"
     teclado = InlineKeyboardMarkup([[InlineKeyboardButton("Reclamar", callback_data=f"reclamar_{chat_id}_{usuario_id}")]])
     if imagen_url:
         try:
@@ -209,8 +208,9 @@ def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, edit
         version = carta.get('version', '')
         nombre = carta.get('nombre', '')
         grupo = grupo_de_carta(nombre, version)
-        id_carta = f"#{cid}{version}{nombre}{grupo}"
-        botones.append([InlineKeyboardButton(id_carta, callback_data=f"vercarta_{usuario_id}_{idx}")])
+        # El identificador se muestra en el formato viejo
+        id_carta_album = f"#{cid} [{version}] {nombre} - {grupo}"
+        botones.append([InlineKeyboardButton(id_carta_album, callback_data=f"vercarta_{usuario_id}_{idx}")])
     texto = f"<b>Página {pagina}/{paginas}</b>"
     nav = []
     if pagina > 1:
@@ -235,7 +235,7 @@ def mostrar_carta_individual(chat_id, usuario_id, lista_cartas, idx, context, me
     nombre = carta.get('nombre', '')
     grupo = grupo_de_carta(nombre, version)
     imagen_url = imagen_de_carta(nombre, version)
-    id_carta = f"#{cid}{version}{nombre}{grupo}"
+    id_carta = f"#{cid} [{version}] {nombre} - {grupo}"
     texto = f"<b>{id_carta}</b>"
 
     botones = []
@@ -329,7 +329,6 @@ def comando_giveidol(update, context):
         return
 
     carta_arg = carta_arg[1:]
-    import re
     m = re.match(r'(\d+)(V\d+)([^\s]+)', carta_arg)
     if not m:
         update.message.reply_text("Formato incorrecto. Usa: /giveidol #7V1TzuyuTwice @destino")
@@ -358,20 +357,24 @@ def comando_giveidol(update, context):
         return
     username_dest = usuario_mention[1:].lower()
 
-    # Intentar obtener el user_id de destino
+    # Intentar obtener el user_id de destino, buscando en los miembros del grupo primero
     target_user_id = None
-    posible = col_usuarios.find_one({"username": username_dest})
-    if posible:
-        target_user_id = posible["user_id"]
-    else:
-        try:
-            admins = context.bot.get_chat_administrators(chat.id)
-            for admin in admins:
-                if hasattr(admin.user, "username") and admin.user.username and admin.user.username.lower() == username_dest:
-                    target_user_id = admin.user.id
-                    break
-        except:
-            pass
+    # Buscar primero en miembros del grupo usando chat.get_members
+    try:
+        miembros = context.bot.get_chat_administrators(chat.id)
+        miembros_ids = [adm.user for adm in miembros]
+        for miembro in miembros_ids:
+            if miembro.username and miembro.username.lower() == username_dest:
+                target_user_id = miembro.id
+                break
+    except:
+        pass
+
+    # Si no está en admins, buscar en la colección de usuarios
+    if not target_user_id:
+        posible = col_usuarios.find_one({"username": username_dest})
+        if posible:
+            target_user_id = posible["user_id"]
 
     if not target_user_id:
         update.message.reply_text("No pude identificar al usuario destino, debe estar en el grupo y tener username público.")
@@ -434,8 +437,8 @@ def comando_giveidol(update, context):
     except:
         pass
 
-    id_carta = f"#{card_id}{version}{nombre}{grupo}"
-    update.message.reply_text(f"¡Carta {id_carta} enviada correctamente a @{username_dest}!")
+    id_carta_give = f"#{card_id}{version}{nombre}{grupo}"
+    update.message.reply_text(f"¡Carta {id_carta_give} enviada correctamente a @{username_dest}!")
 
 # HANDLERS
 dispatcher.add_handler(CommandHandler('idolday', comando_idolday))
