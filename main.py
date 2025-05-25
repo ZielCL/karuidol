@@ -311,16 +311,18 @@ def comando_bonoidolday(update, context):
     col_usuarios.update_one({"user_id": dest_id}, {"$inc": {"bono": cantidad}}, upsert=True)
     update.message.reply_text(f"✅ Bono de {cantidad} tiradas de /idolday entregado a <code>{dest_id}</code>.", parse_mode='HTML')
 
-# NUEVO: Comando /giveidol con búsqueda por get_chat_member
+# NUEVO: Comando /giveidol mejorado
 def comando_giveidol(update, context):
-    if len(context.args) < 2:
-        update.message.reply_text("Uso: /giveidol <carta> <@usuario>\nEjemplo: /giveidol #7V1TzuyuTwice @destino")
+    if len(context.args) < 1:
+        update.message.reply_text(
+            "Uso: /giveidol <carta> <@usuario o responde al usuario>\n"
+            "Ejemplo: /giveidol #7V1TzuyuTwice @destino"
+        )
         return
 
     usuario_id = update.message.from_user.id
     chat = update.effective_chat
 
-    # Parsear carta: formato "#7V1TzuyuTwice"
     carta_arg = context.args[0]
     if not carta_arg.startswith("#"):
         update.message.reply_text("Debes indicar la carta con el formato #IDVnNombreGrupo. Ejemplo: /giveidol #7V1TzuyuTwice @destino")
@@ -347,29 +349,54 @@ def comando_giveidol(update, context):
     nombre = carta_en_db['nombre']
     grupo = carta_en_db['grupo']
 
-    usuario_mention = context.args[1]
-    if not usuario_mention.startswith("@"):
-        update.message.reply_text("Debes mencionar al usuario destino usando @username.")
-        return
-    username_dest = usuario_mention[1:].lower()
+    # ====== IDENTIFICAR USUARIO DESTINO ======
 
-    # 1. Buscar por MongoDB
+    # 1. Por reply (más robusto y recomendado)
     target_user_id = None
-    posible = col_usuarios.find_one({"username": username_dest})
-    if posible:
-        target_user_id = posible["user_id"]
+    username_dest = None
+    if update.message.reply_to_message:
+        target_user_id = update.message.reply_to_message.from_user.id
+        username_dest = update.message.reply_to_message.from_user.username
+    # 2. Por entidad mención
+    elif len(context.args) >= 2:
+        usuario_mention = context.args[1]
+        if usuario_mention.startswith("@"):
+            username_dest = usuario_mention[1:].lower()
+            # Buscar por MongoDB primero
+            posible = col_usuarios.find_one({"username": username_dest})
+            if posible:
+                target_user_id = posible["user_id"]
+            # Si no está, buscar en los miembros del chat
+            if not target_user_id:
+                try:
+                    members = context.bot.get_chat_administrators(chat.id)
+                    for member in members:
+                        if member.user.username and member.user.username.lower() == username_dest:
+                            target_user_id = member.user.id
+                            break
+                    if not target_user_id:
+                        # Buscar entre todos los miembros (solo supergrupos, limitado)
+                        all_members = context.bot.get_chat_member(chat.id, usuario_mention)
+                        if all_members.user and all_members.user.username and all_members.user.username.lower() == username_dest:
+                            target_user_id = all_members.user.id
+                except Exception:
+                    pass
+        else:
+            # Si no se menciona con @, intentar ver si es un ID de usuario directo
+            try:
+                target_user_id = int(usuario_mention)
+            except:
+                pass
+    # 3. Por entidades de mención directa (cuando Telegram lo permite)
+    elif update.message.entities:
+        for entity in update.message.entities:
+            if entity.type == "text_mention" and entity.user:
+                target_user_id = entity.user.id
+                username_dest = entity.user.username
+                break
 
-    # 2. Si no está en Mongo, usar get_chat_member
     if not target_user_id:
-        try:
-            member = context.bot.get_chat_member(chat.id, f"@{username_dest}")
-            if member.user and member.user.username and member.user.username.lower() == username_dest:
-                target_user_id = member.user.id
-        except:
-            pass
-
-    if not target_user_id:
-        update.message.reply_text("No pude identificar al usuario destino, debe estar en el grupo y tener username público.")
+        update.message.reply_text("No pude identificar al usuario destino. Usa @username, responde al usuario, o menciona a alguien que esté en el grupo.")
         return
     if usuario_id == target_user_id:
         update.message.reply_text("No puedes regalarte cartas a ti mismo.")
@@ -414,19 +441,22 @@ def comando_giveidol(update, context):
             }
         )
 
-    try:
-        user_dest_data = context.bot.get_chat_member(chat.id, target_user_id).user
-        if user_dest_data.username:
-            col_usuarios.update_one(
-                {"user_id": target_user_id},
-                {"$set": {"username": user_dest_data.username.lower()}},
-                upsert=True
-            )
-    except:
-        pass
+    # Actualiza username destino si es posible
+    if target_user_id:
+        try:
+            user_dest_data = context.bot.get_chat_member(chat.id, target_user_id).user
+            if user_dest_data.username:
+                col_usuarios.update_one(
+                    {"user_id": target_user_id},
+                    {"$set": {"username": user_dest_data.username.lower()}},
+                    upsert=True
+                )
+        except:
+            pass
 
     id_carta_give = f"#{card_id}{version}{nombre}{grupo}"
-    update.message.reply_text(f"¡Carta {id_carta_give} enviada correctamente a @{username_dest}!")
+    dest_name = f"@{username_dest}" if username_dest else "el usuario"
+    update.message.reply_text(f"¡Carta {id_carta_give} enviada correctamente a {dest_name}!")
 
 # HANDLERS
 dispatcher.add_handler(CommandHandler('idolday', comando_idolday))
