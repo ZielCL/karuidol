@@ -105,7 +105,6 @@ def comando_idolday(update, context):
             context.bot.send_message(chat_id=chat_id, text=f"Ya usaste /idolday hoy.")
         return
 
-    # Seleccionar carta aleatoria
     cartas_v1 = [c for c in cartas if c.get('version') == 'V1']
     cartas_v2 = [c for c in cartas if c.get('version') == 'V2']
     carta = None
@@ -336,7 +335,6 @@ def comando_giveidol(update, context):
     card_id_int = int(card_id)
     version = version.upper()
 
-    # Buscar coincidencia con carta en cartas.json para separar nombre y grupo
     carta_en_db = None
     for c in cartas:
         possible = f"{c['nombre']}{c['grupo']}".replace(" ", "").lower()
@@ -349,36 +347,25 @@ def comando_giveidol(update, context):
     nombre = carta_en_db['nombre']
     grupo = carta_en_db['grupo']
 
-    # Parsear usuario destino
     usuario_mention = context.args[1]
     if not usuario_mention.startswith("@"):
         update.message.reply_text("Debes mencionar al usuario destino usando @username.")
         return
     username_dest = usuario_mention[1:].lower()
 
-    # Intentar obtener el user_id de destino
+    # 1. Buscar por MongoDB
     target_user_id = None
-    # Primero buscar en base de datos (usuarios que hayan usado el bot antes)
     posible = col_usuarios.find_one({"username": username_dest})
     if posible:
         target_user_id = posible["user_id"]
 
-    # Si no está en Mongo, buscar entre los miembros reales del grupo con get_chat_member
+    # 2. Si no está en Mongo, usar get_chat_member
     if not target_user_id:
         try:
-            # Buscar entre los 20K primeros IDs teóricamente posibles, pero como no sabemos el user_id, iterar puede ser inviable.
-            # Solución: intentar get_chat_member por username "a ciegas", pero la API solo acepta user_id. Así que recorreremos la lista de miembros (si tu bot es admin) o bien usamos una excepción:
-            # Así, lo correcto sería: probar user_id del usuario mencionado por username
-            # Pero como sólo tenemos el username, lo que se hace es: recorrer los miembros conocidos (admins) y luego por base de datos, y si no, simplemente dar error.
-            # Pero... truco: get_chat_member sí acepta username como user_id (en bots oficiales), pero en python-telegram-bot puede fallar, así que:
-            # Usar la API directamente:
-            for member_id in range(1, 1000000000):  # Un rango irreal
-                break  # Quitamos este loop, ya que no podemos iterar. Solo dejamos el método directo abajo.
-            # Truco realista: forzar la obtención por la API (si el username existe y está en el grupo)
-            user_result = context.bot.get_chat_member(chat.id, f"@{username_dest}")
-            if user_result and user_result.user and user_result.user.username and user_result.user.username.lower() == username_dest:
-                target_user_id = user_result.user.id
-        except Exception as e:
+            member = context.bot.get_chat_member(chat.id, f"@{username_dest}")
+            if member.user and member.user.username and member.user.username.lower() == username_dest:
+                target_user_id = member.user.id
+        except:
             pass
 
     if not target_user_id:
@@ -388,7 +375,6 @@ def comando_giveidol(update, context):
         update.message.reply_text("No puedes regalarte cartas a ti mismo.")
         return
 
-    # Buscar la carta en la colección del usuario origen
     carta = col_cartas_usuario.find_one({
         "user_id": usuario_id,
         "card_id": card_id_int,
@@ -399,7 +385,6 @@ def comando_giveidol(update, context):
         update.message.reply_text("No tienes esa carta para regalar.")
         return
 
-    # Quitar la carta al usuario origen
     if carta["count"] > 1:
         col_cartas_usuario.update_one(
             {"user_id": usuario_id, "card_id": card_id_int, "version": version, "nombre": nombre},
@@ -410,7 +395,6 @@ def comando_giveidol(update, context):
             {"user_id": usuario_id, "card_id": card_id_int, "version": version, "nombre": nombre}
         )
 
-    # Agregar la carta al usuario destino
     existente = col_cartas_usuario.find_one(
         {"user_id": target_user_id, "card_id": card_id_int, "version": version, "nombre": nombre}
     )
@@ -430,7 +414,6 @@ def comando_giveidol(update, context):
             }
         )
 
-    # Registrar username de destino en la base
     try:
         user_dest_data = context.bot.get_chat_member(chat.id, target_user_id).user
         if user_dest_data.username:
