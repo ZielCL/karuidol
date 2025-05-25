@@ -68,11 +68,15 @@ def es_admin(update):
     except:
         return False
 
+# /miid: Muestra tu ID de Telegram
 def comando_miid(update, context):
+    """Muestra tu ID de Telegram."""
     usuario = update.effective_user
     update.message.reply_text(f"Tu ID de Telegram es: {usuario.id}")
 
+# /idolday: Obtén una carta aleatoria diaria
 def comando_idolday(update, context):
+    """Obtén una carta aleatoria diaria."""
     usuario_id = update.message.from_user.id
     chat_id = update.effective_chat.id
     ahora = datetime.utcnow()
@@ -182,14 +186,24 @@ def manejador_reclamar(update, context):
         pass
     query.answer(text="✅ Carta reclamada.", show_alert=True)
 
+# /album: Muestra tu colección de cartas ordenadas por grupo, nombre y número
 def comando_album(update, context):
+    """Muestra tu colección de cartas ordenadas por grupo, nombre y número."""
     usuario_id = update.message.from_user.id
     chat_id = update.effective_chat.id
     cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
     if not cartas_usuario:
         context.bot.send_message(chat_id=chat_id, text="Tu álbum está vacío.")
         return
-    cartas_usuario.sort(key=lambda x: x.get('card_id', 0))
+    # Ordenar por grupo, luego por nombre y finalmente por card_id
+    def sort_key(x):
+        grupo = grupo_de_carta(x.get('nombre',''), x.get('version','')) or ""
+        return (
+            grupo.lower(),
+            x.get('nombre','').lower(),
+            x.get('card_id', 0)
+        )
+    cartas_usuario.sort(key=sort_key)
     pagina = 1
     enviar_lista_pagina(chat_id, usuario_id, cartas_usuario, pagina, context)
 
@@ -226,67 +240,9 @@ def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, edit
     else:
         context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode='HTML')
 
-def mostrar_carta_individual(chat_id, usuario_id, lista_cartas, idx, context, mensaje_a_editar=None, query=None):
-    carta = lista_cartas[idx]
-    cid = carta.get('card_id', '')
-    version = carta.get('version', '')
-    nombre = carta.get('nombre', '')
-    grupo = grupo_de_carta(nombre, version)
-    imagen_url = imagen_de_carta(nombre, version)
-    id_carta = f"#{cid} [{version}] {nombre} - {grupo}"
-    texto = f"<b>{id_carta}</b>"
-
-    botones = []
-    if idx > 0:
-        botones.append(InlineKeyboardButton("⬅️ Anterior", callback_data=f"vercarta_{usuario_id}_{idx-1}"))
-    if idx < len(lista_cartas)-1:
-        botones.append(InlineKeyboardButton("Siguiente ➡️", callback_data=f"vercarta_{usuario_id}_{idx+1}"))
-    teclado = InlineKeyboardMarkup([botones] if botones else None)
-    if query is not None:
-        try:
-            query.edit_message_media(
-                media=InputMediaPhoto(media=imagen_url, caption=texto, parse_mode='HTML'),
-                reply_markup=teclado
-            )
-        except Exception as e:
-            query.answer(text="No se pudo actualizar la imagen.", show_alert=True)
-    else:
-        context.bot.send_photo(chat_id=chat_id, photo=imagen_url, caption=texto, reply_markup=teclado, parse_mode='HTML')
-
-def manejador_callback(update, context):
-    query = update.callback_query
-    data = query.data
-    if data.startswith("reclamar"):
-        manejador_reclamar(update, context)
-        return
-    elif data.startswith("vercarta"):
-        partes = data.split("_")
-        if len(partes) != 3:
-            return
-        usuario_id = int(partes[1])
-        idx = int(partes[2])
-        if query.from_user.id != usuario_id:
-            query.answer(text="Solo puedes ver tus propias cartas.", show_alert=True)
-            return
-        cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
-        cartas_usuario.sort(key=lambda x: x.get('card_id', 0))
-        mostrar_carta_individual(query.message.chat_id, usuario_id, cartas_usuario, idx, context, query=query)
-        query.answer()
-        return
-    partes = data.split("_")
-    if len(partes) != 3:
-        return
-    modo, pagina, uid = partes
-    pagina = int(pagina); usuario_id = int(uid)
-    if query.from_user.id != usuario_id:
-        query.answer(text="Este álbum no es tuyo.", show_alert=True)
-        return
-    if modo == 'lista':
-        cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
-        cartas_usuario.sort(key=lambda x: x.get('card_id', 0))
-        enviar_lista_pagina(query.message.chat_id, usuario_id, cartas_usuario, pagina, context, editar=True, mensaje=query.message)
-
+# /bonoidolday: Da bonos de tiradas a un usuario
 def comando_bonoidolday(update, context):
+    """Da bonos de tiradas de /idolday a un usuario. Solo admins."""
     user_id = update.message.from_user.id
     chat = update.effective_chat
     if chat.type not in ["group", "supergroup"]:
@@ -311,8 +267,9 @@ def comando_bonoidolday(update, context):
     col_usuarios.update_one({"user_id": dest_id}, {"$inc": {"bono": cantidad}}, upsert=True)
     update.message.reply_text(f"✅ Bono de {cantidad} tiradas de /idolday entregado a <code>{dest_id}</code>.", parse_mode='HTML')
 
-# NUEVO: /giveidol mejorado con notificación al receptor
+# /giveidol: Regala una carta a otro usuario
 def comando_giveidol(update, context):
+    """Regala una carta a otro usuario."""
     if len(context.args) < 1:
         update.message.reply_text(
             "Uso: /giveidol <carta> <@usuario o responde al usuario>\n"
@@ -361,7 +318,6 @@ def comando_giveidol(update, context):
         usuario_mention = context.args[1]
         if usuario_mention.startswith("@"):
             username_dest = usuario_mention[1:].lower()
-            # Buscar en MongoDB primero
             posible = col_usuarios.find_one({"username": username_dest})
             if posible:
                 target_user_id = posible["user_id"]
@@ -450,7 +406,6 @@ def comando_giveidol(update, context):
             pass
 
     id_carta_give = f"#{card_id}{version}{nombre}{grupo}"
-    # Mensaje de confirmación para quien regala
     dest_mention = f"@{username_dest}" if username_dest else (full_name_dest if full_name_dest else "el usuario")
     update.message.reply_text(
         f"🎁 ¡Carta <b>{id_carta_give}</b> enviada correctamente a {dest_mention}!",
@@ -464,14 +419,102 @@ def comando_giveidol(update, context):
             f"Te han regalado <b>{id_carta_give}</b>.\n"
             f"¡Revisa tu álbum con <code>/album</code>!"
         )
-        # Intenta notificar por privado
         context.bot.send_message(chat_id=target_user_id, text=notif, parse_mode='HTML')
     except Exception:
-        # Si no puede enviar privado (no ha iniciado con el bot), intenta notificar en el grupo con mención
         try:
             context.bot.send_message(chat_id=chat.id, text=f"¡{dest_mention}, te han regalado <b>{id_carta_give}</b>!", parse_mode='HTML')
         except:
             pass
+
+# /comandos: Muestra la lista de comandos y breve explicación
+def comando_comandos(update, context):
+    texto = (
+        "📋 <b>Lista de comandos disponibles:</b>\n"
+        "\n"
+        "<b>/idolday</b> - Obtén una carta aleatoria diaria.\n"
+        "<b>/album</b> - Muestra tu colección de cartas ordenada por grupo, nombre y número.\n"
+        "<b>/giveidol</b> - Regala una carta a otro usuario (usando @usuario o respuesta).\n"
+        "<b>/miid</b> - Muestra tu ID de Telegram.\n"
+        "<b>/bonoidolday</b> - Da bonos de tiradas de /idolday a un usuario (solo admins).\n"
+        "<b>/comandos</b> - Muestra esta lista de comandos y para qué sirve cada uno.\n"
+    )
+    update.message.reply_text(texto, parse_mode='HTML')
+
+def mostrar_carta_individual(chat_id, usuario_id, lista_cartas, idx, context, mensaje_a_editar=None, query=None):
+    carta = lista_cartas[idx]
+    cid = carta.get('card_id', '')
+    version = carta.get('version', '')
+    nombre = carta.get('nombre', '')
+    grupo = grupo_de_carta(nombre, version)
+    imagen_url = imagen_de_carta(nombre, version)
+    id_carta = f"#{cid} [{version}] {nombre} - {grupo}"
+    texto = f"<b>{id_carta}</b>"
+
+    botones = []
+    if idx > 0:
+        botones.append(InlineKeyboardButton("⬅️ Anterior", callback_data=f"vercarta_{usuario_id}_{idx-1}"))
+    if idx < len(lista_cartas)-1:
+        botones.append(InlineKeyboardButton("Siguiente ➡️", callback_data=f"vercarta_{usuario_id}_{idx+1}"))
+    teclado = InlineKeyboardMarkup([botones] if botones else None)
+    if query is not None:
+        try:
+            query.edit_message_media(
+                media=InputMediaPhoto(media=imagen_url, caption=texto, parse_mode='HTML'),
+                reply_markup=teclado
+            )
+        except Exception as e:
+            query.answer(text="No se pudo actualizar la imagen.", show_alert=True)
+    else:
+        context.bot.send_photo(chat_id=chat_id, photo=imagen_url, caption=texto, reply_markup=teclado, parse_mode='HTML')
+
+def manejador_callback(update, context):
+    query = update.callback_query
+    data = query.data
+    if data.startswith("reclamar"):
+        manejador_reclamar(update, context)
+        return
+    elif data.startswith("vercarta"):
+        partes = data.split("_")
+        if len(partes) != 3:
+            return
+        usuario_id = int(partes[1])
+        idx = int(partes[2])
+        if query.from_user.id != usuario_id:
+            query.answer(text="Solo puedes ver tus propias cartas.", show_alert=True)
+            return
+        cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
+        # Ordenar para detalle igual que el álbum
+        def sort_key(x):
+            grupo = grupo_de_carta(x.get('nombre',''), x.get('version','')) or ""
+            return (
+                grupo.lower(),
+                x.get('nombre','').lower(),
+                x.get('card_id', 0)
+            )
+        cartas_usuario.sort(key=sort_key)
+        mostrar_carta_individual(query.message.chat_id, usuario_id, cartas_usuario, idx, context, query=query)
+        query.answer()
+        return
+    partes = data.split("_")
+    if len(partes) != 3:
+        return
+    modo, pagina, uid = partes
+    pagina = int(pagina); usuario_id = int(uid)
+    if query.from_user.id != usuario_id:
+        query.answer(text="Este álbum no es tuyo.", show_alert=True)
+        return
+    if modo == 'lista':
+        cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
+        # Ordenar también aquí
+        def sort_key(x):
+            grupo = grupo_de_carta(x.get('nombre',''), x.get('version','')) or ""
+            return (
+                grupo.lower(),
+                x.get('nombre','').lower(),
+                x.get('card_id', 0)
+            )
+        cartas_usuario.sort(key=sort_key)
+        enviar_lista_pagina(query.message.chat_id, usuario_id, cartas_usuario, pagina, context, editar=True, mensaje=query.message)
 
 # HANDLERS
 dispatcher.add_handler(CommandHandler('idolday', comando_idolday))
@@ -479,6 +522,7 @@ dispatcher.add_handler(CommandHandler('album', comando_album))
 dispatcher.add_handler(CommandHandler('miid', comando_miid))
 dispatcher.add_handler(CommandHandler('bonoidolday', comando_bonoidolday))
 dispatcher.add_handler(CommandHandler('giveidol', comando_giveidol))
+dispatcher.add_handler(CommandHandler('comandos', comando_comandos))
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback))
 
 @app.route(f'/{TOKEN}', methods=['POST'])
