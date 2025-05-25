@@ -195,17 +195,13 @@ def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, edit
     if pagina > paginas: pagina = paginas
     inicio = (pagina - 1) * por_pagina
     fin = min(inicio + por_pagina, total)
-    texto = ""
     botones = []
     for idx, carta in enumerate(lista_cartas[inicio:fin], start=inicio):
         cid = carta.get('card_id', '')
         version = carta.get('version', '')
         nombre = carta.get('nombre', '')
-        cnt = carta.get('count', 1)
-        # Cada carta es botón para ver detalles
-        texto += f"<code>#{cid} {version} {nombre}</code>  × <b>{cnt}</b>\n"
-        botones.append([InlineKeyboardButton(f"{version} {nombre}", callback_data=f"vercarta_{usuario_id}_{idx}")])
-    texto += f"\n<b>Página {pagina}/{paginas}</b>"
+        botones.append([InlineKeyboardButton(f"#{cid} {version} {nombre}", callback_data=f"vercarta_{usuario_id}_{idx}")])
+    texto = f"<b>Página {pagina}/{paginas}</b>"
     nav = []
     if pagina > 1:
         nav.append(InlineKeyboardButton("« Anterior", callback_data=f"lista_{pagina-1}_{usuario_id}"))
@@ -227,12 +223,10 @@ def mostrar_carta_individual(chat_id, usuario_id, lista_cartas, idx, context, me
     cid = carta.get('card_id', '')
     version = carta.get('version', '')
     nombre = carta.get('nombre', '')
-    cnt = carta.get('count', 1)
     imagen_url = imagen_de_carta(nombre, version)
     texto = (
         f"<b>Carta #{cid}</b>\n"
-        f"<b>{nombre}</b> [{version}]\n"
-        f"Cantidad: <b>{cnt}</b>"
+        f"<b>{nombre}</b> [{version}]"
     )
     # Botones de navegación carta a carta
     botones = []
