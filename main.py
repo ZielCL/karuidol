@@ -314,4 +314,26 @@ def comando_bonoidolday(update, context):
 dispatcher.add_handler(CommandHandler('idolday', comando_idolday))
 dispatcher.add_handler(CommandHandler('album', comando_album))
 dispatcher.add_handler(CommandHandler('miid', comando_miid))
-dispatcher.add_handler(Command
+dispatcher.add_handler(CommandHandler('bonoidolday', comando_bonoidolday))
+dispatcher.add_handler(CallbackQueryHandler(manejador_callback))
+
+@app.route(f'/{TOKEN}', methods=['POST'])
+def webhook():
+    global primer_mensaje
+    update = Update.de_json(request.get_json(force=True), bot)
+    if primer_mensaje and update.message:
+        try:
+            bot.send_message(chat_id=update.effective_chat.id, text="Bot activo")
+        except:
+            pass
+        primer_mensaje = False
+    dispatcher.process_update(update)
+    return 'OK'
+
+@app.route("/", methods=["GET"])
+def home():
+    return "Bot activo."
+
+if __name__ == '__main__':
+    puerto = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=puerto)
