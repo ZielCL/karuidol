@@ -311,7 +311,7 @@ def comando_bonoidolday(update, context):
     col_usuarios.update_one({"user_id": dest_id}, {"$inc": {"bono": cantidad}}, upsert=True)
     update.message.reply_text(f"✅ Bono de {cantidad} tiradas de /idolday entregado a <code>{dest_id}</code>.", parse_mode='HTML')
 
-# NUEVO: Comando /giveidol mejorado
+# NUEVO: /giveidol mejorado con notificación al receptor
 def comando_giveidol(update, context):
     if len(context.args) < 1:
         update.message.reply_text(
@@ -350,53 +350,44 @@ def comando_giveidol(update, context):
     grupo = carta_en_db['grupo']
 
     # ====== IDENTIFICAR USUARIO DESTINO ======
-
-    # 1. Por reply (más robusto y recomendado)
     target_user_id = None
     username_dest = None
+    full_name_dest = None
     if update.message.reply_to_message:
         target_user_id = update.message.reply_to_message.from_user.id
         username_dest = update.message.reply_to_message.from_user.username
-    # 2. Por entidad mención
+        full_name_dest = update.message.reply_to_message.from_user.full_name
     elif len(context.args) >= 2:
         usuario_mention = context.args[1]
         if usuario_mention.startswith("@"):
             username_dest = usuario_mention[1:].lower()
-            # Buscar por MongoDB primero
+            # Buscar en MongoDB primero
             posible = col_usuarios.find_one({"username": username_dest})
             if posible:
                 target_user_id = posible["user_id"]
-            # Si no está, buscar en los miembros del chat
             if not target_user_id:
                 try:
-                    members = context.bot.get_chat_administrators(chat.id)
-                    for member in members:
-                        if member.user.username and member.user.username.lower() == username_dest:
-                            target_user_id = member.user.id
-                            break
-                    if not target_user_id:
-                        # Buscar entre todos los miembros (solo supergrupos, limitado)
-                        all_members = context.bot.get_chat_member(chat.id, usuario_mention)
-                        if all_members.user and all_members.user.username and all_members.user.username.lower() == username_dest:
-                            target_user_id = all_members.user.id
+                    member = context.bot.get_chat_member(chat.id, username_dest)
+                    if member and member.user and member.user.username and member.user.username.lower() == username_dest:
+                        target_user_id = member.user.id
+                        full_name_dest = member.user.full_name
                 except Exception:
                     pass
         else:
-            # Si no se menciona con @, intentar ver si es un ID de usuario directo
             try:
                 target_user_id = int(usuario_mention)
             except:
                 pass
-    # 3. Por entidades de mención directa (cuando Telegram lo permite)
     elif update.message.entities:
         for entity in update.message.entities:
             if entity.type == "text_mention" and entity.user:
                 target_user_id = entity.user.id
                 username_dest = entity.user.username
+                full_name_dest = entity.user.full_name
                 break
 
     if not target_user_id:
-        update.message.reply_text("No pude identificar al usuario destino. Usa @username, responde al usuario, o menciona a alguien que esté en el grupo.")
+        update.message.reply_text("No pude identificar al usuario destino. Usa @username (que haya hablado al menos una vez), responde al usuario, o menciona a alguien que esté en el grupo.")
         return
     if usuario_id == target_user_id:
         update.message.reply_text("No puedes regalarte cartas a ti mismo.")
@@ -451,12 +442,36 @@ def comando_giveidol(update, context):
                     {"$set": {"username": user_dest_data.username.lower()}},
                     upsert=True
                 )
+            if not username_dest:
+                username_dest = user_dest_data.username
+            if not full_name_dest:
+                full_name_dest = user_dest_data.full_name
         except:
             pass
 
     id_carta_give = f"#{card_id}{version}{nombre}{grupo}"
-    dest_name = f"@{username_dest}" if username_dest else "el usuario"
-    update.message.reply_text(f"¡Carta {id_carta_give} enviada correctamente a {dest_name}!")
+    # Mensaje de confirmación para quien regala
+    dest_mention = f"@{username_dest}" if username_dest else (full_name_dest if full_name_dest else "el usuario")
+    update.message.reply_text(
+        f"🎁 ¡Carta <b>{id_carta_give}</b> enviada correctamente a {dest_mention}!",
+        parse_mode='HTML'
+    )
+
+    # Mensaje de notificación para el receptor
+    try:
+        notif = (
+            f"🎉 <b>¡Has recibido una carta!</b>\n"
+            f"Te han regalado <b>{id_carta_give}</b>.\n"
+            f"¡Revisa tu álbum con <code>/album</code>!"
+        )
+        # Intenta notificar por privado
+        context.bot.send_message(chat_id=target_user_id, text=notif, parse_mode='HTML')
+    except Exception:
+        # Si no puede enviar privado (no ha iniciado con el bot), intenta notificar en el grupo con mención
+        try:
+            context.bot.send_message(chat_id=chat.id, text=f"¡{dest_mention}, te han regalado <b>{id_carta_give}</b>!", parse_mode='HTML')
+        except:
+            pass
 
 # HANDLERS
 dispatcher.add_handler(CommandHandler('idolday', comando_idolday))
