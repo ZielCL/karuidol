@@ -1,6 +1,6 @@
 import os
 from flask import Flask, request
-from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
 from telegram.ext import Dispatcher, CommandHandler, CallbackQueryHandler
 import json
 import random
@@ -224,16 +224,15 @@ def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, edit
     else:
         context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode='HTML')
 
-def mostrar_carta_individual(chat_id, usuario_id, lista_cartas, idx, context, mensaje_a_editar=None):
+def mostrar_carta_individual(chat_id, usuario_id, lista_cartas, idx, context, mensaje_a_editar=None, query=None):
     carta = lista_cartas[idx]
     cid = carta.get('card_id', '')
     version = carta.get('version', '')
     nombre = carta.get('nombre', '')
     grupo = grupo_de_carta(nombre, version)
     imagen_url = imagen_de_carta(nombre, version)
-    texto = (
-        f"<b>#{cid} [{version}] {nombre} - {grupo}</b>"
-    )
+    texto = f"<b>#{cid} [{version}] {nombre} - {grupo}</b>"
+
     # Botones de navegación carta a carta
     botones = []
     if idx > 0:
@@ -241,10 +240,18 @@ def mostrar_carta_individual(chat_id, usuario_id, lista_cartas, idx, context, me
     if idx < len(lista_cartas)-1:
         botones.append(InlineKeyboardButton("Siguiente ➡️", callback_data=f"vercarta_{usuario_id}_{idx+1}"))
     teclado = InlineKeyboardMarkup([botones] if botones else None)
-    if imagen_url:
-        context.bot.send_photo(chat_id=chat_id, photo=imagen_url, caption=texto, reply_markup=teclado, parse_mode='HTML')
+    if query is not None:
+        # Edita la imagen y el texto del mensaje existente
+        try:
+            query.edit_message_media(
+                media=InputMediaPhoto(media=imagen_url, caption=texto, parse_mode='HTML'),
+                reply_markup=teclado
+            )
+        except Exception as e:
+            query.answer(text="No se pudo actualizar la imagen.", show_alert=True)
     else:
-        context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode='HTML')
+        # Primer click: envía la imagen
+        context.bot.send_photo(chat_id=chat_id, photo=imagen_url, caption=texto, reply_markup=teclado, parse_mode='HTML')
 
 def manejador_callback(update, context):
     query = update.callback_query
@@ -263,7 +270,7 @@ def manejador_callback(update, context):
             return
         cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
         cartas_usuario.sort(key=lambda x: x.get('card_id', 0))
-        mostrar_carta_individual(query.message.chat_id, usuario_id, cartas_usuario, idx, context)
+        mostrar_carta_individual(query.message.chat_id, usuario_id, cartas_usuario, idx, context, query=query)
         query.answer()
         return
     partes = data.split("_")
@@ -307,26 +314,4 @@ def comando_bonoidolday(update, context):
 dispatcher.add_handler(CommandHandler('idolday', comando_idolday))
 dispatcher.add_handler(CommandHandler('album', comando_album))
 dispatcher.add_handler(CommandHandler('miid', comando_miid))
-dispatcher.add_handler(CommandHandler('bonoidolday', comando_bonoidolday))
-dispatcher.add_handler(CallbackQueryHandler(manejador_callback))
-
-@app.route(f'/{TOKEN}', methods=['POST'])
-def webhook():
-    global primer_mensaje
-    update = Update.de_json(request.get_json(force=True), bot)
-    if primer_mensaje and update.message:
-        try:
-            bot.send_message(chat_id=update.effective_chat.id, text="Bot activo")
-        except:
-            pass
-        primer_mensaje = False
-    dispatcher.process_update(update)
-    return 'OK'
-
-@app.route("/", methods=["GET"])
-def home():
-    return "Bot activo."
-
-if __name__ == '__main__':
-    puerto = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=puerto)
+dispatcher.add_handler(Command
