@@ -196,14 +196,16 @@ def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, edit
     inicio = (pagina - 1) * por_pagina
     fin = min(inicio + por_pagina, total)
     texto = ""
-    for carta in lista_cartas[inicio:fin]:
+    botones = []
+    for idx, carta in enumerate(lista_cartas[inicio:fin], start=inicio):
         cid = carta.get('card_id', '')
         version = carta.get('version', '')
         nombre = carta.get('nombre', '')
         cnt = carta.get('count', 1)
+        # Cada carta es botón para ver detalles
         texto += f"<code>#{cid} {version} {nombre}</code>  × <b>{cnt}</b>\n"
+        botones.append([InlineKeyboardButton(f"{version} {nombre}", callback_data=f"vercarta_{usuario_id}_{idx}")])
     texto += f"\n<b>Página {pagina}/{paginas}</b>"
-    botones = []
     nav = []
     if pagina > 1:
         nav.append(InlineKeyboardButton("« Anterior", callback_data=f"lista_{pagina-1}_{usuario_id}"))
@@ -220,13 +222,52 @@ def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, edit
     else:
         context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode='HTML')
 
+def mostrar_carta_individual(chat_id, usuario_id, lista_cartas, idx, context, mensaje_a_editar=None):
+    carta = lista_cartas[idx]
+    cid = carta.get('card_id', '')
+    version = carta.get('version', '')
+    nombre = carta.get('nombre', '')
+    cnt = carta.get('count', 1)
+    imagen_url = imagen_de_carta(nombre, version)
+    texto = (
+        f"<b>Carta #{cid}</b>\n"
+        f"<b>{nombre}</b> [{version}]\n"
+        f"Cantidad: <b>{cnt}</b>"
+    )
+    # Botones de navegación carta a carta
+    botones = []
+    if idx > 0:
+        botones.append(InlineKeyboardButton("⬅️ Anterior", callback_data=f"vercarta_{usuario_id}_{idx-1}"))
+    if idx < len(lista_cartas)-1:
+        botones.append(InlineKeyboardButton("Siguiente ➡️", callback_data=f"vercarta_{usuario_id}_{idx+1}"))
+    teclado = InlineKeyboardMarkup([botones] if botones else None)
+    if imagen_url:
+        context.bot.send_photo(chat_id=chat_id, photo=imagen_url, caption=texto, reply_markup=teclado, parse_mode='HTML')
+    else:
+        context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode='HTML')
+
 def manejador_callback(update, context):
     query = update.callback_query
-    query.answer()
     data = query.data
     if data.startswith("reclamar"):
         manejador_reclamar(update, context)
         return
+    elif data.startswith("vercarta"):
+        partes = data.split("_")
+        if len(partes) != 3:
+            return
+        usuario_id = int(partes[1])
+        idx = int(partes[2])
+        if query.from_user.id != usuario_id:
+            query.answer(text="Solo puedes ver tus propias cartas.", show_alert=True)
+            return
+        # Obtener cartas ordenadas igual que en la lista
+        cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
+        cartas_usuario.sort(key=lambda x: x.get('count', 0), reverse=True)
+        mostrar_carta_individual(query.message.chat_id, usuario_id, cartas_usuario, idx, context)
+        query.answer()
+        return
+    # Navegación paginada lista
     partes = data.split("_")
     if len(partes) != 3:
         return
