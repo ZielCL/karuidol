@@ -25,14 +25,12 @@ dispatcher = Dispatcher(bot, None, use_context=True)
 primer_mensaje = True
 reclamos_pendientes = {}
 
-# MongoDB
 client = MongoClient(MONGO_URI)
 db = client['karuta_bot']
 col_usuarios = db['usuarios']
 col_cartas_usuario = db['cartas_usuario']
 col_contadores = db['contadores']
 
-# Cargar cartas.json
 if not os.path.isfile('cartas.json'):
     cartas_ejemplo = [
         {"nombre": "Tzuyu", "version": "V1", "imagen": "https://example.com/tzuyu_v1.jpg"},
@@ -92,7 +90,6 @@ def comando_idolday(update, context):
     if not puede_reclamar:
         return
 
-    # Seleccionar carta aleatoria: V1 90%, V2 10%
     cartas_v1 = [c for c in cartas if c.get('version') == 'V1']
     cartas_v2 = [c for c in cartas if c.get('version') == 'V2']
     carta = None
@@ -111,7 +108,6 @@ def comando_idolday(update, context):
     version = carta['version']
     imagen_url = carta.get('imagen')
 
-    # Obtener ID incremental por nombre y versión
     doc_cont = col_contadores.find_one({"nombre": nombre, "version": version})
     if doc_cont:
         nuevo_id = doc_cont['contador'] + 1
@@ -123,10 +119,8 @@ def comando_idolday(update, context):
     reclamos_pendientes[usuario_id] = {"nombre": nombre, "version": version, "id": nuevo_id}
 
     if bonos == 0:
-        # Solo actualizar fecha si es por uso normal (no bono)
         col_usuarios.update_one({"user_id": usuario_id}, {"$set": {"last_idolday": ahora.isoformat()}}, upsert=True)
 
-    # Enviar carta con botón Reclamar
     texto = f"<b>Carta obtenida:</b>\n#{nuevo_id} {version} <b>{nombre}</b>"
     teclado = InlineKeyboardMarkup([[InlineKeyboardButton("✨ Reclamar ✨", callback_data=f"reclamar_{usuario_id}")]])
     if imagen_url:
@@ -140,7 +134,7 @@ def comando_idolday(update, context):
 def manejador_reclamar(update, context):
     query = update.callback_query
     usuario_click = query.from_user.id
-    data = query.data  # formato "reclamar_{usuario_id}"
+    data = query.data
     partes = data.split("_")
     if len(partes) != 2:
         query.answer()
@@ -239,7 +233,6 @@ def manejador_callback(update, context):
         enviar_lista_pagina(query.message.chat_id, usuario_id, cartas_usuario, pagina, context, editar=True, mensaje=query.message)
 
 def comando_bonoidolday(update, context):
-    # Solo admins
     chat = update.effective_chat
     from_user = update.effective_user
     if chat.type == "private":
@@ -263,24 +256,41 @@ def comando_bonoidolday(update, context):
         update.message.reply_text("La cantidad debe ser un número positivo.")
         return
 
-    # Buscar por ID o username
+    # Buscar por username o ID
     usuario_id = None
     if usuario_str.startswith('@'):
-        user = bot.get_chat_member(chat.id, usuario_str)
-        if user:
-            usuario_id = user.user.id
+        usuario_str = usuario_str[1:]
+    if usuario_str.isdigit():
+        usuario_id = int(usuario_str)
     else:
+        # Buscar el usuario en el grupo
+        found = False
         try:
-            usuario_id = int(usuario_str)
-        except ValueError:
-            update.message.reply_text("Usuario inválido.")
-            return
+            miembros = context.bot.get_chat_administrators(chat.id) + context.bot.get_chat(chat.id).get_members()
+        except Exception:
+            miembros = []
+        for miembro in miembros:
+            user = miembro.user if hasattr(miembro, "user") else miembro
+            if user.username and user.username.lower() == usuario_str.lower():
+                usuario_id = user.id
+                found = True
+                break
+        if not found:
+            # Búsqueda fallback (menos eficiente)
+            try:
+                miembros = context.bot.get_chat(chat.id).get_members()
+                for user in miembros:
+                    if user.username and user.username.lower() == usuario_str.lower():
+                        usuario_id = user.id
+                        found = True
+                        break
+            except Exception:
+                pass
 
     if not usuario_id:
-        update.message.reply_text("No se pudo encontrar al usuario.")
+        update.message.reply_text("No se pudo encontrar al usuario. Usa /bonoidolday @usuario 3 o /bonoidolday <id> <cantidad>")
         return
 
-    # Sumar bonos
     col_usuarios.update_one({"user_id": usuario_id}, {"$inc": {"bonos": cantidad}}, upsert=True)
     update.message.reply_text(f"Se otorgaron {cantidad} tiradas de /idolday a {usuario_str}.")
 
