@@ -1,317 +1,203 @@
 import os
-from flask import Flask, request
-from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
-from telegram.ext import Dispatcher, CommandHandler, CallbackQueryHandler
 import json
 import random
-from datetime import datetime, timedelta
-import pymongo
+import datetime
+from flask import Flask, request
+import telebot
+from telebot import types
 from pymongo import MongoClient
-from dotenv import load_dotenv
 
-load_dotenv()
+# Configuración inicial (variables de entorno)
+TOKEN = os.environ.get('BOT_TOKEN', 'YOUR_BOT_TOKEN')
+WEBHOOK_URL = os.environ.get('WEBHOOK_URL', 'https://YOUR_URL/')
+MONGO_URI = os.environ.get('MONGO_URI', 'mongodb://localhost:27017/')
+bot = telebot.TeleBot(TOKEN, parse_mode='HTML')
 
-TOKEN = os.getenv('TELEGRAM_TOKEN')
-if not TOKEN:
-    raise ValueError("No se encontró el token de Telegram")
-MONGO_URI = os.getenv('MONGO_URI')
-if not MONGO_URI:
-    raise ValueError("No se encontró la URI de MongoDB")
-
-app = Flask(__name__)
-
-bot = Bot(TOKEN)
-dispatcher = Dispatcher(bot, None, use_context=True)
-
-# Estado global para mensajes y reclamos pendientes
-primer_mensaje = True
-reclamos_pendientes = {}
-
-# Configuración de MongoDB
+# Conexión a MongoDB
 client = MongoClient(MONGO_URI)
-db = client['karuta_bot']
-col_usuarios = db['usuarios']
-col_cartas_usuario = db['cartas_usuario']
-col_contadores = db['contadores']
+db = client['karuta_db']
+usuarios_col = db['usuarios']
+colecciones_col = db['colecciones']
 
-# Cargar o crear cartas.json con ejemplos
-if not os.path.isfile('cartas.json'):
-    cartas_ejemplo = [
-        {"nombre": "Tzuyu", "version": "V1", "imagen": "https://example.com/tzuyu_v1.jpg"},
-        {"nombre": "Tzuyu", "version": "V2", "imagen": "https://example.com/tzuyu_v2.jpg"},
-        {"nombre": "Lisa", "version": "V1", "imagen": "https://example.com/lisa_v1.jpg"}
-    ]
-    with open('cartas.json', 'w') as f:
-        json.dump(cartas_ejemplo, f, indent=2)
-with open('cartas.json', 'r') as f:
-    cartas = json.load(f)
-
-# Función auxiliar: obtener URL de imagen de carta por nombre y versión
-def imagen_de_carta(nombre, version):
-    for carta in cartas:
-        if carta['nombre'] == nombre and carta['version'] == version:
-            return carta['imagen']
-    return None
-
-# Comando /idolday: permite obtener una carta aleatoria una vez al día
-def comando_idolday(update, context):
-    usuario_id = update.message.from_user.id
-    chat_id = update.effective_chat.id
-    ahora = datetime.utcnow()
-    # Verificar límite diario
-    usuario = col_usuarios.find_one({"user_id": usuario_id})
-    if usuario and 'last_idolday' in usuario:
-        ultimo = usuario['last_idolday']
-        diferencia = ahora - ultimo
-        if diferencia.total_seconds() < 86400:  # menos de 24 horas
-            faltante = 86400 - diferencia.total_seconds()
-            horas = int(faltante // 3600)
-            minutos = int((faltante % 3600) // 60)
-            context.bot.send_message(chat_id=chat_id, text=f"Ya usaste /idolday hoy. Intenta de nuevo en {horas}h {minutos}m.")
-            return
-    # Seleccionar carta aleatoria: V1 90%, V2 10%
-    cartas_v1 = [c for c in cartas if c.get('version') == 'V1']
-    cartas_v2 = [c for c in cartas if c.get('version') == 'V2']
-    carta = None
-    if cartas_v2 and random.random() < 0.10:
-        carta = random.choice(cartas_v2)
-    else:
-        if cartas_v1:
-            carta = random.choice(cartas_v1)
-        elif cartas_v2:
-            carta = random.choice(cartas_v2)
-    if not carta:
-        context.bot.send_message(chat_id=chat_id, text="No hay cartas disponibles en este momento.")
-        return
+# Carga de cartas desde JSON
+with open('cartas.json', encoding='utf-8') as f:
+    cartas_data = json.load(f)
+cartas_v1 = []
+cartas_v2 = []
+url_por_carta = {}
+for carta in cartas_data:
     nombre = carta['nombre']
     version = carta['version']
-    imagen_url = carta.get('imagen')
-    # Obtener ID incremental por nombre y versión
-    doc_cont = col_contadores.find_one({"nombre": nombre, "version": version})
-    if doc_cont:
-        nuevo_id = doc_cont['contador'] + 1
-        col_contadores.update_one({"nombre": nombre, "version": version}, {"$inc": {"contador": 1}})
+    url = carta['url']
+    url_por_carta[(nombre, version)] = url
+    if version.upper() == 'V1':
+        cartas_v1.append(carta)
     else:
-        nuevo_id = 1
-        col_contadores.insert_one({"nombre": nombre, "version": version, "contador": 1})
-    # Guardar reclamo pendiente
-    reclamos_pendientes[usuario_id] = {"nombre": nombre, "version": version, "id": nuevo_id}
-    # Actualizar última vez usado
-    col_usuarios.update_one({"user_id": usuario_id}, {"$set": {"last_idolday": ahora}}, upsert=True)
-    # Enviar carta con botón Reclamar
-    texto = f"Carta obtenida: #{nuevo_id} {version} {nombre}"
-    teclado = InlineKeyboardMarkup([[InlineKeyboardButton("Reclamar", callback_data=f"reclamar_{usuario_id}")]])
-    if imagen_url:
-        try:
-            context.bot.send_photo(chat_id=chat_id, photo=imagen_url, caption=texto, reply_markup=teclado)
-        except:
-            context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado)
-    else:
-        context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado)
+        cartas_v2.append(carta)
 
-# Manejar clic en "Reclamar"
-def manejador_reclamar(update, context):
-    query = update.callback_query
-    usuario_click = query.from_user.id
-    data = query.data  # formato "reclamar_{usuario_id}"
-    partes = data.split("_")
-    if len(partes) != 2:
-        query.answer()
-        return
-    id_usuario = int(partes[1])
-    if usuario_click != id_usuario:
-        query.answer(text="Solo puedes reclamar tu propia carta.", show_alert=True)
-        return
-    if id_usuario not in reclamos_pendientes:
-        query.answer(text="No hay carta que reclamar.", show_alert=True)
-        return
-    # Recuperar carta pendiente
-    carta = reclamos_pendientes[id_usuario]
-    nombre = carta['nombre']; version = carta['version']; cid = carta['id']
-    # Guardar carta en BD
-    existente = col_cartas_usuario.find_one({"user_id": id_usuario, "nombre": nombre, "version": version, "card_id": cid})
-    if existente:
-        col_cartas_usuario.update_one(
-            {"user_id": id_usuario, "nombre": nombre, "version": version, "card_id": cid},
-            {"$inc": {"count": 1}}
-        )
-    else:
-        col_cartas_usuario.insert_one(
-            {"user_id": id_usuario, "nombre": nombre, "version": version, "card_id": cid, "count": 1}
-        )
-    # Eliminar reclamo pendiente y deshabilitar botón
-    del reclamos_pendientes[id_usuario]
-    try:
-        query.edit_message_reply_markup(reply_markup=None)
-    except:
-        pass
-    query.answer(text="Carta reclamada.")
+# Configurar webhook con Flask
+bot.remove_webhook()
+bot.set_webhook(url=WEBHOOK_URL + TOKEN)
+app = Flask(__name__)
 
-# Comando /album: muestra las cartas del usuario en lista
-def comando_album(update, context):
-    usuario_id = update.message.from_user.id
-    chat_id = update.effective_chat.id
-    cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
-    if not cartas_usuario:
-        context.bot.send_message(chat_id=chat_id, text="Tu álbum está vacío.")
+@app.route(f"/{TOKEN}", methods=['POST'])
+def receive_update():
+    data = request.get_data().decode('utf-8')
+    update = telebot.types.Update.de_json(data)
+    bot.process_new_updates([update])
+    return '', 200
+
+@app.route("/")
+def index():
+    return "Bot Karuta activo", 200
+
+# Manejadores de comandos
+@bot.message_handler(commands=['start', 'help'], chat_types=['group','supergroup'])
+def send_welcome(message):
+    bot.reply_to(message, "<b>Bot Karuta activo.</b> Usa /album, /idolday o /bonoidolday según corresponda.")
+
+@bot.message_handler(commands=['album'], chat_types=['group','supergroup'])
+def album_handler(message):
+    chat_id = message.chat.id
+    user_id = message.from_user.id
+    username = message.from_user.first_name
+    cartas = list(colecciones_col.find({'chat_id': chat_id, 'user_id': user_id}))
+    if not cartas:
+        bot.reply_to(message, f"No tienes cartas en tu colección, {username}.")
         return
-    # Ordenar por cantidad descendente
-    cartas_usuario.sort(key=lambda x: x.get('count', 0), reverse=True)
+    cartas.sort(key=lambda x: x['nombre'])
     pagina = 1
-    enviar_lista_pagina(chat_id, usuario_id, cartas_usuario, pagina, context)
+    total = len(cartas)
+    total_paginas = (total + 9) // 10
 
-# Enviar o editar página de lista de álbum
-def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, editar=False, mensaje=None):
-    total = len(lista_cartas)
-    por_pagina = 10
-    paginas = (total - 1) // por_pagina + 1
-    if pagina < 1: pagina = 1
-    if pagina > paginas: pagina = paginas
-    inicio = (pagina - 1) * por_pagina
-    fin = min(inicio + por_pagina, total)
-    texto = ""
-    for carta in lista_cartas[inicio:fin]:
-        cid = carta.get('card_id', '')
-        version = carta.get('version', '')
-        nombre = carta.get('nombre', '')
-        cnt = carta.get('count', 1)
-        texto += f"#{cid} {version} {nombre} Cant: {cnt}\n"
-    texto += f"\nPágina {pagina}/{paginas}"
-    # Botones de navegación
-    botones = []
-    nav = []
-    if pagina > 1:
-        nav.append(InlineKeyboardButton("« Anterior", callback_data=f"lista_{pagina-1}_{usuario_id}"))
-    if pagina < paginas:
-        nav.append(InlineKeyboardButton("Siguiente »", callback_data=f"lista_{pagina+1}_{usuario_id}"))
-    if nav:
-        botones.append(nav)
-    # Botón cambiar a Modo Álbum
-    botones.append([InlineKeyboardButton("Modo Álbum", callback_data=f"album_1_{usuario_id}")])
-    teclado = InlineKeyboardMarkup(botones)
-    if editar and mensaje:
-        try:
-            mensaje.edit_text(texto, reply_markup=teclado)
-        except:
-            context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado)
-    else:
-        context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado)
-
-# Mostrar página de álbum con imágenes
-def mostrar_album(query, context, pagina, usuario_id):
-    cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
-    if not cartas_usuario:
-        query.answer(text="Álbum vacío.", show_alert=True)
-        return
-    cartas_usuario.sort(key=lambda x: x.get('count', 0), reverse=True)
-    por_pagina = 6
-    total = len(cartas_usuario)
-    paginas = (total - 1) // por_pagina + 1
-    if pagina < 1: pagina = 1
-    if pagina > paginas: pagina = paginas
-    inicio = (pagina - 1) * por_pagina
-    fin = min(inicio + por_pagina, total)
-    # Enviar media group (imágenes)
-    media = []
-    for carta in cartas_usuario[inicio:fin]:
-        nombre = carta['nombre']; version = carta['version']
-        cid = carta['card_id']; cnt = carta['count']
-        url = imagen_de_carta(nombre, version)
-        caption = f"#{cid} {version} {nombre} (x{cnt})"
-        if url:
-            media.append(InputMediaPhoto(url, caption=caption))
-    if media:
-        context.bot.send_media_group(chat_id=query.message.chat_id, media=media)
-    # Botones de navegación
-    botones = []
-    nav = []
-    if pagina > 1:
-        nav.append(InlineKeyboardButton("« Anterior", callback_data=f"album_{pagina-1}_{usuario_id}"))
-    if pagina < paginas:
-        nav.append(InlineKeyboardButton("Siguiente »", callback_data=f"album_{pagina+1}_{usuario_id}"))
-    if nav:
-        botones.append(nav)
-    botones.append([InlineKeyboardButton("Modo Lista", callback_data=f"lista_1_{usuario_id}")])
-    teclado = InlineKeyboardMarkup(botones)
-    context.bot.send_message(chat_id=query.message.chat_id, text=f"Álbum Página {pagina}/{paginas}", reply_markup=teclado)
-
-# Manejador de CallbackQuery (botones)
-def manejador_callback(update, context):
-    query = update.callback_query
-    query.answer()  # quitar signo de carga
-    data = query.data
-    # Reclamar carta
-    if data.startswith("reclamar"):
-        manejador_reclamar(update, context)
-        return
-    partes = data.split("_")
-    if len(partes) != 3:
-        return
-    modo, pagina, uid = partes
-    pagina = int(pagina); usuario_id = int(uid)
-    # Verificar usuario
-    if query.from_user.id != usuario_id:
-        query.answer(text="Este álbum no es tuyo.", show_alert=True)
-        return
-    if modo == 'lista':
-        # Lista de cartas paginada (texto)
-        cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
-        cartas_usuario.sort(key=lambda x: x.get('count', 0), reverse=True)
-        total = len(cartas_usuario)
-        por_pagina = 10
-        paginas = (total - 1)//por_pagina + 1 if total>0 else 1
-        if pagina < 1: pagina = 1
-        if pagina > paginas: pagina = paginas
-        inicio = (pagina - 1)*por_pagina
-        fin = min(inicio+por_pagina, total)
-        texto = ""
-        for carta in cartas_usuario[inicio:fin]:
-            cid = carta['card_id']; version = carta['version']
-            nombre = carta['nombre']; cnt = carta['count']
-            texto += f"#{cid} {version} {nombre} Cant: {cnt}\n"
-        texto += f"\nPágina {pagina}/{paginas}"
-        botones = []
+    def construir_lista(page):
+        inicio = (page-1)*10
+        fin = min(inicio+10, total)
+        texto = f"<b>Álbum de {username} - Página {page}/{total_paginas}</b>\n"
+        teclas = types.InlineKeyboardMarkup()
+        for idx in range(inicio, fin):
+            carta = cartas[idx]
+            texto += f"{idx+1}. {carta['nombre']} {carta['version']} (x{carta['cantidad']})\n"
+            btn = types.InlineKeyboardButton(
+                f"Ver {carta['nombre']}", callback_data=f"show_{idx+1}"
+            )
+            teclas.add(btn)
         nav = []
-        if pagina > 1:
-            nav.append(InlineKeyboardButton("« Anterior", callback_data=f"lista_{pagina-1}_{usuario_id}"))
-        if pagina < paginas:
-            nav.append(InlineKeyboardButton("Siguiente »", callback_data=f"lista_{pagina+1}_{usuario_id}"))
+        if page > 1:
+            nav.append(types.InlineKeyboardButton("⬅️ Anterior", callback_data=f"page_{page-1}"))
+        if page < total_paginas:
+            nav.append(types.InlineKeyboardButton("Siguiente ➡️", callback_data=f"page_{page+1}"))
         if nav:
-            botones.append(nav)
-        botones.append([InlineKeyboardButton("Modo Álbum", callback_data=f"album_1_{usuario_id}")])
-        teclado = InlineKeyboardMarkup(botones)
-        try:
-            query.edit_message_text(texto, reply_markup=teclado)
-        except:
-            context.bot.send_message(chat_id=query.message.chat_id, text=texto, reply_markup=teclado)
-    elif modo == 'album':
-        # Mostrar modo álbum con imágenes
-        # Borrar mensaje de lista anterior (si existe)
-        try:
-            context.bot.delete_message(chat_id=query.message.chat_id, message_id=query.message.message_id)
-        except:
-            pass
-        mostrar_album(query, context, pagina, usuario_id)
+            teclas.add(*nav)
+        return texto, teclas
 
-# Registrar comandos y callbacks
-dispatcher.add_handler(CommandHandler('idolday', comando_idolday))
-dispatcher.add_handler(CommandHandler('album', comando_album))
-dispatcher.add_handler(CallbackQueryHandler(manejador_callback))
+    texto, teclado = construir_lista(pagina)
+    bot.send_message(chat_id, texto, reply_markup=teclado)
 
-# Ruta para webhook de Telegram
-@app.route(f'/{TOKEN}', methods=['POST'])
-def webhook():
-    global primer_mensaje
-    update = Update.de_json(request.get_json(force=True), bot)
-    if primer_mensaje and update.message:
-        try:
-            bot.send_message(chat_id=update.effective_chat.id, text="Bot activo")
-        except:
-            pass
-        primer_mensaje = False
-    dispatcher.process_update(update)
-    return 'OK'
+@bot.callback_query_handler(func=lambda call: call.data.startswith("page_"))
+def callback_album_page(call):
+    chat_id = call.message.chat.id
+    user_id = call.from_user.id
+    page = int(call.data.split('_')[1])
+    cartas = list(colecciones_col.find({'chat_id': chat_id, 'user_id': user_id}))
+    cartas.sort(key=lambda x: x['nombre'])
+    total = len(cartas)
+    total_paginas = (total + 9) // 10
+    if page < 1 or page > total_paginas:
+        bot.answer_callback_query(call.id, "Página inválida.")
+        return
+    inicio = (page-1)*10
+    fin = min(inicio+10, total)
+    texto = f"<b>Álbum - Página {page}/{total_paginas}</b>\n"
+    teclas = types.InlineKeyboardMarkup()
+    for idx in range(inicio, fin):
+        carta = cartas[idx]
+        texto += f"{idx+1}. {carta['nombre']} {carta['version']} (x{carta['cantidad']})\n"
+        btn = types.InlineKeyboardButton(
+            f"Ver {carta['nombre']}", callback_data=f"show_{idx+1}"
+        )
+        teclas.add(btn)
+    nav = []
+    if page > 1:
+        nav.append(types.InlineKeyboardButton("⬅️ Anterior", callback_data=f"page_{page-1}"))
+    if page < total_paginas:
+        nav.append(types.InlineKeyboardButton("Siguiente ➡️", callback_data=f"page_{page+1}"))
+    if nav:
+        teclas.add(*nav)
+    bot.edit_message_text(text=texto, chat_id=chat_id,
+                          message_id=call.message.message_id, reply_markup=teclas)
+    bot.answer_callback_query(call.id)
 
-if __name__ == '__main__':
-    puerto = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=puerto)
+@bot.callback_query_handler(func=lambda call: call.data.startswith("show_"))
+def callback_show_card(call):
+    chat_id = call.message.chat.id
+    user_id = call.from_user.id
+    idx = int(call.data.split('_')[1]) - 1
+    cartas = list(colecciones_col.find({'chat_id': chat_id, 'user_id': user_id}))
+    cartas.sort(key=lambda x: x['nombre'])
+    if idx < 0 or idx >= len(cartas):
+        bot.answer_callback_query(call.id, "Carta inválida.")
+        return
+    carta = cartas[idx]
+    nombre = carta['nombre']
+    version = carta['version']
+    cantidad = carta['cantidad']
+    url_imagen = url_por_carta.get((nombre, version))
+    if url_imagen:
+        caption = f"<b>{nombre} {version}</b>\nCantidad total: {cantidad}"
+        bot.send_photo(chat_id, url_imagen, caption=caption)
+    bot.answer_callback_query(call.id)
+
+@bot.message_handler(commands=['idolday'], chat_types=['group','supergroup'])
+def idolday_handler(message):
+    chat_id = message.chat.id
+    user_id = message.from_user.id
+    hoy_str = datetime.date.today().isoformat()
+    usuario = usuarios_col.find_one({'chat_id': chat_id, 'user_id': user_id})
+    if usuario and usuario.get('last_idolday') == hoy_str:
+        if usuario.get('bonos', 0) > 0:
+            usuarios_col.update_one({'chat_id': chat_id, 'user_id': user_id}, {'$inc': {'bonos': -1}})
+        else:
+            bot.reply_to(message, "Ya has usado /idolday hoy. ¡Inténtalo mañana!")
+            return
+    # Elegir carta aleatoria
+    if random.random() < 0.1 and cartas_v2:
+        carta = random.choice(cartas_v2)
+    else:
+        carta = random.choice(cartas_v1 if cartas_v1 else cartas_v2)
+    nombre = carta['nombre']
+    version = carta['version']
+    url_imagen = carta['url']
+    # Actualizar colección
+    colecciones_col.update_one(
+        {'chat_id': chat_id, 'user_id': user_id, 'nombre': nombre, 'version': version},
+        {'$inc': {'cantidad': 1}}, upsert=True
+    )
+    registro = colecciones_col.find_one({'chat_id': chat_id, 'user_id': user_id,
+                                         'nombre': nombre, 'version': version})
+    cantidad = registro['cantidad']
+    usuarios_col.update_one({'chat_id': chat_id, 'user_id': user_id},
+                            {'$set': {'last_idolday': hoy_str}}, upsert=True)
+    caption = f"<b>{nombre} {version}</b>\nCantidad total: {cantidad}"
+    bot.send_photo(chat_id, url_imagen, caption=caption)
+
+@bot.message_handler(commands=['bonoidolday'], chat_types=['group','supergroup'])
+def bonoidolday_handler(message):
+    chat_id = message.chat.id
+    user_id = message.from_user.id
+    miembro = bot.get_chat_member(chat_id, user_id)
+    if miembro.status not in ('administrator', 'creator'):
+        bot.reply_to(message, "Solo un administrador puede otorgar bonos.")
+        return
+    partes = message.text.split()
+    if len(partes) != 2 or not partes[1].isdigit():
+        bot.reply_to(message, "Uso: /bonoidolday <cantidad>")
+        return
+    cantidad = int(partes[1])
+    if cantidad <= 0:
+        bot.reply_to(message, "La cantidad debe ser un número positivo.")
+        return
+    usuarios_col.update_one({'chat_id': chat_id, 'user_id': user_id},
+                             {'$inc': {'bonos': cantidad}}, upsert=True)
+    bot.reply_to(message, f"Se han otorgado {cantidad} bono(s) a <b>{message.from_user.first_name}</b>.",
+                 parse_mode='HTML')
