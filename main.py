@@ -1,6 +1,6 @@
 import os
 from flask import Flask, request
-from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
+from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Dispatcher, CommandHandler, CallbackQueryHandler
 import json
 import random
@@ -22,18 +22,17 @@ app = Flask(__name__)
 bot = Bot(TOKEN)
 dispatcher = Dispatcher(bot, None, use_context=True)
 
-# Estado global para mensajes y reclamos pendientes
 primer_mensaje = True
 reclamos_pendientes = {}
 
-# Configuración de MongoDB
+# MongoDB
 client = MongoClient(MONGO_URI)
 db = client['karuta_bot']
 col_usuarios = db['usuarios']
 col_cartas_usuario = db['cartas_usuario']
 col_contadores = db['contadores']
 
-# Cargar o crear cartas.json con ejemplos
+# Cargar cartas.json
 if not os.path.isfile('cartas.json'):
     cartas_ejemplo = [
         {"nombre": "Tzuyu", "version": "V1", "imagen": "https://example.com/tzuyu_v1.jpg"},
@@ -45,14 +44,19 @@ if not os.path.isfile('cartas.json'):
 with open('cartas.json', 'r') as f:
     cartas = json.load(f)
 
-# Auxiliar: Obtener URL de imagen de carta por nombre y versión
 def imagen_de_carta(nombre, version):
     for carta in cartas:
         if carta['nombre'] == nombre and carta['version'] == version:
             return carta['imagen']
     return None
 
-# Comando /idolday: permite obtener una carta aleatoria una vez al día
+def es_admin(chat, user_id, context):
+    try:
+        admins = context.bot.get_chat_administrators(chat.id)
+        return any(admin.user.id == user_id for admin in admins)
+    except Exception:
+        return False
+
 def comando_idolday(update, context):
     if update.effective_chat.type == "private":
         context.bot.send_message(chat_id=update.effective_chat.id, text="Usa este comando en un grupo.")
@@ -61,20 +65,32 @@ def comando_idolday(update, context):
     usuario_id = update.message.from_user.id
     chat_id = update.effective_chat.id
     ahora = datetime.utcnow()
-
-    # Verificar límite diario
     usuario = col_usuarios.find_one({"user_id": usuario_id})
-    if usuario and 'last_idolday' in usuario:
-        ultimo = usuario['last_idolday']
-        if isinstance(ultimo, str):
-            ultimo = datetime.fromisoformat(ultimo)
-        diferencia = ahora - ultimo
-        if diferencia.total_seconds() < 86400:  # menos de 24 horas
-            faltante = 86400 - diferencia.total_seconds()
-            horas = int(faltante // 3600)
-            minutos = int((faltante % 3600) // 60)
-            context.bot.send_message(chat_id=chat_id, text=f"Ya usaste /idolday hoy. Intenta de nuevo en {horas}h {minutos}m.")
-            return
+
+    # Usar bono si tiene
+    bonos = usuario.get("bonos", 0) if usuario else 0
+    puede_reclamar = False
+
+    if bonos > 0:
+        puede_reclamar = True
+        col_usuarios.update_one({"user_id": usuario_id}, {"$inc": {"bonos": -1}}, upsert=True)
+    else:
+        # Verificar límite diario
+        if usuario and 'last_idolday' in usuario:
+            ultimo = usuario['last_idolday']
+            if isinstance(ultimo, str):
+                ultimo = datetime.fromisoformat(ultimo)
+            diferencia = ahora - ultimo
+            if diferencia.total_seconds() < 86400:  # menos de 24 horas
+                faltante = 86400 - diferencia.total_seconds()
+                horas = int(faltante // 3600)
+                minutos = int((faltante % 3600) // 60)
+                context.bot.send_message(chat_id=chat_id, text=f"Ya usaste /idolday hoy. Intenta de nuevo en {horas}h {minutos}m.")
+                return
+        puede_reclamar = True
+
+    if not puede_reclamar:
+        return
 
     # Seleccionar carta aleatoria: V1 90%, V2 10%
     cartas_v1 = [c for c in cartas if c.get('version') == 'V1']
@@ -104,11 +120,11 @@ def comando_idolday(update, context):
         nuevo_id = 1
         col_contadores.insert_one({"nombre": nombre, "version": version, "contador": 1})
 
-    # Guardar reclamo pendiente
     reclamos_pendientes[usuario_id] = {"nombre": nombre, "version": version, "id": nuevo_id}
 
-    # Actualizar última vez usado
-    col_usuarios.update_one({"user_id": usuario_id}, {"$set": {"last_idolday": ahora.isoformat()}}, upsert=True)
+    if bonos == 0:
+        # Solo actualizar fecha si es por uso normal (no bono)
+        col_usuarios.update_one({"user_id": usuario_id}, {"$set": {"last_idolday": ahora.isoformat()}}, upsert=True)
 
     # Enviar carta con botón Reclamar
     texto = f"<b>Carta obtenida:</b>\n#{nuevo_id} {version} <b>{nombre}</b>"
@@ -116,12 +132,11 @@ def comando_idolday(update, context):
     if imagen_url:
         try:
             context.bot.send_photo(chat_id=chat_id, photo=imagen_url, caption=texto, parse_mode='HTML', reply_markup=teclado)
-        except Exception as e:
+        except Exception:
             context.bot.send_message(chat_id=chat_id, text=texto, parse_mode='HTML', reply_markup=teclado)
     else:
         context.bot.send_message(chat_id=chat_id, text=texto, parse_mode='HTML', reply_markup=teclado)
 
-# Manejar clic en "Reclamar"
 def manejador_reclamar(update, context):
     query = update.callback_query
     usuario_click = query.from_user.id
@@ -137,10 +152,8 @@ def manejador_reclamar(update, context):
     if id_usuario not in reclamos_pendientes:
         query.answer(text="No hay carta que reclamar.", show_alert=True)
         return
-    # Recuperar carta pendiente
     carta = reclamos_pendientes[id_usuario]
     nombre = carta['nombre']; version = carta['version']; cid = carta['id']
-    # Guardar carta en BD
     existente = col_cartas_usuario.find_one({"user_id": id_usuario, "nombre": nombre, "version": version, "card_id": cid})
     if existente:
         col_cartas_usuario.update_one(
@@ -151,7 +164,6 @@ def manejador_reclamar(update, context):
         col_cartas_usuario.insert_one(
             {"user_id": id_usuario, "nombre": nombre, "version": version, "card_id": cid, "count": 1}
         )
-    # Eliminar reclamo pendiente y deshabilitar botón
     del reclamos_pendientes[id_usuario]
     try:
         query.edit_message_reply_markup(reply_markup=None)
@@ -159,24 +171,20 @@ def manejador_reclamar(update, context):
         pass
     query.answer(text="Carta reclamada.")
 
-# Comando /album: muestra las cartas del usuario en lista
 def comando_album(update, context):
     if update.effective_chat.type == "private":
         context.bot.send_message(chat_id=update.effective_chat.id, text="Usa este comando en un grupo.")
         return
-
     usuario_id = update.message.from_user.id
     chat_id = update.effective_chat.id
     cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
     if not cartas_usuario:
         context.bot.send_message(chat_id=chat_id, text="Tu álbum está vacío.\n¡Usa /idolday para reclamar tu primera carta!")
         return
-    # Ordenar por cantidad descendente
     cartas_usuario.sort(key=lambda x: x.get('count', 0), reverse=True)
     pagina = 1
     enviar_lista_pagina(chat_id, usuario_id, cartas_usuario, pagina, context)
 
-# Enviar o editar página de lista de álbum
 def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, editar=False, mensaje=None):
     total = len(lista_cartas)
     por_pagina = 10
@@ -193,7 +201,6 @@ def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, edit
         cnt = carta.get('count', 1)
         texto += f"#{cid} {version} {nombre}  <b>x{cnt}</b>\n"
     texto += f"\nPágina {pagina}/{paginas}"
-    # Botones de navegación
     botones = []
     nav = []
     if pagina > 1:
@@ -211,12 +218,10 @@ def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, edit
     else:
         context.bot.send_message(chat_id=chat_id, text=texto, parse_mode='HTML', reply_markup=teclado)
 
-# CallbackQueryHandler
 def manejador_callback(update, context):
     query = update.callback_query
-    query.answer()  # quitar signo de carga
+    query.answer()
     data = query.data
-    # Reclamar carta
     if data.startswith("reclamar"):
         manejador_reclamar(update, context)
         return
@@ -225,22 +230,66 @@ def manejador_callback(update, context):
         return
     modo, pagina, uid = partes
     pagina = int(pagina); usuario_id = int(uid)
-    # Verificar usuario
     if query.from_user.id != usuario_id:
         query.answer(text="Este álbum no es tuyo.", show_alert=True)
         return
     if modo == 'lista':
-        # Lista de cartas paginada (texto)
         cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
         cartas_usuario.sort(key=lambda x: x.get('count', 0), reverse=True)
         enviar_lista_pagina(query.message.chat_id, usuario_id, cartas_usuario, pagina, context, editar=True, mensaje=query.message)
 
+def comando_bonoidolday(update, context):
+    # Solo admins
+    chat = update.effective_chat
+    from_user = update.effective_user
+    if chat.type == "private":
+        update.message.reply_text("Este comando solo funciona en grupos.")
+        return
+    if not es_admin(chat, from_user.id, context):
+        update.message.reply_text("Solo los administradores pueden usar este comando.")
+        return
+
+    args = context.args
+    if len(args) < 2:
+        update.message.reply_text("Uso: /bonoidolday <usuario> <cantidad>")
+        return
+
+    usuario_str, cantidad_str = args[0], args[1]
+    try:
+        cantidad = int(cantidad_str)
+        if cantidad < 1:
+            raise ValueError
+    except ValueError:
+        update.message.reply_text("La cantidad debe ser un número positivo.")
+        return
+
+    # Buscar por ID o username
+    usuario_id = None
+    if usuario_str.startswith('@'):
+        user = bot.get_chat_member(chat.id, usuario_str)
+        if user:
+            usuario_id = user.user.id
+    else:
+        try:
+            usuario_id = int(usuario_str)
+        except ValueError:
+            update.message.reply_text("Usuario inválido.")
+            return
+
+    if not usuario_id:
+        update.message.reply_text("No se pudo encontrar al usuario.")
+        return
+
+    # Sumar bonos
+    col_usuarios.update_one({"user_id": usuario_id}, {"$inc": {"bonos": cantidad}}, upsert=True)
+    update.message.reply_text(f"Se otorgaron {cantidad} tiradas de /idolday a {usuario_str}.")
+
 # Registrar comandos y callbacks
 dispatcher.add_handler(CommandHandler('idolday', comando_idolday))
 dispatcher.add_handler(CommandHandler('album', comando_album))
+dispatcher.add_handler(CommandHandler('bonoidolday', comando_bonoidolday))
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback))
 
-# Ruta para webhook de Telegram
 @app.route(f'/{TOKEN}', methods=['POST'])
 def webhook():
     global primer_mensaje
