@@ -35,9 +35,9 @@ col_contadores = db['contadores']
 # Cargar cartas.json
 if not os.path.isfile('cartas.json'):
     cartas_ejemplo = [
-        {"nombre": "Tzuyu", "version": "V1", "imagen": "https://example.com/tzuyu_v1.jpg"},
-        {"nombre": "Tzuyu", "version": "V2", "imagen": "https://example.com/tzuyu_v2.jpg"},
-        {"nombre": "Lisa", "version": "V1", "imagen": "https://example.com/lisa_v1.jpg"}
+        {"nombre": "Tzuyu", "grupo": "Twice", "version": "V1", "rareza": "Común", "imagen": "https://example.com/tzuyu_v1.jpg"},
+        {"nombre": "Tzuyu", "grupo": "Twice", "version": "V2", "rareza": "Rara", "imagen": "https://example.com/tzuyu_v2.jpg"},
+        {"nombre": "Lisa", "grupo": "BLACKPINK", "version": "V1", "rareza": "Común", "imagen": "https://example.com/lisa_v1.jpg"}
     ]
     with open('cartas.json', 'w') as f:
         json.dump(cartas_ejemplo, f, indent=2)
@@ -47,8 +47,14 @@ with open('cartas.json', 'r') as f:
 def imagen_de_carta(nombre, version):
     for carta in cartas:
         if carta['nombre'] == nombre and carta['version'] == version:
-            return carta['imagen']
+            return carta.get('imagen')
     return None
+
+def grupo_de_carta(nombre, version):
+    for carta in cartas:
+        if carta['nombre'] == nombre and carta['version'] == version:
+            return carta.get('grupo', '')
+    return ""
 
 def es_admin(update):
     chat = update.effective_chat
@@ -61,12 +67,10 @@ def es_admin(update):
     except:
         return False
 
-# Comando /miid
 def comando_miid(update, context):
     usuario = update.effective_user
     update.message.reply_text(f"Tu ID de Telegram es: {usuario.id}")
 
-# Comando /idolday
 def comando_idolday(update, context):
     usuario_id = update.message.from_user.id
     chat_id = update.effective_chat.id
@@ -114,9 +118,9 @@ def comando_idolday(update, context):
 
     nombre = carta['nombre']
     version = carta['version']
+    grupo = carta.get('grupo', '')
     imagen_url = carta.get('imagen')
 
-    # ID incremental por nombre y version
     doc_cont = col_contadores.find_one({"nombre": nombre, "version": version})
     if doc_cont:
         nuevo_id = doc_cont['contador'] + 1
@@ -125,12 +129,11 @@ def comando_idolday(update, context):
         nuevo_id = 1
         col_contadores.insert_one({"nombre": nombre, "version": version, "contador": 1})
 
-    # Reclamo pendiente ahora por clave grupo_usuario
     clave = f"{chat_id}_{usuario_id}"
     reclamos_pendientes[clave] = {"nombre": nombre, "version": version, "id": nuevo_id}
 
     col_usuarios.update_one({"user_id": usuario_id}, {"$set": {"last_idolday": ahora}}, upsert=True)
-    texto = f"<b>Carta obtenida:</b> <code>#{nuevo_id} {version} {nombre}</code>"
+    texto = f"<b>Tu drop es:</b> <code>#{nuevo_id} {version} {nombre} - {grupo}</code>"
     teclado = InlineKeyboardMarkup([[InlineKeyboardButton("Reclamar", callback_data=f"reclamar_{chat_id}_{usuario_id}")]])
     if imagen_url:
         try:
@@ -158,7 +161,9 @@ def manejador_reclamar(update, context):
         query.answer(text="No hay carta que reclamar.", show_alert=True)
         return
     carta = reclamos_pendientes[clave]
-    nombre = carta['nombre']; version = carta['version']; cid = carta['id']
+    nombre = carta['nombre']
+    version = carta['version']
+    cid = carta['id']
     existente = col_cartas_usuario.find_one({"user_id": id_usuario, "nombre": nombre, "version": version, "card_id": cid})
     if existente:
         col_cartas_usuario.update_one(
@@ -183,7 +188,7 @@ def comando_album(update, context):
     if not cartas_usuario:
         context.bot.send_message(chat_id=chat_id, text="Tu álbum está vacío.")
         return
-    cartas_usuario.sort(key=lambda x: x.get('count', 0), reverse=True)
+    cartas_usuario.sort(key=lambda x: x.get('card_id', 0))
     pagina = 1
     enviar_lista_pagina(chat_id, usuario_id, cartas_usuario, pagina, context)
 
@@ -200,7 +205,8 @@ def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, edit
         cid = carta.get('card_id', '')
         version = carta.get('version', '')
         nombre = carta.get('nombre', '')
-        botones.append([InlineKeyboardButton(f"#{cid} {version} {nombre}", callback_data=f"vercarta_{usuario_id}_{idx}")])
+        grupo = grupo_de_carta(nombre, version)
+        botones.append([InlineKeyboardButton(f"#{cid} [{version}] {nombre} - {grupo}", callback_data=f"vercarta_{usuario_id}_{idx}")])
     texto = f"<b>Página {pagina}/{paginas}</b>"
     nav = []
     if pagina > 1:
@@ -223,10 +229,10 @@ def mostrar_carta_individual(chat_id, usuario_id, lista_cartas, idx, context, me
     cid = carta.get('card_id', '')
     version = carta.get('version', '')
     nombre = carta.get('nombre', '')
+    grupo = grupo_de_carta(nombre, version)
     imagen_url = imagen_de_carta(nombre, version)
     texto = (
-        f"<b>Carta #{cid}</b>\n"
-        f"<b>{nombre}</b> [{version}]"
+        f"<b>#{cid} [{version}] {nombre} - {grupo}</b>"
     )
     # Botones de navegación carta a carta
     botones = []
@@ -255,13 +261,11 @@ def manejador_callback(update, context):
         if query.from_user.id != usuario_id:
             query.answer(text="Solo puedes ver tus propias cartas.", show_alert=True)
             return
-        # Obtener cartas ordenadas igual que en la lista
         cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
-        cartas_usuario.sort(key=lambda x: x.get('count', 0), reverse=True)
+        cartas_usuario.sort(key=lambda x: x.get('card_id', 0))
         mostrar_carta_individual(query.message.chat_id, usuario_id, cartas_usuario, idx, context)
         query.answer()
         return
-    # Navegación paginada lista
     partes = data.split("_")
     if len(partes) != 3:
         return
@@ -272,10 +276,9 @@ def manejador_callback(update, context):
         return
     if modo == 'lista':
         cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
-        cartas_usuario.sort(key=lambda x: x.get('count', 0), reverse=True)
+        cartas_usuario.sort(key=lambda x: x.get('card_id', 0))
         enviar_lista_pagina(query.message.chat_id, usuario_id, cartas_usuario, pagina, context, editar=True, mensaje=query.message)
 
-# /bonoidolday <user_id> <cantidad>
 def comando_bonoidolday(update, context):
     user_id = update.message.from_user.id
     chat = update.effective_chat
