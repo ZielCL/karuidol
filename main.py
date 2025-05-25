@@ -8,7 +8,7 @@ from telebot import types
 from pymongo import MongoClient
 
 # Configuración inicial (variables de entorno)
-TOKEN = os.environ.get('BOT_TOKEN', 'YOUR_BOT_TOKEN')
+TOKEN = os.environ.get('BOT_TOKEN', '7194282562:AAHrpgKt0_TgDA8faRsSWhbURl333xcytlQ')
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL', 'https://YOUR_URL/')
 MONGO_URI = os.environ.get('MONGO_URI', 'mongodb://localhost:27017/')
 bot = telebot.TeleBot(TOKEN, parse_mode='HTML')
