@@ -4,7 +4,7 @@ from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup, In
 from telegram.ext import Dispatcher, CommandHandler, CallbackQueryHandler
 import json
 import random
-from datetime import datetime, timedelta
+from datetime import datetime
 from pymongo import MongoClient
 from dotenv import load_dotenv
 
@@ -132,8 +132,10 @@ def comando_idolday(update, context):
     clave = f"{chat_id}_{usuario_id}"
     reclamos_pendientes[clave] = {"nombre": nombre, "version": version, "id": nuevo_id}
 
-    col_usuarios.update_one({"user_id": usuario_id}, {"$set": {"last_idolday": ahora}}, upsert=True)
-    texto = f"<b>Tu drop es:</b> <code>#{nuevo_id} {version} {nombre} - {grupo}</code>"
+    col_usuarios.update_one({"user_id": usuario_id}, {"$set": {"last_idolday": ahora, "username": update.effective_user.username.lower() if update.effective_user.username else ""}}, upsert=True)
+    # Aquí va el nuevo identificador con grupo
+    id_carta = f"#{nuevo_id}{version}{nombre}{grupo}"
+    texto = f"<b>Tu drop es:</b> <code>{id_carta}</code>"
     teclado = InlineKeyboardMarkup([[InlineKeyboardButton("Reclamar", callback_data=f"reclamar_{chat_id}_{usuario_id}")]])
     if imagen_url:
         try:
@@ -164,6 +166,7 @@ def manejador_reclamar(update, context):
     nombre = carta['nombre']
     version = carta['version']
     cid = carta['id']
+    grupo = grupo_de_carta(nombre, version)
     existente = col_cartas_usuario.find_one({"user_id": id_usuario, "nombre": nombre, "version": version, "card_id": cid})
     if existente:
         col_cartas_usuario.update_one(
@@ -206,7 +209,8 @@ def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, edit
         version = carta.get('version', '')
         nombre = carta.get('nombre', '')
         grupo = grupo_de_carta(nombre, version)
-        botones.append([InlineKeyboardButton(f"#{cid} [{version}] {nombre} - {grupo}", callback_data=f"vercarta_{usuario_id}_{idx}")])
+        id_carta = f"#{cid}{version}{nombre}{grupo}"
+        botones.append([InlineKeyboardButton(id_carta, callback_data=f"vercarta_{usuario_id}_{idx}")])
     texto = f"<b>Página {pagina}/{paginas}</b>"
     nav = []
     if pagina > 1:
@@ -231,9 +235,9 @@ def mostrar_carta_individual(chat_id, usuario_id, lista_cartas, idx, context, me
     nombre = carta.get('nombre', '')
     grupo = grupo_de_carta(nombre, version)
     imagen_url = imagen_de_carta(nombre, version)
-    texto = f"<b>#{cid} [{version}] {nombre} - {grupo}</b>"
+    id_carta = f"#{cid}{version}{nombre}{grupo}"
+    texto = f"<b>{id_carta}</b>"
 
-    # Botones de navegación carta a carta
     botones = []
     if idx > 0:
         botones.append(InlineKeyboardButton("⬅️ Anterior", callback_data=f"vercarta_{usuario_id}_{idx-1}"))
@@ -241,7 +245,6 @@ def mostrar_carta_individual(chat_id, usuario_id, lista_cartas, idx, context, me
         botones.append(InlineKeyboardButton("Siguiente ➡️", callback_data=f"vercarta_{usuario_id}_{idx+1}"))
     teclado = InlineKeyboardMarkup([botones] if botones else None)
     if query is not None:
-        # Edita la imagen y el texto del mensaje existente
         try:
             query.edit_message_media(
                 media=InputMediaPhoto(media=imagen_url, caption=texto, parse_mode='HTML'),
@@ -250,7 +253,6 @@ def mostrar_carta_individual(chat_id, usuario_id, lista_cartas, idx, context, me
         except Exception as e:
             query.answer(text="No se pudo actualizar la imagen.", show_alert=True)
     else:
-        # Primer click: envía la imagen
         context.bot.send_photo(chat_id=chat_id, photo=imagen_url, caption=texto, reply_markup=teclado, parse_mode='HTML')
 
 def manejador_callback(update, context):
@@ -311,10 +313,136 @@ def comando_bonoidolday(update, context):
     col_usuarios.update_one({"user_id": dest_id}, {"$inc": {"bono": cantidad}}, upsert=True)
     update.message.reply_text(f"✅ Bono de {cantidad} tiradas de /idolday entregado a <code>{dest_id}</code>.", parse_mode='HTML')
 
+# NUEVO: Comando /giveidol
+def comando_giveidol(update, context):
+    if len(context.args) < 2:
+        update.message.reply_text("Uso: /giveidol <carta> <@usuario>\nEjemplo: /giveidol #7V1TzuyuTwice @destino")
+        return
+
+    usuario_id = update.message.from_user.id
+    chat = update.effective_chat
+
+    # Parsear carta: formato "#7V1TzuyuTwice"
+    carta_arg = context.args[0]
+    if not carta_arg.startswith("#"):
+        update.message.reply_text("Debes indicar la carta con el formato #IDVnNombreGrupo. Ejemplo: /giveidol #7V1TzuyuTwice @destino")
+        return
+
+    carta_arg = carta_arg[1:]
+    import re
+    m = re.match(r'(\d+)(V\d+)([^\s]+)', carta_arg)
+    if not m:
+        update.message.reply_text("Formato incorrecto. Usa: /giveidol #7V1TzuyuTwice @destino")
+        return
+    card_id, version, resto = m.group(1), m.group(2), m.group(3)
+    card_id_int = int(card_id)
+    version = version.upper()
+
+    # Buscar coincidencia con carta en cartas.json para separar nombre y grupo
+    carta_en_db = None
+    for c in cartas:
+        possible = f"{c['nombre']}{c['grupo']}".replace(" ", "").lower()
+        if resto.lower() == possible and c['version'] == version:
+            carta_en_db = c
+            break
+    if not carta_en_db:
+        update.message.reply_text("No se encontró una carta con ese nombre/grupo/version.")
+        return
+    nombre = carta_en_db['nombre']
+    grupo = carta_en_db['grupo']
+
+    # Parsear usuario destino
+    usuario_mention = context.args[1]
+    if not usuario_mention.startswith("@"):
+        update.message.reply_text("Debes mencionar al usuario destino usando @username.")
+        return
+    username_dest = usuario_mention[1:].lower()
+
+    # Intentar obtener el user_id de destino
+    target_user_id = None
+    posible = col_usuarios.find_one({"username": username_dest})
+    if posible:
+        target_user_id = posible["user_id"]
+    else:
+        try:
+            admins = context.bot.get_chat_administrators(chat.id)
+            for admin in admins:
+                if hasattr(admin.user, "username") and admin.user.username and admin.user.username.lower() == username_dest:
+                    target_user_id = admin.user.id
+                    break
+        except:
+            pass
+
+    if not target_user_id:
+        update.message.reply_text("No pude identificar al usuario destino, debe estar en el grupo y tener username público.")
+        return
+    if usuario_id == target_user_id:
+        update.message.reply_text("No puedes regalarte cartas a ti mismo.")
+        return
+
+    # Buscar la carta en la colección del usuario origen
+    carta = col_cartas_usuario.find_one({
+        "user_id": usuario_id,
+        "card_id": card_id_int,
+        "version": version,
+        "nombre": nombre
+    })
+    if not carta or carta.get("count", 1) < 1:
+        update.message.reply_text("No tienes esa carta para regalar.")
+        return
+
+    # Quitar la carta al usuario origen
+    if carta["count"] > 1:
+        col_cartas_usuario.update_one(
+            {"user_id": usuario_id, "card_id": card_id_int, "version": version, "nombre": nombre},
+            {"$inc": {"count": -1}}
+        )
+    else:
+        col_cartas_usuario.delete_one(
+            {"user_id": usuario_id, "card_id": card_id_int, "version": version, "nombre": nombre}
+        )
+
+    # Agregar la carta al usuario destino
+    existente = col_cartas_usuario.find_one(
+        {"user_id": target_user_id, "card_id": card_id_int, "version": version, "nombre": nombre}
+    )
+    if existente:
+        col_cartas_usuario.update_one(
+            {"user_id": target_user_id, "card_id": card_id_int, "version": version, "nombre": nombre},
+            {"$inc": {"count": 1}}
+        )
+    else:
+        col_cartas_usuario.insert_one(
+            {
+                "user_id": target_user_id,
+                "nombre": nombre,
+                "version": version,
+                "card_id": card_id_int,
+                "count": 1
+            }
+        )
+
+    # Registrar username de destino en la base
+    try:
+        user_dest_data = context.bot.get_chat_member(chat.id, target_user_id).user
+        if user_dest_data.username:
+            col_usuarios.update_one(
+                {"user_id": target_user_id},
+                {"$set": {"username": user_dest_data.username.lower()}},
+                upsert=True
+            )
+    except:
+        pass
+
+    id_carta = f"#{card_id}{version}{nombre}{grupo}"
+    update.message.reply_text(f"¡Carta {id_carta} enviada correctamente a @{username_dest}!")
+
+# HANDLERS
 dispatcher.add_handler(CommandHandler('idolday', comando_idolday))
 dispatcher.add_handler(CommandHandler('album', comando_album))
 dispatcher.add_handler(CommandHandler('miid', comando_miid))
 dispatcher.add_handler(CommandHandler('bonoidolday', comando_bonoidolday))
+dispatcher.add_handler(CommandHandler('giveidol', comando_giveidol))
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback))
 
 @app.route(f'/{TOKEN}', methods=['POST'])
