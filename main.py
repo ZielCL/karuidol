@@ -43,9 +43,9 @@ col_contadores = db['contadores']
 # Cargar cartas.json
 if not os.path.isfile('cartas.json'):
     cartas_ejemplo = [
-        {"nombre": "Tzuyu", "grupo": "Twice", "version": "V1", "rareza": "Común", "imagen": "https://example.com/tzuyu_v1.jpg"},
-        {"nombre": "Suho", "grupo": "EXO", "version": "V1", "rareza": "Rara", "imagen": "https://example.com/suho_v1.jpg"},
-        {"nombre": "Lisa", "grupo": "BLACKPINK", "version": "V1", "rareza": "Común", "imagen": "https://example.com/lisa_v1.jpg"}
+        {"nombre": "Tzuyu", "grupo": "Twice", "version": "V1", "rareza": "Común", "imagen": "https://example.com/tzuyu_v1.jpg", "set": "Twice"},
+        {"nombre": "Suho", "grupo": "EXO", "version": "V1", "rareza": "Rara", "imagen": "https://example.com/suho_v1.jpg", "set": "EXO"},
+        {"nombre": "Lisa", "grupo": "BLACKPINK", "version": "V1", "rareza": "Común", "imagen": "https://example.com/lisa_v1.jpg", "set": "BLACKPINK"}
     ]
     with open('cartas.json', 'w') as f:
         json.dump(cartas_ejemplo, f, indent=2)
@@ -383,7 +383,6 @@ def manejador_callback(update, context):
             )
         cartas_usuario.sort(key=sort_key)
         pagina = 1
-        # CORRECCIÓN: Editar el mensaje actual, no mandar uno nuevo
         enviar_lista_pagina(query.message.chat_id, usuario_id, cartas_usuario, pagina, context, editar=True, mensaje=query.message)
         query.answer()
         return
@@ -449,6 +448,7 @@ def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, edit
     nav = []
     if pagina > 1:
         nav.append(InlineKeyboardButton("« Anterior", callback_data=f"lista_{pagina-1}_{usuario_id}"))
+    nav.append(InlineKeyboardButton("📒 Album", callback_data=f"albumlista_{usuario_id}"))
     if pagina < paginas:
         nav.append(InlineKeyboardButton("Siguiente »", callback_data=f"lista_{pagina+1}_{usuario_id}"))
     if nav:
@@ -674,6 +674,8 @@ def comando_comandos(update, context):
         "\n"
         "<b>/idolday</b> - Drop de 2 cartas con botones.\n"
         "<b>/album</b> - Muestra tu colección de cartas.\n"
+        "<b>/sets</b> - Progreso de sets/colecciones con barra y emojis.\n"
+        "<b>/set &lt;nombre&gt;</b> - Detalle de cartas de ese set.\n"
         "<b>/giveidol</b> - Regala una carta a otro usuario (usando @usuario o respuesta).\n"
         "<b>/miid</b> - Muestra tu ID de Telegram.\n"
         "<b>/bonoidolday</b> - Da bonos de tiradas de /idolday a un usuario (solo admins).\n"
@@ -681,13 +683,94 @@ def comando_comandos(update, context):
     )
     update.message.reply_text(texto, parse_mode='HTML')
 
-# HANDLERS
+# === NUEVO: Sets/colecciones ===
+def obtener_sets_disponibles():
+    sets = set()
+    for carta in cartas:
+        if "set" in carta:
+            sets.add(carta["set"])
+    return sorted(list(sets))
+
+def comando_sets(update, context):
+    usuario_id = update.message.from_user.id
+    chat_id = update.effective_chat.id
+    sets = obtener_sets_disponibles()
+    cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
+    cartas_usuario_set = set((c["nombre"], c["version"]) for c in cartas_usuario)
+
+    texto = "<b>📚 Progreso de sets/colecciones:</b>\n\n"
+    for s in sets:
+        cartas_set = [c for c in cartas if c.get("set") == s]
+        total = len(cartas_set)
+        usuario_tiene = sum(1 for c in cartas_set if (c["nombre"], c["version"]) in cartas_usuario_set)
+        if usuario_tiene == 0:
+            emoji = "⬜"
+        elif usuario_tiene == total:
+            emoji = "🌟"
+        elif usuario_tiene >= total // 2:
+            emoji = "⭐"
+        else:
+            emoji = "🔸"
+        bloques = 10
+        bloques_llenos = int((usuario_tiene / total) * bloques) if total > 0 else 0
+        barra = "🟩" * bloques_llenos + "⬜" * (bloques - bloques_llenos)
+        texto += f"{emoji} <b>{s}</b>: {usuario_tiene}/{total}\n{barra}\n\n"
+
+    texto += "📖 Escribe <b>/set &lt;nombre_set&gt;</b> para ver los detalles de un set.\nEjemplo: <code>/set Twice</code>"
+    context.bot.send_message(chat_id=chat_id, text=texto, parse_mode="HTML")
+
+def comando_set_detalle(update, context):
+    usuario_id = update.message.from_user.id
+    chat_id = update.effective_chat.id
+    if not context.args:
+        sets = obtener_sets_disponibles()
+        texto = "<b>Sets disponibles:</b>\n"
+        texto += "\n".join([f"• <code>{s}</code>" for s in sets])
+        texto += "\n\nEjemplo de uso: <code>/set Twice</code>"
+        context.bot.send_message(chat_id=chat_id, text=texto, parse_mode="HTML")
+        return
+    nombre_set = " ".join(context.args)
+    sets = obtener_sets_disponibles()
+    nombre_set_normalizado = nombre_set.lower()
+    set_match = None
+    for s in sets:
+        if s.lower() == nombre_set_normalizado:
+            set_match = s
+            break
+    if not set_match:
+        texto = f"No se encontró el set <b>{nombre_set}</b>.\n\nSets disponibles:\n"
+        texto += "\n".join([f"• <code>{s}</code>" for s in sets])
+        context.bot.send_message(chat_id=chat_id, text=texto, parse_mode="HTML")
+        return
+
+    cartas_set = [c for c in cartas if c.get("set") == set_match]
+    total = len(cartas_set)
+    cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
+    cartas_usuario_set = set((c["nombre"], c["version"]) for c in cartas_usuario)
+    usuario_tiene = sum(1 for c in cartas_set if (c["nombre"], c["version"]) in cartas_usuario_set)
+    bloques = 10
+    bloques_llenos = int((usuario_tiene / total) * bloques) if total > 0 else 0
+    barra = "🟩" * bloques_llenos + "⬜" * (bloques - bloques_llenos)
+    texto = f"<b>🌟 Set: {set_match}</b> <b>({usuario_tiene}/{total})</b>\n{barra}\n\n"
+    for carta in cartas_set:
+        key = (carta["nombre"], carta["version"])
+        if key in cartas_usuario_set:
+            texto += f"✅ <b>{carta['nombre']} [{carta['version']}]</b>\n"
+        else:
+            texto += f"❌ {carta['nombre']} [{carta['version']}]\n"
+    if usuario_tiene == total and total > 0:
+        texto += "\n🎉 <b>¡Completaste este set!</b> 🎉"
+    context.bot.send_message(chat_id=chat_id, text=texto, parse_mode="HTML")
+
+# === HANDLERS ===
 dispatcher.add_handler(CommandHandler('idolday', comando_idolday))
 dispatcher.add_handler(CommandHandler('album', comando_album))
 dispatcher.add_handler(CommandHandler('miid', comando_miid))
 dispatcher.add_handler(CommandHandler('bonoidolday', comando_bonoidolday))
 dispatcher.add_handler(CommandHandler('giveidol', comando_giveidol))
 dispatcher.add_handler(CommandHandler('comandos', comando_comandos))
+dispatcher.add_handler(CommandHandler('sets', comando_sets))
+dispatcher.add_handler(CommandHandler('set', comando_set_detalle))
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback))
 
 @app.route(f'/{TOKEN}', methods=['POST'])
