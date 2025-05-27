@@ -420,12 +420,9 @@ def mostrar_carta_individual(chat_id, usuario_id, lista_cartas, idx, context, me
     version = carta.get('version', '')
     nombre = carta.get('nombre', '')
     grupo = grupo_de_carta(nombre, version)
-    id_unico = carta.get('id_unico', '???')
-    estado = carta.get('estado', 'excelente')
-    info_estado = next((e for e in ESTADOS_CARTA if e["estado"] == estado), ESTADOS_CARTA[0])
-    imagen_url = imagen_de_carta(nombre, version, estado)
-    id_carta = f"<code>{id_unico}</code> #{cid} [{version}] {nombre} - {grupo}"
-    texto = f"{id_carta}\n{info_estado['mensaje']}"
+    imagen_url = imagen_de_carta(nombre, version)
+    id_carta = f"#{cid} [{version}] {nombre} - {grupo}"
+    texto = f"<b>{id_carta}</b>"
     botones = []
     if idx > 0:
         botones.append(InlineKeyboardButton("⬅️ Anterior", callback_data=f"vercarta_{usuario_id}_{idx-1}"))
@@ -437,6 +434,18 @@ def mostrar_carta_individual(chat_id, usuario_id, lista_cartas, idx, context, me
         try:
             query.edit_message_media(
                 media=InputMediaPhoto(media=imagen_url, caption=texto, parse_mode='HTML'),
+                reply_markup=teclado
+            )
+        except Exception as e:
+            query.answer(text="No se pudo actualizar la imagen.", show_alert=True)
+    else:
+        context.bot.send_photo(
+            chat_id=chat_id,
+            photo=imagen_url,
+            caption=texto,
+            reply_markup=teclado,
+            parse_mode='HTML'
+        ),
                 reply_markup=teclado
             )
         except Exception as e:
