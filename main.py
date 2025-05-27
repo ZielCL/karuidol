@@ -444,10 +444,9 @@ def mostrar_carta_individual(chat_id, usuario_id, lista_cartas, idx, context, me
             photo=imagen_url,
             caption=texto,
             reply_markup=teclado,
-            parse_mode='HTML'
-        ),
-                reply_markup=teclado
-            )
+            parse_mode='HTML')
+            reply_markup=teclado
+           )
         except Exception as e:
             query.answer(text="No se pudo actualizar la imagen.", show_alert=True)
     else:
