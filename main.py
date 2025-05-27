@@ -51,10 +51,10 @@ DROPS_ACTIVOS = {}
 
 # Estados de carta
 ESTADOS_CARTA = [
-    ("Excelente", "★☆☆☆"),
-    ("Buen estado", "★★☆☆"),
-    ("Mal estado", "★★★☆"),
-    ("Muy mal estado", "★★★★")
+    ("Excelente", "★★★"),
+    ("Buen estado", "★★☆"),
+    ("Mal estado", "★☆☆"),
+    ("Muy mal estado", "☆☆☆")
 ]
 ESTADO_LISTA = ["Excelente", "Buen estado", "Mal estado", "Muy mal estado"]
 
@@ -161,7 +161,7 @@ def comando_idolday(update, context):
             col_contadores.insert_one({"nombre": nombre, "version": version, "contador": 1})
 
         id_unico = random_id_unico(nuevo_id)
-        caption = f"<b>[★☆☆☆] #{nuevo_id} [{version}] {nombre} - {grupo}</b>"
+        caption = f"<b>[★☆☆] #{nuevo_id} [{version}] {nombre} - {grupo}</b>"
         media_group.append(InputMediaPhoto(media=imagen_url, caption=caption, parse_mode="HTML"))
 
         cartas_info.append({
@@ -283,7 +283,7 @@ def manejador_reclamar(update, context):
     # Al reclamar, asigna estado aleatorio SOLO ahora
     estado_idx = random.randint(0, 3)
     carta["estado"] = ESTADO_LISTA[estado_idx]
-    carta["estado_estrella"] = estado_idx + 1  # 1: Excelente ... 4: Muy mal
+    carta["estado_estrella"] = estado_idx + 1  # 1: Excelente ... 3: Muy mal
     carta["reclamada"] = True
     carta["usuario"] = usuario_click
     carta["hora_reclamada"] = ahora
@@ -376,7 +376,7 @@ def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, edit
         grupo = grupo_de_carta(nombre, version)
         id_unico = carta.get('id_unico', 'xxxx')
         estado_estrella = carta.get('estado_estrella', 1)
-        estrellas = "★" * estado_estrella + "☆" * (4 - estado_estrella)
+        estrellas = "★" * estado_estrella + "☆" * (3 - estado_estrella)
         texto_boton = f"{id_unico} [{estrellas}] #{cid} [{version}] {nombre} - {grupo}"
         botones.append([InlineKeyboardButton(texto_boton, callback_data=f"vercarta_{usuario_id}_{idx}")])
     texto = f"<b>Página {pagina}/{paginas}</b>"
@@ -405,7 +405,7 @@ def mostrar_carta_individual(chat_id, usuario_id, lista_cartas, idx, context, me
     imagen_url = imagen_de_carta(nombre, version)
     id_unico = carta.get('id_unico', '')
     estado_estrella = carta.get('estado_estrella', 1)
-    estrellas = "★" * estado_estrella + "☆" * (4 - estado_estrella)
+    estrellas = "★" * estado_estrella + "☆" * (3 - estado_estrella)
     id_carta = f"<code>{id_unico}</code> [{estrellas}] #{cid} [{version}] {nombre} - {grupo}"
     texto = f"{id_carta}"
     botones = []
