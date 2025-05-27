@@ -146,17 +146,23 @@ def comando_idolday(update, context):
     cartas_info = []
     media_group = []
     for carta in cartas_drop:
-        nombre = carta['nombre']
-        version = carta['version']
-        grupo = carta.get('grupo', '')
-        imagen_url = carta.get('imagen')
-        doc_cont = col_contadores.find_one({"nombre": nombre, "version": version})
-        if doc_cont:
-            nuevo_id = doc_cont['contador'] + 1
-            col_contadores.update_one({"nombre": nombre, "version": version}, {"$inc": {"contador": 1}})
-        else:
-            nuevo_id = 1
-            col_contadores.insert_one({"nombre": nombre, "version": version, "contador": 1})
+    nombre = carta['nombre']
+    version = carta['version']
+    grupo = carta.get('grupo', '')
+    imagen_url = carta.get('imagen')
+
+    # Calcula el nuevo_id aquí, igual como ya lo haces
+    doc_cont = col_contadores.find_one({"nombre": nombre, "version": version})
+    if doc_cont:
+        nuevo_id = doc_cont['contador'] + 1
+        col_contadores.update_one({"nombre": nombre, "version": version}, {"$inc": {"contador": 1}})
+    else:
+        nuevo_id = 1
+        col_contadores.insert_one({"nombre": nombre, "version": version, "contador": 1})
+
+    # Aquí SIEMPRE muestra el estado como "Excelente"
+    caption = f"<b>[★☆☆☆] #{nuevo_id} [{version}] {nombre} - {grupo}</b>"
+    media_group.append(InputMediaPhoto(media=imagen_url, caption=caption, parse_mode="HTML"))
         id_unico = random_id_unico(nuevo_id)
         cartas_info.append({
             "nombre": nombre,
@@ -171,7 +177,7 @@ def comando_idolday(update, context):
             "estado": "Excelente",  # SIEMPRE "Excelente" hasta que alguien la reclama
             "estado_estrella": 1,
         })
-        caption = f"<b>[★☆☆☆] #{nuevo_id} [V1] {nombre} - {grupo}</b>"
+        caption = f"<b>[★☆☆☆] #{nuevo_id} [{version}] {nombre} - {grupo}</b>"
         media_group.append(InputMediaPhoto(media=imagen_url, caption=caption, parse_mode="HTML"))
 
     msgs = context.bot.send_media_group(chat_id=chat_id, media=media_group)
