@@ -383,6 +383,7 @@ def manejador_callback(update, context):
             )
         cartas_usuario.sort(key=sort_key)
         pagina = 1
+        # CORRECCIÓN: Editar el mensaje actual, no mandar uno nuevo
         enviar_lista_pagina(query.message.chat_id, usuario_id, cartas_usuario, pagina, context, editar=True, mensaje=query.message)
         query.answer()
         return
@@ -448,7 +449,6 @@ def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, edit
     nav = []
     if pagina > 1:
         nav.append(InlineKeyboardButton("« Anterior", callback_data=f"lista_{pagina-1}_{usuario_id}"))
-    # Botón Album NO va aquí, solo en la vista de imagen grande
     if pagina < paginas:
         nav.append(InlineKeyboardButton("Siguiente »", callback_data=f"lista_{pagina+1}_{usuario_id}"))
     if nav:
@@ -457,7 +457,7 @@ def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, edit
     if editar and mensaje:
         try:
             mensaje.edit_text(texto, reply_markup=teclado, parse_mode='HTML')
-        except:
+        except Exception as e:
             context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode='HTML')
     else:
         context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode='HTML')
