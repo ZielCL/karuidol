@@ -280,55 +280,38 @@ def manejador_reclamar(update, context):
         query.answer("No puedes reclamar esta carta.", show_alert=True)
         return
 
-    # --- AQUÍ EL SORTEO DEL ESTADO REAL ---
+    # ---- SORTEO DE ESTADO Y ESTRELLAS ----
+    ESTADO_LISTA = ["Excelente", "Buen estado", "Mal estado", "Muy mal estado"]
+    ESTADO_ESTRELLAS = [3, 2, 1, 0]  # 3=excelente, 0=muy mal
+
+    estado_idx = random.randint(0, 3)
+    carta["estado"] = ESTADO_LISTA[estado_idx]
+    carta["estado_estrella"] = ESTADO_ESTRELLAS[estado_idx]
+    carta["reclamada"] = True
+    carta["usuario"] = usuario_click
+    carta["hora_reclamada"] = ahora
+
+    id_unico = carta["id_unico"]
+
+    drop["usuarios_reclamaron"].append(usuario_click)
+
     nombre = carta['nombre']
     version = carta['version']
     grupo = carta['grupo']
     cid = carta['card_id']
 
-    # Busca TODAS las versiones de la carta (estados)
-    posibles_estados = cartas_estado(nombre, version)
-    carta_entregada = random.choice(posibles_estados)
-    estado = carta_entregada['estado']
-    estado_estrella = carta_entregada['estado_estrella']
-    imagen_url = carta_entregada['imagen']
-
-    # Actualiza la carta reclamada
-    carta["reclamada"] = True
-    carta["usuario"] = usuario_click
-    carta["hora_reclamada"] = ahora
-    carta["estado"] = estado
-    carta["estado_estrella"] = estado_estrella
-    carta["imagen"] = imagen_url
-
-    drop["usuarios_reclamaron"].append(usuario_click)
-
-    existente = col_cartas_usuario.find_one({
-        "user_id": usuario_click,
-        "nombre": nombre,
-        "version": version,
-        "card_id": cid,
-        "estado": estado,
-    })
-    if existente:
-        col_cartas_usuario.update_one(
-            {"user_id": usuario_click, "nombre": nombre, "version": version, "card_id": cid, "estado": estado},
-            {"$inc": {"count": 1}}
-        )
-    else:
-        col_cartas_usuario.insert_one(
-            {
-                "user_id": usuario_click,
-                "nombre": nombre,
-                "version": version,
-                "grupo": grupo,
-                "estado": estado,
-                "estado_estrella": estado_estrella,
-                "imagen": imagen_url,
-                "card_id": cid,
-                "count": 1
-            }
-        )
+    col_cartas_usuario.insert_one(
+        {
+            "user_id": usuario_click,
+            "nombre": nombre,
+            "version": version,
+            "grupo": grupo,
+            "card_id": cid,
+            "id_unico": id_unico,
+            "estado": carta["estado"],
+            "estado_estrella": carta["estado_estrella"]
+        }
+    )
 
     # --------- Botones ---------
     teclado = []
@@ -345,8 +328,8 @@ def manejador_reclamar(update, context):
 
     # --------- Mensaje de resultado ---------
     user_mention = f"@{query.from_user.username or query.from_user.first_name}"
-    estrellas = "★" * int(estado_estrella) + "☆" * (3 - int(estado_estrella))
-    msg = f"{user_mention} tomaste la carta #{cid} [{version}] {nombre} - {grupo} [{estrellas}], está en <b>{estado}</b>."
+    estrellas = "★" * carta["estado_estrella"] + "☆" * (3 - carta["estado_estrella"])
+    msg = f"{user_mention} tomaste la carta #{cid} [{version}] {nombre} - {grupo} <code>{id_unico}</code> [{estrellas}], está en <b>{carta['estado']}</b>."
     context.bot.send_message(
         chat_id=drop["chat_id"],
         text=msg,
