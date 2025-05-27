@@ -145,7 +145,13 @@ def comando_idolday(update, context):
 
     cartas_unicas = [(c['nombre'], c['version']) for c in cartas if c['estado'] == "excelente"]
     cartas_unicas = list(set(cartas_unicas))
-    cartas_drop_unicas = random.sample(cartas_unicas, 2)
+    cartas_drop_unicas = [c for c in cartas if c.get('estado', 'excelente') == 'excelente']
+if len(cartas_drop_unicas) < 2:
+    # Opcional: duplicar la carta si solo hay una
+    cartas_drop = cartas_drop_unicas * 2
+else:
+    cartas_drop = random.sample(cartas_drop_unicas, 2)
+
 
     cartas_info = []
     media_group = []
@@ -264,111 +270,112 @@ def manejador_reclamar(update, context):
         query.answer("Este drop ya expiró o no existe.", show_alert=True)
         return
 
-    carta = drop["cartas"][carta_idx]
-    if carta["reclamada"]:
-        query.answer("Esta carta ya fue reclamada.", show_alert=True)
-        return
+carta = drop["cartas"][carta_idx]
+if carta["reclamada"]:
+    query.answer("Esta carta ya fue reclamada.", show_alert=True)
+    return
 
-    tiempo_desde_drop = ahora - drop["inicio"]
-    solo_dueño = tiempo_desde_drop < 15
-    puede_reclamar = False
+tiempo_desde_drop = ahora - drop["inicio"]
+solo_dueño = tiempo_desde_drop < 15
+puede_reclamar = False
 
-    user_doc = col_usuarios.find_one({"user_id": usuario_click}) or {}
-    bono = user_doc.get('bono', 0)
+user_doc = col_usuarios.find_one({"user_id": usuario_click}) or {}
+bono = user_doc.get('bono', 0)
 
-    if usuario_click == drop["dueño"]:
-        primer_reclamo = drop.get("primer_reclamo_dueño")
-        if primer_reclamo is None:
-            puede_reclamar = True
-            drop["primer_reclamo_dueño"] = ahora
-        else:
-            if tiempo_desde_drop < 15:
-                query.answer("Solo puedes reclamar una carta antes de 15 segundos. Espera a que pasen 15 segundos para reclamar la otra (si tienes bono).", show_alert=True)
-                return
-            if bono < 1:
-                query.answer("Necesitas al menos 1 bono para reclamar la segunda carta.", show_alert=True)
-                return
-            puede_reclamar = True
-            col_usuarios.update_one({"user_id": usuario_click}, {"$inc": {"bono": -1}}, upsert=True)
-    elif not solo_dueño and carta["usuario"] is None:
-        if puede_usar_idolday(usuario_click):
-            puede_reclamar = True
-        else:
-            query.answer("Solo puedes reclamar cartas si tienes disponible tu /idolday o tienes un bono disponible.", show_alert=True)
+if usuario_click == drop["dueño"]:
+    primer_reclamo = drop.get("primer_reclamo_dueño")
+    if primer_reclamo is None:
+        puede_reclamar = True
+        drop["primer_reclamo_dueño"] = ahora
+    else:
+        if tiempo_desde_drop < 15:
+            query.answer("Solo puedes reclamar una carta antes de 15 segundos. Espera a que pasen 15 segundos para reclamar la otra (si tienes bono).", show_alert=True)
             return
+        if bono < 1:
+            query.answer("Necesitas al menos 1 bono para reclamar la segunda carta.", show_alert=True)
+            return
+        puede_reclamar = True
+        col_usuarios.update_one({"user_id": usuario_click}, {"$inc": {"bono": -1}}, upsert=True)
+elif not solo_dueño and carta["usuario"] is None:
+    if puede_usar_idolday(usuario_click):
+        puede_reclamar = True
     else:
-        segundos_faltantes = int(15 - tiempo_desde_drop)
-        if segundos_faltantes < 0:
-            segundos_faltantes = 0
-        query.answer(f"Aún no puedes reclamar esta carta, te quedan {segundos_faltantes} segundos para poder reclamar.", show_alert=True)
+        query.answer("Solo puedes reclamar cartas si tienes disponible tu /idolday o tienes un bono disponible.", show_alert=True)
         return
+else:
+    segundos_faltantes = int(15 - tiempo_desde_drop)
+    if segundos_faltantes < 0:
+        segundos_faltantes = 0
+    query.answer(f"Aún no puedes reclamar esta carta, te quedan {segundos_faltantes} segundos para poder reclamar.", show_alert=True)
+    return
 
-    if not puede_reclamar:
-        query.answer("No puedes reclamar esta carta.", show_alert=True)
-        return
+if not puede_reclamar:
+    query.answer("No puedes reclamar esta carta.", show_alert=True)
+    return
 
-    # Elegir estado random y armar mensaje personalizado
-    estado_random = obtener_estado_random()
-    info_estado = next(e for e in ESTADOS_CARTA if e["estado"] == estado_random)
-    carta["estado"] = estado_random
+# Elegir estado random y armar mensaje personalizado
+estado_random = obtener_estado_random()
+info_estado = next(e for e in ESTADOS_CARTA if e["estado"] == estado_random)
+carta["estado"] = estado_random
 
-    # Si no tiene id_unico aún (seguridad)
-    if not carta.get("id_unico"):
-        carta["id_unico"] = generar_id_unico(carta['card_id'])
+# Si no tiene id_unico aún (seguridad)
+if not carta.get("id_unico"):
+    carta["id_unico"] = generar_id_unico(carta['card_id'])
 
-    carta["reclamada"] = True
-    carta["usuario"] = usuario_click
-    carta["hora_reclamada"] = ahora
+carta["reclamada"] = True
+carta["usuario"] = usuario_click
+carta["hora_reclamada"] = ahora
 
-    drop["usuarios_reclamaron"].append(usuario_click)
+drop["usuarios_reclamaron"].append(usuario_click)
 
-    nombre = carta['nombre']
-    version = carta['version']
-    grupo = carta['grupo']
-    cid = carta['card_id']
-    id_unico = carta['id_unico']
+nombre = carta['nombre']
+version = carta['version']
+grupo = carta['grupo']
+cid = carta['card_id']
+id_unico = carta['id_unico']
 
-    existente = col_cartas_usuario.find_one({
-        "user_id": usuario_click,
-        "nombre": nombre,
-        "version": version,
-        "card_id": cid,
-        "id_unico": id_unico
-    })
-    if existente:
-        col_cartas_usuario.update_one(
-            {"user_id": usuario_click, "nombre": nombre, "version": version, "card_id": cid, "id_unico": id_unico},
-            {"$inc": {"count": 1}}
-        )
+existente = col_cartas_usuario.find_one({
+    "user_id": usuario_click,
+    "nombre": nombre,
+    "version": version,
+    "card_id": cid,
+    "id_unico": id_unico
+})
+if existente:
+    col_cartas_usuario.update_one(
+        {"user_id": usuario_click, "nombre": nombre, "version": version, "card_id": cid, "id_unico": id_unico},
+        {"$inc": {"count": 1}}
+    )
+else:
+    col_cartas_usuario.insert_one(
+        {"user_id": usuario_click, "nombre": nombre, "version": version, "grupo": grupo, "card_id": cid, "id_unico": id_unico, "estado": estado_random, "count": 1}
+    )
+
+teclado = []
+for i, c in enumerate(drop["cartas"]):
+    if c["reclamada"]:
+        teclado.append(InlineKeyboardButton("❌", callback_data="reclamada", disabled=True))
     else:
-        col_cartas_usuario.insert_one(
-            {"user_id": usuario_click, "nombre": nombre, "version": version, "grupo": grupo, "card_id": cid, "id_unico": id_unico, "estado": estado_random, "count": 1}
-        )
+        teclado.append(InlineKeyboardButton(f"{i+1}️⃣", callback_data=f"reclamar_{chat_id}_{mensaje_id}_{i}"))
+bot.edit_message_reply_markup(
+    chat_id=drop["chat_id"],
+    message_id=drop["mensaje_id"],
+    reply_markup=InlineKeyboardMarkup([teclado])
+)
 
-    teclado = []
-    for i, c in enumerate(drop["cartas"]):
-        if c["reclamada"]:
-            teclado.append(InlineKeyboardButton("❌", callback_data="reclamada", disabled=True))
-        else:
-            teclado.append(InlineKeyboardButton(f"{i+1}️⃣", callback_data=f"reclamar_{chat_id}_{mensaje_id}_{i}"))
-    bot.edit_message_reply_markup(
-        chat_id=drop["chat_id"],
-        message_id=drop["mensaje_id"],
-        reply_markup=InlineKeyboardMarkup([teclado])
-    )
+# Mensaje personalizado
+user_mention = f"@{query.from_user.username or query.from_user.first_name}"
+texto_mensaje = (
+    f"{user_mention} tomaste la carta <b>#{cid} [{version}] {nombre} - {grupo}</b> <code>{id_unico}</code>, {info_estado['mensaje']}"
+)
+context.bot.send_message(
+    chat_id=drop["chat_id"],
+    text=texto_mensaje,
+    parse_mode="HTML"
+)
+query.answer("¡Carta reclamada!", show_alert=True)
 
-    # Mensaje personalizado
-    user_mention = f"@{query.from_user.username or query.from_user.first_name}"
-    texto_mensaje = (
-        f"{user_mention} tomaste la carta <b>#{cid} [{version}] {nombre} - {grupo}</b> <code>{id_unico}</code>, {info_estado['mensaje']}"
-    )
-    context.bot.send_message(
-        chat_id=drop["chat_id"],
-        text=texto_mensaje,
-        parse_mode="HTML"
-    )
-    query.answer("¡Carta reclamada!", show_alert=True)
-
+    
 def comando_album(update, context):
     usuario_id = update.message.from_user.id
     chat_id = update.effective_chat.id
