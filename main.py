@@ -140,46 +140,43 @@ def comando_idolday(update, context):
             context.bot.send_message(chat_id=chat_id, text=f"Ya usaste /idolday hoy.")
         return
 
-    # El drop SIEMPRE muestra estado Excelente en caption y objeto
     cartas_disponibles = cartas if len(cartas) >= 2 else cartas * 2
     cartas_drop = random.sample(cartas_disponibles, 2)
     media_group = []
-cartas_info = []
-for carta in cartas_drop:
-    nombre = carta['nombre']
-    version = carta['version']
-    grupo = carta.get('grupo', '')
-    imagen_url = carta.get('imagen')
+    cartas_info = []
+    for carta in cartas_drop:
+        nombre = carta['nombre']
+        version = carta['version']
+        grupo = carta.get('grupo', '')
+        imagen_url = carta.get('imagen')
 
-    doc_cont = col_contadores.find_one({"nombre": nombre, "version": version})
-    if doc_cont:
-        nuevo_id = doc_cont['contador'] + 1
-        col_contadores.update_one({"nombre": nombre, "version": version}, {"$inc": {"contador": 1}})
-    else:
-        nuevo_id = 1
-        col_contadores.insert_one({"nombre": nombre, "version": version, "contador": 1})
+        doc_cont = col_contadores.find_one({"nombre": nombre, "version": version})
+        if doc_cont:
+            nuevo_id = doc_cont['contador'] + 1
+            col_contadores.update_one({"nombre": nombre, "version": version}, {"$inc": {"contador": 1}})
+        else:
+            nuevo_id = 1
+            col_contadores.insert_one({"nombre": nombre, "version": version, "contador": 1})
 
-    id_unico = random_id_unico(nuevo_id)
+        id_unico = random_id_unico(nuevo_id)
 
-    # SIEMPRE muestra el estado como "Excelente" en el drop
-    caption = f"<b>[★☆☆☆] #{nuevo_id} [{version}] {nombre} - {grupo}</b>"
-    media_group.append(InputMediaPhoto(media=imagen_url, caption=caption, parse_mode="HTML"))
-
-    cartas_info.append({
-        "nombre": nombre,
-        "version": version,
-        "grupo": grupo,
-        "imagen": imagen_url,
-        "card_id": nuevo_id,
-        "reclamada": False,
-        "usuario": None,
-        "hora_reclamada": None,
-        "id_unico": id_unico,
-        "estado": "Excelente",
-        "estado_estrella": 1,
-    })
+        # SIEMPRE muestra el estado como "Excelente" en el drop
         caption = f"<b>[★☆☆☆] #{nuevo_id} [{version}] {nombre} - {grupo}</b>"
         media_group.append(InputMediaPhoto(media=imagen_url, caption=caption, parse_mode="HTML"))
+
+        cartas_info.append({
+            "nombre": nombre,
+            "version": version,
+            "grupo": grupo,
+            "imagen": imagen_url,
+            "card_id": nuevo_id,
+            "reclamada": False,
+            "usuario": None,
+            "hora_reclamada": None,
+            "id_unico": id_unico,
+            "estado": "Excelente",
+            "estado_estrella": 1,
+        })
 
     msgs = context.bot.send_media_group(chat_id=chat_id, media=media_group)
     main_msg = msgs[0]
