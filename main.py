@@ -57,6 +57,7 @@ ESTADOS_CARTA = [
     {"estado": "muy_mal", "estrella": "☆☆☆", "mensaje": "Lamentablemente, está en <b>muy mal</b> estado."}
 ]
 ESTADOS_LISTA = [e["estado"] for e in ESTADOS_CARTA]
+
 def imagen_de_carta(nombre, version, estado="excelente"):
     for carta in cartas:
         if carta['nombre'] == nombre and carta['version'] == version and carta['estado'] == estado:
@@ -98,14 +99,17 @@ def puede_usar_idolday(user_id):
     if diferencia.total_seconds() >= 86400:
         return True
     return False
+
 def generar_id_unico(card_id):
     # 3 letras/números aleatorios + último dígito = número de carta
     pool = string.ascii_lowercase + string.digits
     aleatorio = ''.join(random.choices(pool, k=4))
     return f"{aleatorio}{card_id}"
+
 def obtener_estado_random():
     # 25% para cada estado (modifícalo si quieres otra probabilidad)
     return random.choice(ESTADOS_LISTA)
+
 def comando_idolday(update, context):
     usuario_id = update.message.from_user.id
     chat_id = update.effective_chat.id
@@ -208,6 +212,7 @@ def comando_idolday(update, context):
     )
 
     threading.Thread(target=desbloquear_drop, args=(drop_id, ), daemon=True).start()
+
 def desbloquear_drop(drop_id):
     data = DROPS_ACTIVOS[drop_id]
     tiempo_inicio = data["inicio"]
@@ -238,6 +243,7 @@ def expira_drop(drop_id):
     except:
         pass
     drop["expirado"] = True
+
 def manejador_reclamar(update, context):
     query = update.callback_query
     usuario_click = query.from_user.id
@@ -362,6 +368,7 @@ def manejador_reclamar(update, context):
         parse_mode="HTML"
     )
     query.answer("¡Carta reclamada!", show_alert=True)
+
 def comando_album(update, context):
     usuario_id = update.message.from_user.id
     chat_id = update.effective_chat.id
@@ -420,9 +427,12 @@ def mostrar_carta_individual(chat_id, usuario_id, lista_cartas, idx, context, me
     version = carta.get('version', '')
     nombre = carta.get('nombre', '')
     grupo = grupo_de_carta(nombre, version)
-    imagen_url = imagen_de_carta(nombre, version)
-    id_carta = f"#{cid} [{version}] {nombre} - {grupo}"
-    texto = f"<b>{id_carta}</b>"
+    id_unico = carta.get('id_unico', '???')
+    estado = carta.get('estado', 'excelente')
+    info_estado = next((e for e in ESTADOS_CARTA if e["estado"] == estado), ESTADOS_CARTA[0])
+    imagen_url = imagen_de_carta(nombre, version, estado)
+    id_carta = f"<code>{id_unico}</code> #{cid} [{version}] {nombre} - {grupo}"
+    texto = f"{id_carta}\n{info_estado['mensaje']}"
     botones = []
     if idx > 0:
         botones.append(InlineKeyboardButton("⬅️ Anterior", callback_data=f"vercarta_{usuario_id}_{idx-1}"))
@@ -430,7 +440,7 @@ def mostrar_carta_individual(chat_id, usuario_id, lista_cartas, idx, context, me
     if idx < len(lista_cartas)-1:
         botones.append(InlineKeyboardButton("Siguiente ➡️", callback_data=f"vercarta_{usuario_id}_{idx+1}"))
     teclado = InlineKeyboardMarkup([botones])
-        if query is not None:
+    if query is not None:
         try:
             query.edit_message_media(
                 media=InputMediaPhoto(media=imagen_url, caption=texto, parse_mode='HTML'),
@@ -439,19 +449,8 @@ def mostrar_carta_individual(chat_id, usuario_id, lista_cartas, idx, context, me
         except Exception as e:
             query.answer(text="No se pudo actualizar la imagen.", show_alert=True)
     else:
-        context.bot.send_photo(
-            chat_id=chat_id,
-            photo=imagen_url,
-            caption=texto,
-            reply_markup=teclado,
-            parse_mode='HTML'
-        )
-
-        except Exception as e:
-            query.answer(text="No se pudo actualizar la imagen.", show_alert=True)
-    else:
         context.bot.send_photo(chat_id=chat_id, photo=imagen_url, caption=texto, reply_markup=teclado, parse_mode='HTML')
-        
+
 def comando_miid(update, context):
     usuario = update.effective_user
     update.message.reply_text(f"Tu ID de Telegram es: {usuario.id}")
@@ -495,6 +494,7 @@ def comando_comandos(update, context):
         "<b>/comandos</b> - Muestra esta lista de comandos y para qué sirve cada uno.\n"
     )
     update.message.reply_text(texto, parse_mode='HTML')
+
 dispatcher.add_handler(CommandHandler('idolday', comando_idolday))
 dispatcher.add_handler(CommandHandler('album', comando_album))
 dispatcher.add_handler(CommandHandler('miid', comando_miid))
@@ -523,6 +523,7 @@ def home():
 if __name__ == '__main__':
     puerto = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=puerto)
+
 def comando_giveidol(update, context):
     if len(context.args) < 1:
         update.message.reply_text(
@@ -629,6 +630,7 @@ def comando_giveidol(update, context):
             context.bot.send_message(chat_id=chat.id, text=f"¡{dest_mention}, te han regalado {id_carta_give}!", parse_mode='HTML')
         except:
             pass
+
 def obtener_sets_disponibles():
     sets = set()
     for carta in cartas:
@@ -691,6 +693,7 @@ def mostrar_setsprogreso(update, context, pagina=1, mensaje=None, editar=False):
             context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML")
     else:
         context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML")
+
 def comando_set_detalle(update, context):
     usuario_id = update.effective_user.id
     chat_id = update.effective_chat.id
@@ -781,13 +784,10 @@ def mostrar_detalle_set(update, context, set_name, pagina=1, mensaje=None, edita
     else:
         context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode='HTML')
 
-
-# ---------- MANEJADOR DE CALLBACKS ----------
 def manejador_callback(update, context):
     query = update.callback_query
     data = query.data
 
-    # Manejo de callbacks
     if data.startswith("reclamar"):
         manejador_reclamar(update, context)
     elif data == "expirado":
@@ -874,161 +874,6 @@ def manejador_callback(update, context):
         enviar_lista_pagina(query.message.chat_id, usuario_id, cartas_usuario, pagina, context, editar=True, mensaje=query.message)
         query.answer()
 
-    # ---- SETS Y PROGRESO ----
-    if data.startswith("setsprogreso_"):
-        pagina = int(data.split("_")[1])
-        mostrar_setsprogreso(update, context, pagina=pagina, mensaje=query.message, editar=True)
-        query.answer()
-        return
-    if data.startswith("setlist_"):
-        pagina = int(data.split("_")[1])
-        mostrar_lista_set(update, context, pagina=pagina, mensaje=query.message, editar=True)
-        query.answer()
-        return
-    if data.startswith("setdet_"):
-        partes = data.split("_")
-        set_name = "_".join(partes[1:-1])
-        pagina = int(partes[-1])
-        mostrar_detalle_set(update, context, set_name, pagina=pagina, mensaje=query.message, editar=True)
-        query.answer()
-        return
-    # ---- ALBUM Paginado ----
-    partes = data.split("_")
-    if len(partes) == 3 and partes[0] == "lista":
-        pagina = int(partes[1])
-        usuario_id = int(partes[2])
-        if query.from_user.id != usuario_id:
-            query.answer(text="Este álbum no es tuyo.", show_alert=True)
-            return
-        cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
-        def sort_key(x):
-            grupo = grupo_de_carta(x.get('nombre',''), x.get('version','')) or ""
-            return (
-                grupo.lower(),
-                x.get('nombre','').lower(),
-                x.get('card_id', 0)
-            )
-        cartas_usuario.sort(key=sort_key)
-        enviar_lista_pagina(query.message.chat_id, usuario_id, cartas_usuario, pagina, context, editar=True, mensaje=query.message)
-        query.answer()
-
-    
-
-    # ---- SETS Y PROGRESO ----
-    if data.startswith("setsprogreso_"):
-        pagina = int(data.split("_")[1])
-        mostrar_setsprogreso(update, context, pagina=pagina, mensaje=query.message, editar=True)
-        query.answer()
-        return
-    if data.startswith("setlist_"):
-        pagina = int(data.split("_")[1])
-        mostrar_lista_set(update, context, pagina=pagina, mensaje=query.message, editar=True)
-        query.answer()
-        return
-    if data.startswith("setdet_"):
-        partes = data.split("_")
-        set_name = "_".join(partes[1:-1])
-        pagina = int(partes[-1])
-        mostrar_detalle_set(update, context, set_name, pagina=pagina, mensaje=query.message, editar=True)
-        query.answer()
-        return
-    # ---- ALBUM Paginado ----
-    partes = data.split("_")
-    if len(partes) == 3 and partes[0] == "lista":
-        pagina = int(partes[1])
-        usuario_id = int(partes[2])
-        if query.from_user.id != usuario_id:
-            query.answer(text="Este álbum no es tuyo.", show_alert=True)
-            return
-        cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
-        def sort_key(x):
-            grupo = grupo_de_carta(x.get('nombre',''), x.get('version','')) or ""
-            return (
-                grupo.lower(),
-                x.get('nombre','').lower(),
-                x.get('card_id', 0)
-            )
-        cartas_usuario.sort(key=sort_key)
-        enviar_lista_pagina(query.message.chat_id, usuario_id, cartas_usuario, pagina, context, editar=True, mensaje=query.message)
-        query.answer()
-
- 
-    # ---- SETS Y PROGRESO ----
-    if data.startswith("setsprogreso_"):
-        pagina = int(data.split("_")[1])
-        mostrar_setsprogreso(update, context, pagina=pagina, mensaje=query.message, editar=True)
-        query.answer()
-        return
-    if data.startswith("setlist_"):
-        pagina = int(data.split("_")[1])
-        mostrar_lista_set(update, context, pagina=pagina, mensaje=query.message, editar=True)
-        query.answer()
-        return
-    if data.startswith("setdet_"):
-        partes = data.split("_")
-        set_name = "_".join(partes[1:-1])
-        pagina = int(partes[-1])
-        mostrar_detalle_set(update, context, set_name, pagina=pagina, mensaje=query.message, editar=True)
-        query.answer()
-        return
-    # ---- ALBUM Paginado ----
-    partes = data.split("_")
-    if len(partes) == 3 and partes[0] == "lista":
-        pagina = int(partes[1])
-        usuario_id = int(partes[2])
-        if query.from_user.id != usuario_id:
-            query.answer(text="Este álbum no es tuyo.", show_alert=True)
-            return
-        cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
-        def sort_key(x):
-            grupo = grupo_de_carta(x.get('nombre',''), x.get('version','')) or ""
-            return (
-                grupo.lower(),
-                x.get('nombre','').lower(),
-                x.get('card_id', 0)
-            )
-        cartas_usuario.sort(key=sort_key)
-        enviar_lista_pagina(query.message.chat_id, usuario_id, cartas_usuario, pagina, context, editar=True, mensaje=query.message)
-        query.answer()
-
-    
-    # ---- SETS Y PROGRESO ----
-    if data.startswith("setsprogreso_"):
-        pagina = int(data.split("_")[1])
-        mostrar_setsprogreso(update, context, pagina=pagina, mensaje=query.message, editar=True)
-        query.answer()
-        return
-    if data.startswith("setlist_"):
-        pagina = int(data.split("_")[1])
-        mostrar_lista_set(update, context, pagina=pagina, mensaje=query.message, editar=True)
-        query.answer()
-        return
-    if data.startswith("setdet_"):
-        partes = data.split("_")
-        set_name = "_".join(partes[1:-1])
-        pagina = int(partes[-1])
-        mostrar_detalle_set(update, context, set_name, pagina=pagina, mensaje=query.message, editar=True)
-        query.answer()
-        return
-    # ---- ALBUM Paginado ----
-    partes = data.split("_")
-    if len(partes) == 3 and partes[0] == "lista":
-        pagina = int(partes[1])
-        usuario_id = int(partes[2])
-        if query.from_user.id != usuario_id:
-            query.answer(text="Este álbum no es tuyo.", show_alert=True)
-            return
-        cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
-        def sort_key(x):
-            grupo = grupo_de_carta(x.get('nombre',''), x.get('version','')) or ""
-            return (
-                grupo.lower(),
-                x.get('nombre','').lower(),
-                x.get('card_id', 0)
-            )
-        cartas_usuario.sort(key=sort_key)
-        enviar_lista_pagina(query.message.chat_id, usuario_id, cartas_usuario, pagina, context, editar=True, mensaje=query.message)
-        query.answer()
 dispatcher.add_handler(CommandHandler('idolday', comando_idolday))
 dispatcher.add_handler(CommandHandler('album', comando_album))
 dispatcher.add_handler(CommandHandler('miid', comando_miid))
@@ -1038,6 +883,7 @@ dispatcher.add_handler(CommandHandler('giveidol', comando_giveidol))
 dispatcher.add_handler(CommandHandler('setsprogreso', comando_setsprogreso))
 dispatcher.add_handler(CommandHandler('set', comando_set_detalle))
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback))
+
 @app.route(f'/{TOKEN}', methods=['POST'])
 def webhook():
     global primer_mensaje
@@ -1054,6 +900,7 @@ def webhook():
 @app.route("/", methods=["GET"])
 def home():
     return "Bot activo."
+
 if __name__ == '__main__':
     puerto = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=puerto)
