@@ -778,8 +778,9 @@ def mostrar_detalle_set(update, context, set_name, pagina=1, mensaje=None, edita
             mensaje.edit_text(texto, reply_markup=teclado, parse_mode='HTML')
         except Exception:
             context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode='HTML')
-        else:
-        context.bot.send_photo(chat_id=chat_id, photo=imagen_url, caption=texto, reply_markup=teclado, parse_mode='HTML')
+    else:
+        context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode='HTML')
+
 
 # ---------- MANEJADOR DE CALLBACKS ----------
 def manejador_callback(update, context):
