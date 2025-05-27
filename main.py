@@ -270,48 +270,49 @@ def manejador_reclamar(update, context):
         query.answer("Este drop ya expiró o no existe.", show_alert=True)
         return
 
-carta = drop["cartas"][carta_idx]
-if carta["reclamada"]:
-    query.answer("Esta carta ya fue reclamada.", show_alert=True)
-    return
-
-tiempo_desde_drop = ahora - drop["inicio"]
-solo_dueño = tiempo_desde_drop < 15
-puede_reclamar = False
-
-user_doc = col_usuarios.find_one({"user_id": usuario_click}) or {}
-bono = user_doc.get('bono', 0)
-
-if usuario_click == drop["dueño"]:
-    primer_reclamo = drop.get("primer_reclamo_dueño")
-    if primer_reclamo is None:
-        puede_reclamar = True
-        drop["primer_reclamo_dueño"] = ahora
-    else:
-        if tiempo_desde_drop < 15:
-            query.answer("Solo puedes reclamar una carta antes de 15 segundos. Espera a que pasen 15 segundos para reclamar la otra (si tienes bono).", show_alert=True)
-            return
-        if bono < 1:
-            query.answer("Necesitas al menos 1 bono para reclamar la segunda carta.", show_alert=True)
-            return
-        puede_reclamar = True
-        col_usuarios.update_one({"user_id": usuario_click}, {"$inc": {"bono": -1}}, upsert=True)
-elif not solo_dueño and carta["usuario"] is None:
-    if puede_usar_idolday(usuario_click):
-        puede_reclamar = True
-    else:
-        query.answer("Solo puedes reclamar cartas si tienes disponible tu /idolday o tienes un bono disponible.", show_alert=True)
+    carta = drop["cartas"][carta_idx]
+    if carta["reclamada"]:
+        query.answer("Esta carta ya fue reclamada.", show_alert=True)
         return
-else:
-    segundos_faltantes = int(15 - tiempo_desde_drop)
-    if segundos_faltantes < 0:
-        segundos_faltantes = 0
-    query.answer(f"Aún no puedes reclamar esta carta, te quedan {segundos_faltantes} segundos para poder reclamar.", show_alert=True)
-    return
 
-if not puede_reclamar:
-    query.answer("No puedes reclamar esta carta.", show_alert=True)
-    return
+    tiempo_desde_drop = ahora - drop["inicio"]
+    solo_dueño = tiempo_desde_drop < 15
+    puede_reclamar = False
+
+    user_doc = col_usuarios.find_one({"user_id": usuario_click}) or {}
+    bono = user_doc.get('bono', 0)
+
+    if usuario_click == drop["dueño"]:
+        primer_reclamo = drop.get("primer_reclamo_dueño")
+        if primer_reclamo is None:
+            puede_reclamar = True
+            drop["primer_reclamo_dueño"] = ahora
+        else:
+            if tiempo_desde_drop < 15:
+                query.answer("Solo puedes reclamar una carta antes de 15 segundos. Espera a que pasen 15 segundos para reclamar la otra (si tienes bono).", show_alert=True)
+                return
+            if bono < 1:
+                query.answer("Necesitas al menos 1 bono para reclamar la segunda carta.", show_alert=True)
+                return
+            puede_reclamar = True
+            col_usuarios.update_one({"user_id": usuario_click}, {"$inc": {"bono": -1}}, upsert=True)
+    elif not solo_dueño and carta["usuario"] is None:
+        if puede_usar_idolday(usuario_click):
+            puede_reclamar = True
+        else:
+            query.answer("Solo puedes reclamar cartas si tienes disponible tu /idolday o tienes un bono disponible.", show_alert=True)
+            return
+    else:
+        segundos_faltantes = int(15 - tiempo_desde_drop)
+        if segundos_faltantes < 0:
+            segundos_faltantes = 0
+        query.answer(f"Aún no puedes reclamar esta carta, te quedan {segundos_faltantes} segundos para poder reclamar.", show_alert=True)
+        return
+
+    if not puede_reclamar:
+        query.answer("No puedes reclamar esta carta.", show_alert=True)
+        return
+
 
 # Elegir estado random y armar mensaje personalizado
 estado_random = obtener_estado_random()
