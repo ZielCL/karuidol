@@ -638,6 +638,59 @@ dispatcher.add_handler(CommandHandler('giveidol', comando_giveidol))
 dispatcher.add_handler(CommandHandler('comandos', comando_comandos))
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback))
 
+def manejador_callback(update, context):
+    query = update.callback_query
+    data = query.data
+    # --- Drop de 2 cartas (nuevo) ---
+    if data.startswith("drop_"):
+        manejar_drop_reclamo(update, context)
+        return
+    # --- Reclamo clásico (drop individual, por si lo usas) ---
+    if data.startswith("reclamar"):
+        manejador_reclamar(update, context)
+        return
+    # --- Navegación de álbum ---
+    if data.startswith("vercarta"):
+        partes = data.split("_")
+        if len(partes) != 3:
+            return
+        usuario_id = int(partes[1])
+        idx = int(partes[2])
+        if query.from_user.id != usuario_id:
+            query.answer(text="Solo puedes ver tus propias cartas.", show_alert=True)
+            return
+        cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
+        def sort_key(x):
+            grupo = grupo_de_carta(x.get('nombre',''), x.get('version','')) or ""
+            return (
+                grupo.lower(),
+                x.get('nombre','').lower(),
+                x.get('card_id', 0)
+            )
+        cartas_usuario.sort(key=sort_key)
+        mostrar_carta_individual(query.message.chat_id, usuario_id, cartas_usuario, idx, context, query=query)
+        query.answer()
+        return
+    partes = data.split("_")
+    if len(partes) != 3:
+        return
+    modo, pagina, uid = partes
+    pagina = int(pagina); usuario_id = int(uid)
+    if query.from_user.id != usuario_id:
+        query.answer(text="Este álbum no es tuyo.", show_alert=True)
+        return
+    if modo == 'lista':
+        cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
+        def sort_key(x):
+            grupo = grupo_de_carta(x.get('nombre',''), x.get('version','')) or ""
+            return (
+                grupo.lower(),
+                x.get('nombre','').lower(),
+                x.get('card_id', 0)
+            )
+        cartas_usuario.sort(key=sort_key)
+        enviar_lista_pagina(query.message.chat_id, usuario_id, cartas_usuario, pagina, context, editar=True, mensaje=query.message)
+
 @app.route(f'/{TOKEN}', methods=['POST'])
 def webhook():
     global primer_mensaje
