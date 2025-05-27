@@ -430,7 +430,7 @@ def mostrar_carta_individual(chat_id, usuario_id, lista_cartas, idx, context, me
     if idx < len(lista_cartas)-1:
         botones.append(InlineKeyboardButton("Siguiente ➡️", callback_data=f"vercarta_{usuario_id}_{idx+1}"))
     teclado = InlineKeyboardMarkup([botones])
-    if query is not None:
+        if query is not None:
         try:
             query.edit_message_media(
                 media=InputMediaPhoto(media=imagen_url, caption=texto, parse_mode='HTML'),
@@ -444,9 +444,9 @@ def mostrar_carta_individual(chat_id, usuario_id, lista_cartas, idx, context, me
             photo=imagen_url,
             caption=texto,
             reply_markup=teclado,
-            parse_mode='HTML')
-            reply_markup=teclado
-           )
+            parse_mode='HTML'
+        )
+
         except Exception as e:
             query.answer(text="No se pudo actualizar la imagen.", show_alert=True)
     else:
