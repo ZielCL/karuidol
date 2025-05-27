@@ -140,6 +140,7 @@ def comando_idolday(update, context):
             context.bot.send_message(chat_id=chat_id, text=f"Ya usaste /idolday hoy.")
         return
 
+    # El drop SIEMPRE muestra estado Excelente en caption y objeto
     cartas_disponibles = cartas if len(cartas) >= 2 else cartas * 2
     cartas_drop = random.sample(cartas_disponibles, 2)
     cartas_info = []
@@ -156,7 +157,6 @@ def comando_idolday(update, context):
         else:
             nuevo_id = 1
             col_contadores.insert_one({"nombre": nombre, "version": version, "contador": 1})
-        # id único
         id_unico = random_id_unico(nuevo_id)
         cartas_info.append({
             "nombre": nombre,
@@ -168,8 +168,8 @@ def comando_idolday(update, context):
             "usuario": None,
             "hora_reclamada": None,
             "id_unico": id_unico,
-            "estado": "Excelente",      # Siempre drop visual "Excelente"
-            "estado_estrella": 1,       # 1 = Excelente
+            "estado": "Excelente",  # SIEMPRE "Excelente" hasta que alguien la reclama
+            "estado_estrella": 1,
         })
         caption = f"<b>[★☆☆☆] #{nuevo_id} [V1] {nombre} - {grupo}</b>"
         media_group.append(InputMediaPhoto(media=imagen_url, caption=caption, parse_mode="HTML"))
@@ -213,38 +213,6 @@ def comando_idolday(update, context):
 
     threading.Thread(target=desbloquear_drop, args=(drop_id, ), daemon=True).start()
 
-def desbloquear_drop(drop_id):
-    data = DROPS_ACTIVOS[drop_id]
-    tiempo_inicio = data["inicio"]
-    while True:
-        ahora = time.time()
-        elapsed = ahora - tiempo_inicio
-        if elapsed >= 30:
-            expira_drop(drop_id)
-            break
-        time.sleep(1)
-
-def expira_drop(drop_id):
-    drop = DROPS_ACTIVOS.get(drop_id)
-    if not drop or drop["expirado"]:
-        return
-    keyboard = [
-        [
-            InlineKeyboardButton("❌", callback_data="expirado", disabled=True),
-            InlineKeyboardButton("❌", callback_data="expirado", disabled=True),
-        ]
-    ]
-    try:
-        bot.edit_message_reply_markup(
-            chat_id=drop["chat_id"],
-            message_id=drop["mensaje_id"],
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-    except:
-        pass
-    drop["expirado"] = True
-
-# ----------- Manejador Reclamo de Cartas (con id_unico y estados aleatorios) -----------
 def manejador_reclamar(update, context):
     query = update.callback_query
     usuario_click = query.from_user.id
@@ -308,7 +276,7 @@ def manejador_reclamar(update, context):
         query.answer("No puedes reclamar esta carta.", show_alert=True)
         return
 
-    # Al reclamar, asigna estado aleatorio
+    # Al reclamar, asigna estado aleatorio SOLO ahora
     estado_idx = random.randint(0, 3)
     carta["estado"] = ESTADO_LISTA[estado_idx]
     carta["estado_estrella"] = estado_idx + 1  # 1: Excelente ... 4: Muy mal
@@ -316,7 +284,6 @@ def manejador_reclamar(update, context):
     carta["usuario"] = usuario_click
     carta["hora_reclamada"] = ahora
 
-    # El id_unico ya fue generado en el drop
     id_unico = carta["id_unico"]
 
     drop["usuarios_reclamaron"].append(usuario_click)
@@ -326,7 +293,6 @@ def manejador_reclamar(update, context):
     grupo = carta['grupo']
     cid = carta['card_id']
 
-    # Guardar en la colección de cartas del usuario
     col_cartas_usuario.insert_one(
         {
             "user_id": usuario_click,
@@ -353,7 +319,6 @@ def manejador_reclamar(update, context):
     )
 
     user_mention = f"@{query.from_user.username or query.from_user.first_name}"
-    # Mensaje según estado
     estado_msgs = [
         "Genial! está en <b>excelente</b> estado!",
         "Está en buen estado.",
@@ -361,7 +326,6 @@ def manejador_reclamar(update, context):
         "Lamentablemente, está en <b>muy mal</b> estado."
     ]
     msg_estado = estado_msgs[estado_idx]
-    # Formato para copiar id único
     msg = f"{user_mention} tomaste la carta #{cid} [{version}] {nombre} - {grupo} <code>{id_unico}</code>, {msg_estado}"
     context.bot.send_message(
         chat_id=drop["chat_id"],
@@ -369,6 +333,7 @@ def manejador_reclamar(update, context):
         parse_mode='HTML'
     )
     query.answer("¡Carta reclamada!", show_alert=True)
+
 
 # ----------------- Resto de funciones: album, paginación, etc. -----------------
 # Aquí pego la versión adaptada de /album para usar id_unico, estrellas y letra pegada a la izquierda:
