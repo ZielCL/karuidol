@@ -140,8 +140,11 @@ def comando_idolday(update, context):
             context.bot.send_message(chat_id=chat_id, text=f"Ya usaste /idolday hoy.")
         return
 
-    cartas_disponibles = cartas if len(cartas) >= 2 else cartas * 2
-    cartas_drop = random.sample(cartas_disponibles, 2)
+    # El nombre puede ser 'Excelente' o 'Excelente estado' según tu JSON.
+cartas_excelente = [c for c in cartas if c['estado'] in ['Excelente', 'Excelente estado']]
+if len(cartas_excelente) < 2:
+    cartas_excelente = cartas_excelente * 2
+cartas_drop = random.sample(cartas_excelente, 2)
     media_group = []
     cartas_info = []
     for carta in cartas_drop:
