@@ -144,7 +144,7 @@ def comando_idolday(update, context):
     cartas_disponibles = cartas if len(cartas) >= 2 else cartas * 2
     cartas_drop = random.sample(cartas_disponibles, 2)
     media_group = []
-    cartas_info = []    
+cartas_info = []
 for carta in cartas_drop:
     nombre = carta['nombre']
     version = carta['version']
@@ -178,7 +178,6 @@ for carta in cartas_drop:
         "estado": "Excelente",
         "estado_estrella": 1,
     })
-
         caption = f"<b>[★☆☆☆] #{nuevo_id} [{version}] {nombre} - {grupo}</b>"
         media_group.append(InputMediaPhoto(media=imagen_url, caption=caption, parse_mode="HTML"))
 
