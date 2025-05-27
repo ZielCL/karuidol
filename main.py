@@ -140,11 +140,9 @@ def comando_idolday(update, context):
             context.bot.send_message(chat_id=chat_id, text=f"Ya usaste /idolday hoy.")
         return
 
-    # FILTRA SOLO cartas en estado "Excelente" o "Excelente estado"
-    cartas_excelente = [c for c in cartas if c['estado'] in ['Excelente', 'Excelente estado']]
-    if len(cartas_excelente) < 2:
-        cartas_excelente = cartas_excelente * 2
-    cartas_drop = random.sample(cartas_excelente, 2)
+    # El drop SIEMPRE muestra estado Excelente (3 estrellas)
+    cartas_disponibles = cartas if len(cartas) >= 2 else cartas * 2
+    cartas_drop = random.sample(cartas_disponibles, 2)
     media_group = []
     cartas_info = []
     for carta in cartas_drop:
@@ -152,6 +150,7 @@ def comando_idolday(update, context):
         version = carta['version']
         grupo = carta.get('grupo', '')
         imagen_url = carta.get('imagen')
+
         doc_cont = col_contadores.find_one({"nombre": nombre, "version": version})
         if doc_cont:
             nuevo_id = doc_cont['contador'] + 1
@@ -161,9 +160,9 @@ def comando_idolday(update, context):
             col_contadores.insert_one({"nombre": nombre, "version": version, "contador": 1})
 
         id_unico = random_id_unico(nuevo_id)
-        caption = f"<b>[★☆☆] #{nuevo_id} [{version}] {nombre} - {grupo}</b>"
-        media_group.append(InputMediaPhoto(media=imagen_url, caption=caption, parse_mode="HTML"))
+        caption = f"<b>[★★★] #{nuevo_id} [{version}] {nombre} - {grupo}</b>"  # SIEMPRE 3 estrellas
 
+        media_group.append(InputMediaPhoto(media=imagen_url, caption=caption, parse_mode="HTML"))
         cartas_info.append({
             "nombre": nombre,
             "version": version,
@@ -175,7 +174,7 @@ def comando_idolday(update, context):
             "hora_reclamada": None,
             "id_unico": id_unico,
             "estado": "Excelente",
-            "estado_estrella": 1,
+            "estado_estrella": 3,  # SIEMPRE 3 estrellas al mostrar drop
         })
 
     msgs = context.bot.send_media_group(chat_id=chat_id, media=media_group)
@@ -216,6 +215,7 @@ def comando_idolday(update, context):
     )
 
     threading.Thread(target=desbloquear_drop, args=(drop_id, ), daemon=True).start()
+
 
 def manejador_reclamar(update, context):
     query = update.callback_query
@@ -280,10 +280,13 @@ def manejador_reclamar(update, context):
         query.answer("No puedes reclamar esta carta.", show_alert=True)
         return
 
-    # Al reclamar, asigna estado aleatorio SOLO ahora
+    # ---- SORTEO DE ESTADO Y ESTRELLAS ----
+    ESTADO_LISTA = ["Excelente", "Buen estado", "Mal estado", "Muy mal estado"]
+    ESTADO_ESTRELLAS = [3, 2, 1, 0]  # 3=excelente, 0=muy mal
+
     estado_idx = random.randint(0, 3)
     carta["estado"] = ESTADO_LISTA[estado_idx]
-    carta["estado_estrella"] = estado_idx + 1  # 1: Excelente ... 3: Muy mal
+    carta["estado_estrella"] = ESTADO_ESTRELLAS[estado_idx]
     carta["reclamada"] = True
     carta["usuario"] = usuario_click
     carta["hora_reclamada"] = ahora
@@ -310,6 +313,7 @@ def manejador_reclamar(update, context):
         }
     )
 
+    # --------- Botones ---------
     teclado = []
     for i, c in enumerate(drop["cartas"]):
         if c["reclamada"]:
@@ -322,22 +326,16 @@ def manejador_reclamar(update, context):
         reply_markup=InlineKeyboardMarkup([teclado])
     )
 
+    # --------- Mensaje de resultado ---------
     user_mention = f"@{query.from_user.username or query.from_user.first_name}"
-    estado_msgs = [
-        "Genial! está en <b>excelente</b> estado!",
-        "Está en buen estado.",
-        "Está en mal estado.",
-        "Lamentablemente, está en <b>muy mal</b> estado."
-    ]
-    msg_estado = estado_msgs[estado_idx]
-    msg = f"{user_mention} tomaste la carta #{cid} [{version}] {nombre} - {grupo} <code>{id_unico}</code>, {msg_estado}"
+    estrellas = "★" * carta["estado_estrella"] + "☆" * (3 - carta["estado_estrella"])
+    msg = f"{user_mention} tomaste la carta #{cid} [{version}] {nombre} - {grupo} <code>{id_unico}</code> [{estrellas}], está en <b>{carta['estado']}</b>."
     context.bot.send_message(
         chat_id=drop["chat_id"],
         text=msg,
         parse_mode='HTML'
     )
     query.answer("¡Carta reclamada!", show_alert=True)
-
 
 # ----------------- Resto de funciones: album, paginación, etc. -----------------
 # Aquí pego la versión adaptada de /album para usar id_unico, estrellas y letra pegada a la izquierda:
@@ -375,7 +373,8 @@ def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, edit
         nombre = carta.get('nombre', '')
         grupo = grupo_de_carta(nombre, version)
         id_unico = carta.get('id_unico', 'xxxx')
-        estado_estrella = carta.get('estado_estrella', 1)
+        estado_estrella = carta.get('estado_estrella', 3)  # Por defecto 3
+        # Renderiza correctamente 3, 2, 1, 0 estrellas
         estrellas = "★" * estado_estrella + "☆" * (3 - estado_estrella)
         texto_boton = f"{id_unico} [{estrellas}] #{cid} [{version}] {nombre} - {grupo}"
         botones.append([InlineKeyboardButton(texto_boton, callback_data=f"vercarta_{usuario_id}_{idx}")])
@@ -395,6 +394,7 @@ def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, edit
             context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode='HTML')
     else:
         context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode='HTML')
+
 
 def mostrar_carta_individual(chat_id, usuario_id, lista_cartas, idx, context, mensaje_a_editar=None, query=None):
     carta = lista_cartas[idx]
