@@ -254,7 +254,7 @@ def manejador_reclamar(update, context):
         return
 
     tiempo_desde_drop = ahora - drop["inicio"]
-    solo_dueño = tiempo_desde_drop < 10
+    solo_dueño = tiempo_desde_drop < 15
     puede_reclamar = False
 
     user_doc = col_usuarios.find_one({"user_id": usuario_click}) or {}
@@ -266,7 +266,7 @@ def manejador_reclamar(update, context):
             puede_reclamar = True
             drop["primer_reclamo_dueño"] = ahora
         else:
-            if tiempo_desde_drop < 10:
+            if tiempo_desde_drop < 15:
                 query.answer("Solo puedes reclamar una carta antes de 10 segundos. Espera a que pasen 10 segundos para reclamar la otra (si tienes bono).", show_alert=True)
                 return
             if bono < 1:
@@ -281,7 +281,7 @@ def manejador_reclamar(update, context):
             query.answer("Solo puedes reclamar cartas si tienes disponible tu /idolday o tienes un bono disponible.", show_alert=True)
             return
     else:
-        segundos_faltantes = int(10 - tiempo_desde_drop)
+        segundos_faltantes = int(15 - tiempo_desde_drop)
         if segundos_faltantes < 0:
             segundos_faltantes = 0
         query.answer(f"Aún no puedes reclamar esta carta, te quedan {segundos_faltantes} segundos para poder reclamar.", show_alert=True)
