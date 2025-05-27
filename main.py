@@ -771,10 +771,12 @@ def mostrar_detalle_set(update, context, set_name, pagina=1, mensaje=None, edita
             context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode='HTML')
     else:
         context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode='HTML')
-def manejador_callback(update, context):
+
+ def manejador_callback(update, context):
     query = update.callback_query
     data = query.data
 
+    # Manejo de callbacks
     if data.startswith("reclamar"):
         manejador_reclamar(update, context)
     elif data == "expirado":
@@ -823,6 +825,45 @@ def manejador_callback(update, context):
         enviar_lista_pagina(query.message.chat_id, usuario_id, cartas_usuario, pagina, context, editar=True, mensaje=query.message)
         query.answer()
         return
+    # ---- SETS Y PROGRESO ----
+    if data.startswith("setsprogreso_"):
+        pagina = int(data.split("_")[1])
+        mostrar_setsprogreso(update, context, pagina=pagina, mensaje=query.message, editar=True)
+        query.answer()
+        return
+    if data.startswith("setlist_"):
+        pagina = int(data.split("_")[1])
+        mostrar_lista_set(update, context, pagina=pagina, mensaje=query.message, editar=True)
+        query.answer()
+        return
+    if data.startswith("setdet_"):
+        partes = data.split("_")
+        set_name = "_".join(partes[1:-1])
+        pagina = int(partes[-1])
+        mostrar_detalle_set(update, context, set_name, pagina=pagina, mensaje=query.message, editar=True)
+        query.answer()
+        return
+    # ---- ALBUM Paginado ----
+    partes = data.split("_")
+    if len(partes) == 3 and partes[0] == "lista":
+        pagina = int(partes[1])
+        usuario_id = int(partes[2])
+        if query.from_user.id != usuario_id:
+            query.answer(text="Este álbum no es tuyo.", show_alert=True)
+            return
+        cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
+        def sort_key(x):
+            grupo = grupo_de_carta(x.get('nombre',''), x.get('version','')) or ""
+            return (
+                grupo.lower(),
+                x.get('nombre','').lower(),
+                x.get('card_id', 0)
+            )
+        cartas_usuario.sort(key=sort_key)
+        enviar_lista_pagina(query.message.chat_id, usuario_id, cartas_usuario, pagina, context, editar=True, mensaje=query.message)
+        query.answer()
+
+    
     # ---- SETS Y PROGRESO ----
     if data.startswith("setsprogreso_"):
         pagina = int(data.split("_")[1])
