@@ -80,7 +80,6 @@ def es_admin(update):
     except:
         return False
 
-# NUEVO: Función para saber si un usuario puede usar /idolday o tiene bono
 def puede_usar_idolday(user_id):
     user_doc = col_usuarios.find_one({"user_id": user_id})
     if not user_doc:
@@ -261,7 +260,6 @@ def manejador_reclamar(update, context):
     user_doc = col_usuarios.find_one({"user_id": usuario_click}) or {}
     bono = user_doc.get('bono', 0)
 
-    # Dueño: lógica igual que antes
     if usuario_click == drop["dueño"]:
         primer_reclamo = drop.get("primer_reclamo_dueño")
         if primer_reclamo is None:
@@ -276,7 +274,6 @@ def manejador_reclamar(update, context):
                 return
             puede_reclamar = True
             col_usuarios.update_one({"user_id": usuario_click}, {"$inc": {"bono": -1}}, upsert=True)
-    # NO dueño: solo puede reclamar tras 10s SI puede usar /idolday o tiene bono
     elif not solo_dueño and carta["usuario"] is None:
         if puede_usar_idolday(usuario_click):
             puede_reclamar = True
@@ -368,6 +365,27 @@ def manejador_callback(update, context):
         mostrar_carta_individual(query.message.chat_id, usuario_id, cartas_usuario, idx, context, query=query)
         query.answer()
         return
+    elif data.startswith("albumlista_"):
+        partes = data.split("_")
+        if len(partes) != 2:
+            return
+        usuario_id = int(partes[1])
+        if query.from_user.id != usuario_id:
+            query.answer(text="Solo puedes ver tu propio álbum.", show_alert=True)
+            return
+        cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
+        def sort_key(x):
+            grupo = grupo_de_carta(x.get('nombre',''), x.get('version','')) or ""
+            return (
+                grupo.lower(),
+                x.get('nombre','').lower(),
+                x.get('card_id', 0)
+            )
+        cartas_usuario.sort(key=sort_key)
+        pagina = 1
+        enviar_lista_pagina(query.message.chat_id, usuario_id, cartas_usuario, pagina, context, editar=True, mensaje=query.message)
+        query.answer()
+        return
     partes = data.split("_")
     if len(partes) != 3:
         return
@@ -430,6 +448,7 @@ def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, edit
     nav = []
     if pagina > 1:
         nav.append(InlineKeyboardButton("« Anterior", callback_data=f"lista_{pagina-1}_{usuario_id}"))
+    # Botón Album NO va aquí, solo en la vista de imagen grande
     if pagina < paginas:
         nav.append(InlineKeyboardButton("Siguiente »", callback_data=f"lista_{pagina+1}_{usuario_id}"))
     if nav:
@@ -453,11 +472,15 @@ def mostrar_carta_individual(chat_id, usuario_id, lista_cartas, idx, context, me
     id_carta = f"#{cid} [{version}] {nombre} - {grupo}"
     texto = f"<b>{id_carta}</b>"
     botones = []
+    # Botón Anterior
     if idx > 0:
         botones.append(InlineKeyboardButton("⬅️ Anterior", callback_data=f"vercarta_{usuario_id}_{idx-1}"))
+    # Botón Album SIEMPRE al medio
+    botones.append(InlineKeyboardButton("📒 Album", callback_data=f"albumlista_{usuario_id}"))
+    # Botón Siguiente
     if idx < len(lista_cartas)-1:
         botones.append(InlineKeyboardButton("Siguiente ➡️", callback_data=f"vercarta_{usuario_id}_{idx+1}"))
-    teclado = InlineKeyboardMarkup([botones] if botones else None)
+    teclado = InlineKeyboardMarkup([botones])
     if query is not None:
         try:
             query.edit_message_media(
