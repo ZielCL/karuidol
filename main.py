@@ -443,6 +443,7 @@ def mostrar_carta_individual(chat_id, usuario_id, lista_cartas, idx, context, me
             query.answer(text="No se pudo actualizar la imagen.", show_alert=True)
     else:
         context.bot.send_photo(chat_id=chat_id, photo=imagen_url, caption=texto, reply_markup=teclado, parse_mode='HTML')
+        
 def comando_miid(update, context):
     usuario = update.effective_user
     update.message.reply_text(f"Tu ID de Telegram es: {usuario.id}")
