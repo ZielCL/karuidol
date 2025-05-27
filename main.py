@@ -151,7 +151,6 @@ for carta in cartas_drop:
     grupo = carta.get('grupo', '')
     imagen_url = carta.get('imagen')
 
-    # Calcular el nuevo_id para cada carta (contador)
     doc_cont = col_contadores.find_one({"nombre": nombre, "version": version})
     if doc_cont:
         nuevo_id = doc_cont['contador'] + 1
@@ -162,12 +161,9 @@ for carta in cartas_drop:
 
     id_unico = random_id_unico(nuevo_id)
 
-    # SIEMPRE muestra el estado como "Excelente" en el drop
     caption = f"<b>[★☆☆☆] #{nuevo_id} [{version}] {nombre} - {grupo}</b>"
-
     media_group.append(InputMediaPhoto(media=imagen_url, caption=caption, parse_mode="HTML"))
 
-    # Guarda los datos para usarlos después en el reclamo
     cartas_info.append({
         "nombre": nombre,
         "version": version,
@@ -178,8 +174,8 @@ for carta in cartas_drop:
         "usuario": None,
         "hora_reclamada": None,
         "id_unico": id_unico,
-        "estado": "Excelente",   # SIEMPRE "Excelente" al dropearlas
-        "estado_estrella": 1,   # 1 estrella (Excelente)
+        "estado": "Excelente",
+        "estado_estrella": 1,
     })
 
         caption = f"<b>[★☆☆☆] #{nuevo_id} [{version}] {nombre} - {grupo}</b>"
