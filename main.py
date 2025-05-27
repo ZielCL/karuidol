@@ -16,6 +16,7 @@ from datetime import datetime
 from pymongo import MongoClient
 from dotenv import load_dotenv
 import re
+import string
 
 load_dotenv()
 
@@ -43,19 +44,30 @@ col_contadores = db['contadores']
 # Cargar cartas.json
 if not os.path.isfile('cartas.json'):
     raise ValueError("No se encontró el archivo cartas.json")
-with open('cartas.json', 'r', encoding='utf-8') as f:
+with open('cartas.json', 'r') as f:
     cartas = json.load(f)
 
 DROPS_ACTIVOS = {}
 
-# ──────────── FUNCIONES UTILES MULTI-ESTADO ──────────────
-def cartas_estado(nombre, version):
-    return [c for c in cartas if c['nombre'] == nombre and c['version'] == version]
+# Estados de carta
+ESTADOS_CARTA = [
+    ("Excelente", "★☆☆☆"),
+    ("Buen estado", "★★☆☆"),
+    ("Mal estado", "★★★☆"),
+    ("Muy mal estado", "★★★★")
+]
+ESTADO_LISTA = ["Excelente", "Buen estado", "Mal estado", "Muy mal estado"]
 
-def carta_estado(nombre, version, estado):
-    for c in cartas:
-        if c['nombre'] == nombre and c['version'] == version and c['estado'] == estado:
-            return c
+def random_id_unico(card_id):
+    # 4 letras/números aleatorios + el id de carta (card_id)
+    pool = string.ascii_lowercase + string.digits
+    base = ''.join(random.choices(pool, k=4))
+    return f"{base}{card_id}"
+
+def imagen_de_carta(nombre, version):
+    for carta in cartas:
+        if carta['nombre'] == nombre and carta['version'] == version:
+            return carta.get('imagen')
     return None
 
 def grupo_de_carta(nombre, version):
@@ -63,10 +75,6 @@ def grupo_de_carta(nombre, version):
         if carta['nombre'] == nombre and carta['version'] == version:
             return carta.get('grupo', '')
     return ""
-
-def imagen_de_carta(nombre, version, estado='Excelente estado'):
-    c = carta_estado(nombre, version, estado)
-    return c.get('imagen') if c else None
 
 def crear_drop_id(chat_id, mensaje_id):
     return f"{chat_id}_{mensaje_id}"
@@ -98,7 +106,7 @@ def puede_usar_idolday(user_id):
         return True
     return False
 
-# ──────────── DROP IDOLDAY ──────────────
+# --------- IDOLDAY DROP 2 CARTAS (Drop siempre muestra excelente estado, pero al reclamar puede variar) ----------
 def comando_idolday(update, context):
     usuario_id = update.message.from_user.id
     chat_id = update.effective_chat.id
@@ -132,8 +140,8 @@ def comando_idolday(update, context):
             context.bot.send_message(chat_id=chat_id, text=f"Ya usaste /idolday hoy.")
         return
 
-    cartas_excelente = [c for c in cartas if c['estado'] == 'Excelente estado']
-    cartas_drop = random.sample(cartas_excelente, 2)
+    cartas_disponibles = cartas if len(cartas) >= 2 else cartas * 2
+    cartas_drop = random.sample(cartas_disponibles, 2)
     cartas_info = []
     media_group = []
     for carta in cartas_drop:
@@ -148,16 +156,22 @@ def comando_idolday(update, context):
         else:
             nuevo_id = 1
             col_contadores.insert_one({"nombre": nombre, "version": version, "contador": 1})
+        # id único
+        id_unico = random_id_unico(nuevo_id)
         cartas_info.append({
             "nombre": nombre,
             "version": version,
             "grupo": grupo,
+            "imagen": imagen_url,
             "card_id": nuevo_id,
             "reclamada": False,
             "usuario": None,
             "hora_reclamada": None,
+            "id_unico": id_unico,
+            "estado": "Excelente",      # Siempre drop visual "Excelente"
+            "estado_estrella": 1,       # 1 = Excelente
         })
-        caption = f"<b>#{nuevo_id} [{version}] {nombre} - {grupo}</b>"
+        caption = f"<b>[★☆☆☆] #{nuevo_id} [V1] {nombre} - {grupo}</b>"
         media_group.append(InputMediaPhoto(media=imagen_url, caption=caption, parse_mode="HTML"))
 
     msgs = context.bot.send_media_group(chat_id=chat_id, media=media_group)
@@ -230,6 +244,7 @@ def expira_drop(drop_id):
         pass
     drop["expirado"] = True
 
+# ----------- Manejador Reclamo de Cartas (con id_unico y estados aleatorios) -----------
 def manejador_reclamar(update, context):
     query = update.callback_query
     usuario_click = query.from_user.id
@@ -293,9 +308,17 @@ def manejador_reclamar(update, context):
         query.answer("No puedes reclamar esta carta.", show_alert=True)
         return
 
+    # Al reclamar, asigna estado aleatorio
+    estado_idx = random.randint(0, 3)
+    carta["estado"] = ESTADO_LISTA[estado_idx]
+    carta["estado_estrella"] = estado_idx + 1  # 1: Excelente ... 4: Muy mal
     carta["reclamada"] = True
     carta["usuario"] = usuario_click
     carta["hora_reclamada"] = ahora
+
+    # El id_unico ya fue generado en el drop
+    id_unico = carta["id_unico"]
+
     drop["usuarios_reclamaron"].append(usuario_click)
 
     nombre = carta['nombre']
@@ -303,39 +326,19 @@ def manejador_reclamar(update, context):
     grupo = carta['grupo']
     cid = carta['card_id']
 
-    # Sortear estado (entre los 4) al reclamar
-    posibles_estados = cartas_estado(nombre, version)
-    carta_entregada = random.choice(posibles_estados)
-    estado = carta_entregada['estado']
-    estado_estrella = carta_entregada['estado_estrella']
-    imagen_url = carta_entregada['imagen']
-
-    existente = col_cartas_usuario.find_one({
-        "user_id": usuario_click,
-        "nombre": nombre,
-        "version": version,
-        "card_id": cid,
-        "estado": estado,
-    })
-    if existente:
-        col_cartas_usuario.update_one(
-            {"user_id": usuario_click, "nombre": nombre, "version": version, "card_id": cid, "estado": estado},
-            {"$inc": {"count": 1}}
-        )
-    else:
-        col_cartas_usuario.insert_one(
-            {
-                "user_id": usuario_click,
-                "nombre": nombre,
-                "version": version,
-                "grupo": grupo,
-                "estado": estado,
-                "estado_estrella": estado_estrella,
-                "imagen": imagen_url,
-                "card_id": cid,
-                "count": 1
-            }
-        )
+    # Guardar en la colección de cartas del usuario
+    col_cartas_usuario.insert_one(
+        {
+            "user_id": usuario_click,
+            "nombre": nombre,
+            "version": version,
+            "grupo": grupo,
+            "card_id": cid,
+            "id_unico": id_unico,
+            "estado": carta["estado"],
+            "estado_estrella": carta["estado_estrella"]
+        }
+    )
 
     teclado = []
     for i, c in enumerate(drop["cartas"]):
@@ -350,13 +353,26 @@ def manejador_reclamar(update, context):
     )
 
     user_mention = f"@{query.from_user.username or query.from_user.first_name}"
+    # Mensaje según estado
+    estado_msgs = [
+        "Genial! está en <b>excelente</b> estado!",
+        "Está en buen estado.",
+        "Está en mal estado.",
+        "Lamentablemente, está en <b>muy mal</b> estado."
+    ]
+    msg_estado = estado_msgs[estado_idx]
+    # Formato para copiar id único
+    msg = f"{user_mention} tomaste la carta #{cid} [{version}] {nombre} - {grupo} <code>{id_unico}</code>, {msg_estado}"
     context.bot.send_message(
         chat_id=drop["chat_id"],
-        text=f"{user_mention} tomaste la carta [{estado_estrella}] #{cid} [{version}] {nombre} - {grupo} !"
+        text=msg,
+        parse_mode='HTML'
     )
     query.answer("¡Carta reclamada!", show_alert=True)
 
-# ────────────── ALBUM ──────────────
+# ----------------- Resto de funciones: album, paginación, etc. -----------------
+# Aquí pego la versión adaptada de /album para usar id_unico, estrellas y letra pegada a la izquierda:
+
 def comando_album(update, context):
     usuario_id = update.message.from_user.id
     chat_id = update.effective_chat.id
@@ -389,9 +405,11 @@ def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, edit
         version = carta.get('version', '')
         nombre = carta.get('nombre', '')
         grupo = grupo_de_carta(nombre, version)
-        estado_estrella = carta.get('estado_estrella', '')
-        id_carta_album = f"[{estado_estrella}] #{cid} [{version}] {nombre} - {grupo}"
-        botones.append([InlineKeyboardButton(id_carta_album, callback_data=f"vercarta_{usuario_id}_{idx}")])
+        id_unico = carta.get('id_unico', 'xxxx')
+        estado_estrella = carta.get('estado_estrella', 1)
+        estrellas = "★" * estado_estrella + "☆" * (4 - estado_estrella)
+        texto_boton = f"{id_unico} [{estrellas}] #{cid} [{version}] {nombre} - {grupo}"
+        botones.append([InlineKeyboardButton(texto_boton, callback_data=f"vercarta_{usuario_id}_{idx}")])
     texto = f"<b>Página {pagina}/{paginas}</b>"
     nav = []
     if pagina > 1:
@@ -415,10 +433,12 @@ def mostrar_carta_individual(chat_id, usuario_id, lista_cartas, idx, context, me
     version = carta.get('version', '')
     nombre = carta.get('nombre', '')
     grupo = grupo_de_carta(nombre, version)
-    imagen_url = carta.get('imagen')
-    estado_estrella = carta.get('estado_estrella', '')
-    id_carta = f"[{estado_estrella}] #{cid} [{version}] {nombre} - {grupo}"
-    texto = f"<b>{id_carta}</b>"
+    imagen_url = imagen_de_carta(nombre, version)
+    id_unico = carta.get('id_unico', '')
+    estado_estrella = carta.get('estado_estrella', 1)
+    estrellas = "★" * estado_estrella + "☆" * (4 - estado_estrella)
+    id_carta = f"<code>{id_unico}</code> [{estrellas}] #{cid} [{version}] {nombre} - {grupo}"
+    texto = f"{id_carta}"
     botones = []
     if idx > 0:
         botones.append(InlineKeyboardButton("⬅️ Anterior", callback_data=f"vercarta_{usuario_id}_{idx-1}"))
@@ -436,171 +456,115 @@ def mostrar_carta_individual(chat_id, usuario_id, lista_cartas, idx, context, me
             query.answer(text="No se pudo actualizar la imagen.", show_alert=True)
     else:
         context.bot.send_photo(chat_id=chat_id, photo=imagen_url, caption=texto, reply_markup=teclado, parse_mode='HTML')
+        
+def comando_miid(update, context):
+    usuario = update.effective_user
+    update.message.reply_text(f"Tu ID de Telegram es: {usuario.id}")
 
-# ------------ COMANDOS EXTRAS, SETS, GIVEIDOL, ETC. --------
-def comando_giveidol(update, context):
-    if len(context.args) < 1:
-        update.message.reply_text(
-            "Uso: /giveidol <carta> <@usuario o responde al usuario>\n"
-            "Ejemplo: /giveidol #7V1TzuyuTwice @destino"
-        )
+def comando_bonoidolday(update, context):
+    user_id = update.message.from_user.id
+    chat = update.effective_chat
+    if chat.type not in ["group", "supergroup"]:
+        update.message.reply_text("Este comando solo puede usarse en grupos.")
         return
+    if not es_admin(update):
+        update.message.reply_text("Solo los administradores pueden usar este comando.")
+        return
+    args = context.args
+    if len(args) != 2:
+        update.message.reply_text("Uso: /bonoidolday <user_id> <cantidad>")
+        return
+    try:
+        dest_id = int(args[0])
+        cantidad = int(args[1])
+        if cantidad < 1:
+            update.message.reply_text("La cantidad debe ser mayor que 0.")
+            return
+    except:
+        update.message.reply_text("Uso: /bonoidolday <user_id> <cantidad>")
+        return
+    col_usuarios.update_one({"user_id": dest_id}, {"$inc": {"bono": cantidad}}, upsert=True)
+    update.message.reply_text(f"✅ Bono de {cantidad} tiradas de /idolday entregado a <code>{dest_id}</code>.", parse_mode='HTML')
 
+def comando_comandos(update, context):
+    texto = (
+        "📋 <b>Lista de comandos disponibles:</b>\n"
+        "\n"
+        "<b>/idolday</b> - Drop de 2 cartas con botones.\n"
+        "<b>/album</b> - Muestra tu colección de cartas.\n"
+        "<b>/giveidol</b> - Regala una carta usando el ID único (ej: <code>/giveidol f4fg1 @usuario</code>).\n"
+        "<b>/miid</b> - Muestra tu ID de Telegram.\n"
+        "<b>/bonoidolday</b> - Da bonos de tiradas de /idolday a un usuario (solo admins).\n"
+        "<b>/setsprogreso</b> - Progreso de sets/colecciones.\n"
+        "<b>/set</b> - Detalles de un set.\n"
+        "<b>/comandos</b> - Muestra esta lista de comandos.\n"
+    )
+    update.message.reply_text(texto, parse_mode='HTML')
+
+def comando_giveidol(update, context):
+    # Uso: /giveidol <id_unico> @usuario_destino
+    if len(context.args) < 2:
+        update.message.reply_text("Uso: /giveidol <id_unico> @usuario_destino")
+        return
+    id_unico = context.args[0].strip()
+    user_dest = context.args[1].strip()
     usuario_id = update.message.from_user.id
     chat = update.effective_chat
-    carta_arg = context.args[0]
-    if not carta_arg.startswith("#"):
-        update.message.reply_text("Debes indicar la carta con el formato #IDVnNombreGrupo. Ejemplo: /giveidol #7V1TzuyuTwice @destino")
+
+    # Buscar la carta exacta del usuario por id_unico
+    carta = col_cartas_usuario.find_one({"user_id": usuario_id, "id_unico": id_unico})
+    if not carta:
+        update.message.reply_text("No tienes esa carta para regalar.")
         return
 
-    carta_arg = carta_arg[1:]
-    m = re.match(r'(\d+)(V\d+)([^\s]+)', carta_arg)
-    if not m:
-        update.message.reply_text("Formato incorrecto. Usa: /giveidol #7V1TzuyuTwice @destino")
-        return
-    card_id, version, resto = m.group(1), m.group(2), m.group(3)
-    card_id_int = int(card_id)
-    version = version.upper()
-    carta_en_db = None
-    for c in cartas:
-        possible = f"{c['nombre']}{c['grupo']}".replace(" ", "").lower()
-        if resto.lower() == possible and c['version'] == version:
-            carta_en_db = c
-            break
-    if not carta_en_db:
-        update.message.reply_text("No se encontró una carta con ese nombre/grupo/version.")
-        return
-    nombre = carta_en_db['nombre']
-    grupo = carta_en_db['grupo']
-
-    # Identificar usuario destino
-    target_user_id = None
-    username_dest = None
-    full_name_dest = None
-    if update.message.reply_to_message:
-        target_user_id = update.message.reply_to_message.from_user.id
-        username_dest = update.message.reply_to_message.from_user.username
-        full_name_dest = update.message.reply_to_message.from_user.full_name
-    elif len(context.args) >= 2:
-        usuario_mention = context.args[1]
-        if usuario_mention.startswith("@"):
-            username_dest = usuario_mention[1:].lower()
-            posible = col_usuarios.find_one({"username": username_dest})
-            if posible:
-                target_user_id = posible["user_id"]
-            if not target_user_id:
-                try:
-                    member = context.bot.get_chat_member(chat.id, username_dest)
-                    if member and member.user and member.user.username and member.user.username.lower() == username_dest:
-                        target_user_id = member.user.id
-                        full_name_dest = member.user.full_name
-                except Exception:
-                    pass
+    # Buscar id Telegram del destino
+    if user_dest.startswith('@'):
+        username_dest = user_dest[1:].lower()
+        posible = col_usuarios.find_one({"username": username_dest})
+        if posible:
+            target_user_id = posible["user_id"]
         else:
             try:
-                target_user_id = int(usuario_mention)
-            except:
-                pass
-    elif update.message.entities:
-        for entity in update.message.entities:
-            if entity.type == "text_mention" and entity.user:
-                target_user_id = entity.user.id
-                username_dest = entity.user.username
-                full_name_dest = entity.user.full_name
-                break
+                member = context.bot.get_chat_member(chat.id, username_dest)
+                if member and member.user and member.user.username and member.user.username.lower() == username_dest:
+                    target_user_id = member.user.id
+            except Exception:
+                target_user_id = None
+    else:
+        try:
+            target_user_id = int(user_dest)
+        except:
+            target_user_id = None
 
     if not target_user_id:
-        update.message.reply_text("No pude identificar al usuario destino. Usa @username (que haya hablado al menos una vez), responde al usuario, o menciona a alguien que esté en el grupo.")
+        update.message.reply_text("No pude identificar al usuario destino. Usa @username o el ID numérico de Telegram.")
         return
     if usuario_id == target_user_id:
         update.message.reply_text("No puedes regalarte cartas a ti mismo.")
         return
 
-    # Elegir la carta con estado
-    carta = col_cartas_usuario.find_one({
-        "user_id": usuario_id,
-        "card_id": card_id_int,
-        "version": version,
-        "nombre": nombre
-    })
-    if not carta or carta.get("count", 1) < 1:
-        update.message.reply_text("No tienes esa carta para regalar.")
-        return
+    # Quitar carta al remitente
+    col_cartas_usuario.delete_one({"user_id": usuario_id, "id_unico": id_unico})
 
-    estado = carta.get('estado')
-    estado_estrella = carta.get('estado_estrella', '')
+    # Entregar carta al destinatario (misma id_unico)
+    carta["user_id"] = target_user_id
+    col_cartas_usuario.insert_one(carta)
 
-    if carta["count"] > 1:
-        col_cartas_usuario.update_one(
-            {"user_id": usuario_id, "card_id": card_id_int, "version": version, "nombre": nombre, "estado": estado},
-            {"$inc": {"count": -1}}
-        )
-    else:
-        col_cartas_usuario.delete_one(
-            {"user_id": usuario_id, "card_id": card_id_int, "version": version, "nombre": nombre, "estado": estado}
-        )
-
-    existente = col_cartas_usuario.find_one(
-        {"user_id": target_user_id, "card_id": card_id_int, "version": version, "nombre": nombre, "estado": estado}
-    )
-    if existente:
-        col_cartas_usuario.update_one(
-            {"user_id": target_user_id, "card_id": card_id_int, "version": version, "nombre": nombre, "estado": estado},
-            {"$inc": {"count": 1}}
-        )
-    else:
-        col_cartas_usuario.insert_one(
-            {
-                "user_id": target_user_id,
-                "nombre": nombre,
-                "version": version,
-                "grupo": grupo,
-                "estado": estado,
-                "estado_estrella": estado_estrella,
-                "card_id": card_id_int,
-                "count": 1
-            }
-        )
-
-    if target_user_id:
-        try:
-            user_dest_data = context.bot.get_chat_member(chat.id, target_user_id).user
-            if user_dest_data.username:
-                col_usuarios.update_one(
-                    {"user_id": target_user_id},
-                    {"$set": {"username": user_dest_data.username.lower()}},
-                    upsert=True
-                )
-            if not username_dest:
-                username_dest = user_dest_data.username
-            if not full_name_dest:
-                full_name_dest = user_dest_data.full_name
-        except:
-            pass
-
-    id_carta_give = f"[{estado_estrella}] #{card_id}{version}{nombre}{grupo}"
-    dest_mention = f"@{username_dest}" if username_dest else (full_name_dest if full_name_dest else "el usuario")
     update.message.reply_text(
-        f"🎁 ¡Carta <b>{id_carta_give}</b> enviada correctamente a {dest_mention}!",
+        f"🎁 ¡Carta [{id_unico}] enviada correctamente a <b>@{user_dest.lstrip('@')}</b>!",
         parse_mode='HTML'
     )
-
     try:
         notif = (
             f"🎉 <b>¡Has recibido una carta!</b>\n"
-            f"Te han regalado <b>{id_carta_give}</b>.\n"
+            f"Te han regalado <b>{id_unico}</b>.\n"
             f"¡Revisa tu álbum con <code>/album</code>!"
         )
         context.bot.send_message(chat_id=target_user_id, text=notif, parse_mode='HTML')
     except Exception:
-        try:
-            context.bot.send_message(chat_id=chat.id, text=f"¡{dest_mention}, te han regalado <b>{id_carta_give}</b>!", parse_mode='HTML')
-        except:
-            pass
+        pass
 
-def comando_setsprogreso(update, context):
-    mostrar_setsprogreso(update, context, pagina=1)
-
+# --------- Sets/Progreso ---------
 def obtener_sets_disponibles():
     sets = set()
     for carta in cartas:
@@ -610,27 +574,27 @@ def obtener_sets_disponibles():
             sets.add(carta["grupo"])
     return sorted(list(sets), key=lambda s: s.lower())
 
+def comando_setsprogreso(update, context):
+    mostrar_setsprogreso(update, context, pagina=1)
+
 def mostrar_setsprogreso(update, context, pagina=1, mensaje=None, editar=False):
     usuario_id = update.effective_user.id
     chat_id = update.effective_chat.id
     sets = obtener_sets_disponibles()
     cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
-    # Ahora el set incluye nombre + version (no importa el estado para sets)
     cartas_usuario_set = set((c["nombre"], c["version"]) for c in cartas_usuario)
-
     por_pagina = 5
     total = len(sets)
     paginas = (total - 1) // por_pagina + 1
     if pagina < 1: pagina = 1
     if pagina > paginas: pagina = paginas
-
     inicio = (pagina - 1) * por_pagina
     fin = min(inicio + por_pagina, total)
     texto = "<b>📚 Progreso de sets/colecciones:</b>\n\n"
     for s in sets[inicio:fin]:
-        cartas_set = [c for c in cartas if (c.get("set") == s or c.get("grupo") == s) and c.get('estado_estrella','').startswith("★")]
-        total_set = len(set((c["nombre"], c["version"]) for c in cartas_set))
-        usuario_tiene = len(set((c["nombre"], c["version"]) for c in cartas_set if (c["nombre"], c["version"]) in cartas_usuario_set))
+        cartas_set = [c for c in cartas if (c.get("set") == s or c.get("grupo") == s)]
+        total_set = len(cartas_set)
+        usuario_tiene = sum(1 for c in cartas_set if (c["nombre"], c["version"]) in cartas_usuario_set)
         if usuario_tiene == 0:
             emoji = "⬜"
         elif usuario_tiene == total_set:
@@ -643,17 +607,14 @@ def mostrar_setsprogreso(update, context, pagina=1, mensaje=None, editar=False):
         bloques_llenos = int((usuario_tiene / total_set) * bloques) if total_set > 0 else 0
         barra = "🟩" * bloques_llenos + "⬜" * (bloques - bloques_llenos)
         texto += f"{emoji} <b>{s}</b>: {usuario_tiene}/{total_set}\n{barra}\n\n"
-
     texto += f"Página {pagina}/{paginas}\n"
     texto += "📖 Escribe <b>/set &lt;nombre_set&gt;</b> para ver los detalles de un set.\nEjemplo: <code>/set Twice</code>"
-
     botones = []
     if pagina > 1:
         botones.append(InlineKeyboardButton("⬅️", callback_data=f"setsprogreso_{pagina-1}"))
     if pagina < paginas:
         botones.append(InlineKeyboardButton("➡️", callback_data=f"setsprogreso_{pagina+1}"))
     teclado = InlineKeyboardMarkup([botones]) if botones else None
-
     if editar and mensaje:
         try:
             mensaje.edit_text(texto, reply_markup=teclado, parse_mode="HTML")
@@ -679,7 +640,6 @@ def comando_set_detalle(update, context):
     if not set_match:
         mostrar_lista_set(update, context, pagina=1, error=nombre_set)
         return
-
     mostrar_detalle_set(update, context, set_match, pagina=1)
 
 def mostrar_lista_set(update, context, pagina=1, mensaje=None, editar=False, error=None):
@@ -714,16 +674,9 @@ def mostrar_lista_set(update, context, pagina=1, mensaje=None, editar=False, err
 def mostrar_detalle_set(update, context, set_name, pagina=1, mensaje=None, editar=False):
     usuario_id = update.effective_user.id
     chat_id = update.effective_chat.id
-    cartas_set = [c for c in cartas if (c.get("set") == set_name or c.get("grupo") == set_name) and c.get('estado_estrella','').startswith("★")]
+    cartas_set = [c for c in cartas if (c.get("set") == set_name or c.get("grupo") == set_name)]
     por_pagina = 8
-    # Distintas cartas únicas por nombre/version
-    cartas_unicas = {}
-    for c in cartas_set:
-        key = (c['nombre'], c['version'])
-        if key not in cartas_unicas:
-            cartas_unicas[key] = c
-    cartas_set_unicas = list(cartas_unicas.values())
-    total = len(cartas_set_unicas)
+    total = len(cartas_set)
     paginas = (total - 1) // por_pagina + 1
     if pagina < 1: pagina = 1
     if pagina > paginas: pagina = paginas
@@ -731,19 +684,19 @@ def mostrar_detalle_set(update, context, set_name, pagina=1, mensaje=None, edita
     fin = min(inicio + por_pagina, total)
     cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
     cartas_usuario_set = set((c["nombre"], c["version"]) for c in cartas_usuario)
-    usuario_tiene = sum(1 for c in cartas_set_unicas if (c["nombre"], c["version"]) in cartas_usuario_set)
+    usuario_tiene = sum(1 for c in cartas_set if (c["nombre"], c["version"]) in cartas_usuario_set)
     bloques = 10
-    bloques_llenos = int((usuario_tiene / len(cartas_set_unicas)) * bloques) if len(cartas_set_unicas) > 0 else 0
+    bloques_llenos = int((usuario_tiene / len(cartas_set)) * bloques) if len(cartas_set) > 0 else 0
     barra = "🟩" * bloques_llenos + "⬜" * (bloques - bloques_llenos)
-    texto = f"<b>🌟 Set: {set_name}</b> <b>({usuario_tiene}/{len(cartas_set_unicas)})</b>\n{barra}\n\n"
-    for carta in cartas_set_unicas[inicio:fin]:
+    texto = f"<b>🌟 Set: {set_name}</b> <b>({usuario_tiene}/{len(cartas_set)})</b>\n{barra}\n\n"
+    for carta in cartas_set[inicio:fin]:
         key = (carta["nombre"], carta["version"])
         if key in cartas_usuario_set:
             texto += f"✅ <b>{carta['nombre']} [{carta['version']}]</b>\n"
         else:
             texto += f"❌ {carta['nombre']} [{carta['version']}]\n"
     texto += f"\nPágina {pagina}/{paginas}"
-    if usuario_tiene == len(cartas_set_unicas) and len(cartas_set_unicas) > 0:
+    if usuario_tiene == len(cartas_set) and len(cartas_set) > 0:
         texto += "\n🎉 <b>¡Completaste este set!</b> 🎉"
     botones = []
     if pagina > 1:
@@ -759,54 +712,12 @@ def mostrar_detalle_set(update, context, set_name, pagina=1, mensaje=None, edita
     else:
         context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode='HTML')
 
-def comando_comandos(update, context):
-    texto = (
-        "📋 <b>Lista de comandos disponibles:</b>\n"
-        "\n"
-        "<b>/idolday</b> - Drop de 2 cartas con botones.\n"
-        "<b>/album</b> - Muestra tu colección de cartas.\n"
-        "<b>/giveidol</b> - Regala una carta a otro usuario (usando @usuario o respuesta).\n"
-        "<b>/miid</b> - Muestra tu ID de Telegram.\n"
-        "<b>/bonoidolday</b> - Da bonos de tiradas de /idolday a un usuario (solo admins).\n"
-        "<b>/setsprogreso</b> - Progreso de sets/colecciones.\n"
-        "<b>/set</b> - Detalles de un set.\n"
-        "<b>/comandos</b> - Muestra esta lista de comandos y para qué sirve cada uno.\n"
-    )
-    update.message.reply_text(texto, parse_mode='HTML')
+# ... Aquí pegas la versión nueva de comando_giveidol y resto de comandos extras adaptados ...
+# Si quieres esa parte dime y te la entrego lista para copiar y pegar
 
-def comando_bonoidolday(update, context):
-    user_id = update.message.from_user.id
-    chat = update.effective_chat
-    if chat.type not in ["group", "supergroup"]:
-        update.message.reply_text("Este comando solo puede usarse en grupos.")
-        return
-    if not es_admin(update):
-        update.message.reply_text("Solo los administradores pueden usar este comando.")
-        return
-    args = context.args
-    if len(args) != 2:
-        update.message.reply_text("Uso: /bonoidolday <user_id> <cantidad>")
-        return
-    try:
-        dest_id = int(args[0])
-        cantidad = int(args[1])
-        if cantidad < 1:
-            update.message.reply_text("La cantidad debe ser mayor que 0.")
-            return
-    except:
-        update.message.reply_text("Uso: /bonoidolday <user_id> <cantidad>")
-        return
-    col_usuarios.update_one({"user_id": dest_id}, {"$inc": {"bono": cantidad}}, upsert=True)
-    update.message.reply_text(f"✅ Bono de {cantidad} tiradas de /idolday entregado a <code>{dest_id}</code>.", parse_mode='HTML')
+# ... Igualmente aquí puedes agregar las funciones de setsprogreso, set, etc. como hablamos ...
 
-def comando_miid(update, context):
-    usuario = update.effective_user
-    update.message.reply_text(f"Tu ID de Telegram es: {usuario.id}")
-# Aquí debes pegar tus funciones: comando_giveidol, comando_setsprogreso, comando_set_detalle, mostrar_setsprogreso,
-# mostrar_lista_set, mostrar_detalle_set, comando_comandos, comando_bonoidolday, comando_miid.
-# (No te las repito por límite de espacio, pero van igual que tu versión anterior: solo deben ahora usar también los campos estado/estado_estrella en sus búsquedas y despliegues.)
-
-# ------------ CALLBACKS COMPLETOS ------------
+# --------- CALLBACKS ---------
 def manejador_callback(update, context):
     query = update.callback_query
     data = query.data
@@ -859,8 +770,8 @@ def manejador_callback(update, context):
         enviar_lista_pagina(query.message.chat_id, usuario_id, cartas_usuario, pagina, context, editar=True, mensaje=query.message)
         query.answer()
         return
-    # Agrega aquí todos los callbacks para setsprogreso, setlist, setdet, paginación, etc.
-    
+
+        # ---- SETS Y PROGRESO ----
     if data.startswith("setsprogreso_"):
         pagina = int(data.split("_")[1])
         mostrar_setsprogreso(update, context, pagina=pagina, mensaje=query.message, editar=True)
@@ -878,6 +789,10 @@ def manejador_callback(update, context):
         mostrar_detalle_set(update, context, set_name, pagina=pagina, mensaje=query.message, editar=True)
         query.answer()
         return
+
+    # Agrega aquí todos los callbacks para setsprogreso, setlist, setdet, paginación, etc.
+    # Si los necesitas completos, dímelo y te los doy todos para copiar y pegar.
+
     partes = data.split("_")
     if len(partes) == 3 and partes[0] == "lista":
         pagina = int(partes[1])
@@ -900,12 +815,12 @@ def manejador_callback(update, context):
 # --------- HANDLERS ---------
 dispatcher.add_handler(CommandHandler('idolday', comando_idolday))
 dispatcher.add_handler(CommandHandler('album', comando_album))
+dispatcher.add_handler(CommandHandler('miid', comando_miid))
+dispatcher.add_handler(CommandHandler('bonoidolday', comando_bonoidolday))
+dispatcher.add_handler(CommandHandler('comandos', comando_comandos))
 dispatcher.add_handler(CommandHandler('giveidol', comando_giveidol))
 dispatcher.add_handler(CommandHandler('setsprogreso', comando_setsprogreso))
 dispatcher.add_handler(CommandHandler('set', comando_set_detalle))
-dispatcher.add_handler(CommandHandler('comandos', comando_comandos))
-dispatcher.add_handler(CommandHandler('miid', comando_miid))
-dispatcher.add_handler(CommandHandler('bonoidolday', comando_bonoidolday))
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback))
 
 @app.route(f'/{TOKEN}', methods=['POST'])
