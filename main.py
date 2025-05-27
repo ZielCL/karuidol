@@ -555,27 +555,6 @@ dispatcher.add_handler(CommandHandler('comandos', comando_comandos))
 # Agrega aquí tus otros handlers de comandos: /giveidol, /setsprogreso, /set, etc.
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback))
 
-@app.route(f'/{TOKEN}', methods=['POST'])
-def webhook():
-    global primer_mensaje
-    update = Update.de_json(request.get_json(force=True), bot)
-    if primer_mensaje and update.message:
-        try:
-            bot.send_message(chat_id=update.effective_chat.id, text="Bot activo")
-        except:
-            pass
-        primer_mensaje = False
-    dispatcher.process_update(update)
-    return 'OK'
-
-@app.route("/", methods=["GET"])
-def home():
-    return "Bot activo."
-
-if __name__ == '__main__':
-    puerto = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=puerto)
-
 def comando_giveidol(update, context):
     if len(context.args) < 1:
         update.message.reply_text(
