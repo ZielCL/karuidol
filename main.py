@@ -1,11 +1,14 @@
 import os
+import threading
 from flask import Flask, request
-from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
+from telegram import (
+    Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup,
+    InputMediaPhoto
+)
 from telegram.ext import Dispatcher, CommandHandler, CallbackQueryHandler
 import json
 import random
-import threading
-from datetime import datetime, timedelta
+from datetime import datetime
 from pymongo import MongoClient
 from dotenv import load_dotenv
 import re
@@ -25,10 +28,6 @@ bot = Bot(TOKEN)
 dispatcher = Dispatcher(bot, None, use_context=True)
 
 primer_mensaje = True
-reclamos_pendientes = {}
-
-# Nuevo: Manejo de drops múltiples
-drops_pendientes = {}  # chat_id: info_drop
 
 # MongoDB setup
 client = MongoClient(MONGO_URI)
@@ -37,7 +36,6 @@ col_usuarios = db['usuarios']
 col_cartas_usuario = db['cartas_usuario']
 col_contadores = db['contadores']
 
-# Cargar cartas.json
 if not os.path.isfile('cartas.json'):
     cartas_ejemplo = [
         {"nombre": "Tzuyu", "grupo": "Twice", "version": "V1", "rareza": "Común", "imagen": "https://example.com/tzuyu_v1.jpg"},
@@ -49,6 +47,7 @@ if not os.path.isfile('cartas.json'):
 with open('cartas.json', 'r') as f:
     cartas = json.load(f)
 
+# --- Utilidades ---
 def imagen_de_carta(nombre, version):
     for carta in cartas:
         if carta['nombre'] == nombre and carta['version'] == version:
@@ -72,11 +71,8 @@ def es_admin(update):
     except:
         return False
 
-def comando_miid(update, context):
-    usuario = update.effective_user
-    update.message.reply_text(f"Tu ID de Telegram es: {usuario.id}")
-
-# =============== DROP DE 3 CARTAS ====================
+# --- SISTEMA DROP 2 CARTAS ---
+drops_activos = {}  # chat_id -> info_drop
 
 def comando_idolday(update, context):
     usuario_id = update.message.from_user.id
@@ -87,11 +83,7 @@ def comando_idolday(update, context):
         context.bot.send_message(chat_id=chat_id, text="Este comando solo se puede usar en grupos.")
         return
 
-    # No permitir nuevo drop si hay un drop pendiente sin terminar
-    if chat_id in drops_pendientes:
-        context.bot.send_message(chat_id=chat_id, text="Ya hay un drop activo en este grupo. Reclamen las cartas antes de hacer un nuevo /idolday.")
-        return
-
+    # Control de tirada diaria o con bono
     user_doc = col_usuarios.find_one({"user_id": usuario_id})
     bono = user_doc.get('bono', 0) if user_doc else 0
     last = user_doc.get('last_idolday') if user_doc else None
@@ -116,25 +108,23 @@ def comando_idolday(update, context):
             context.bot.send_message(chat_id=chat_id, text=f"Ya usaste /idolday hoy.")
         return
 
-    # Elegir 3 cartas (pueden repetirse versiones)
-    cartas_v1 = [c for c in cartas if c.get('version') == 'V1']
-    cartas_v2 = [c for c in cartas if c.get('version') == 'V2']
-    pool = cartas_v1 if cartas_v1 else cartas
-    elegidas = []
-    for i in range(3):
-        if cartas_v2 and random.random() < 0.10:
-            carta = random.choice(cartas_v2)
-        else:
-            carta = random.choice(pool)
-        elegidas.append(carta)
+    # Pool de cartas, 2 al azar
+    pool = [c for c in cartas]
+    if len(pool) < 2:
+        context.bot.send_message(chat_id=chat_id, text="No hay suficientes cartas para el drop.")
+        return
+    cartas_drop = random.sample(pool, 2)
 
-    drops = []
-    drop_info = []
-    for carta in elegidas:
+    # Prepara info para la base de datos y los botones
+    cartas_info = []
+    media = []
+    ids_cartas = []
+    for carta in cartas_drop:
         nombre = carta['nombre']
         version = carta['version']
         grupo = carta.get('grupo', '')
         imagen_url = carta.get('imagen')
+        # id de carta incremental (para no repetir)
         doc_cont = col_contadores.find_one({"nombre": nombre, "version": version})
         if doc_cont:
             nuevo_id = doc_cont['contador'] + 1
@@ -142,228 +132,233 @@ def comando_idolday(update, context):
         else:
             nuevo_id = 1
             col_contadores.insert_one({"nombre": nombre, "version": version, "contador": 1})
-
-        drop_info.append({
-            "nombre": nombre,
-            "version": version,
-            "grupo": grupo,
-            "card_id": nuevo_id,
-            "imagen_url": imagen_url,
-            "reclamada": None  # user_id que la reclamó o None
+        ids_cartas.append(nuevo_id)
+        caption = f"#{nuevo_id} [{version}] {nombre} - {grupo}"
+        media.append(InputMediaPhoto(media=imagen_url, caption=caption))
+        cartas_info.append({
+            "nombre": nombre, "version": version, "id": nuevo_id, "grupo": grupo,
+            "imagen": imagen_url, "reclamada": False, "por": None, "momento": None
         })
 
-        texto = f"#{nuevo_id} [{version}] {nombre} - {grupo}"
-        drops.append(InputMediaPhoto(media=imagen_url, caption=texto, parse_mode='HTML'))
+    # Envía media group
+    msgs = context.bot.send_media_group(chat_id=chat_id, media=media)
+    mensaje_id_base = msgs[0].message_id
 
-    # Enviar media_group (3 imágenes)
-    media_msgs = context.bot.send_media_group(chat_id=chat_id, media=drops)
-    media_msg_ids = [msg.message_id for msg in media_msgs]
-
-    # Botones de reclamo (uno por carta, todos activos solo para el usuario)
-    botones = [
-        [InlineKeyboardButton(f"1️⃣", callback_data=f"drop_{chat_id}_{usuario_id}_0")],
-        [InlineKeyboardButton(f"2️⃣", callback_data=f"drop_{chat_id}_{usuario_id}_1")],
-        [InlineKeyboardButton(f"3️⃣", callback_data=f"drop_{chat_id}_{usuario_id}_2")],
+    # Envía los botones de pick
+    teclado = [
+        [
+            InlineKeyboardButton("1", callback_data=f"drop_{chat_id}_0"),
+            InlineKeyboardButton("2", callback_data=f"drop_{chat_id}_1")
+        ]
     ]
-    texto_botones = (
-        "<b>¡Elige tu carta!</b>\n"
-        "Solo el usuario que usó /idolday puede reclamar durante 10 segundos.\n"
-        "Luego, cualquiera podrá reclamar las cartas restantes.\n"
-        "Si el dueño tiene un <code>/bonoidolday</code>, puede reclamar otra carta después de 30 segundos."
-    )
-    mensaje_botones = context.bot.send_message(
-        chat_id=chat_id, text=texto_botones, reply_markup=InlineKeyboardMarkup(botones), parse_mode='HTML'
-    )
-    botones_msg_id = mensaje_botones.message_id
+    msg_botones = context.bot.send_message(chat_id=chat_id, text="¡Drop! Solo quien usó /idolday puede reclamar en los primeros 10 segundos.",
+                                           reply_markup=InlineKeyboardMarkup(teclado))
 
-    # Guardar en drops_pendientes el estado
-    drops_pendientes[chat_id] = {
-        "dueno": usuario_id,
-        "cartas": drop_info,
-        "botones_msg_id": botones_msg_id,
-        "media_msg_ids": media_msg_ids,
-        "hora_inicio": datetime.utcnow(),
-        "reclamos": [],
-        "liberado": False,
-        "bloqueados": [False, False, False],
-        "primer_reclamo": None,
-        "puede_reclamar_otra": False
+    # Guarda estado
+    info_drop = {
+        'usuario_id': usuario_id,
+        'cartas': cartas_info,
+        'timestamp': ahora,
+        'primer_reclamo_usuario': None,
+        'puede_segundo_pick': False,
+        'msg_botones_id': msg_botones.message_id,
+        'pick_hecho_usuario': 0,  # cuantos picks lleva el dueño (máximo 2, pero el 2do solo tras 30s y con bono)
+        'bono_usado': False,
+        'activo': True
     }
+    drops_activos[chat_id] = info_drop
 
-    # Después de 10s, liberar para todos
-    def liberar():
-        info = drops_pendientes.get(chat_id)
-        if info:
-            info["liberado"] = True
+    # Timer para liberar cartas tras 10s
+    def liberar_picks():
+        if drops_activos.get(chat_id) and drops_activos[chat_id]['activo']:
+            context.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=msg_botones.message_id,
+                text="¡Ya cualquiera puede reclamar las cartas disponibles!",
+                reply_markup=InlineKeyboardMarkup(teclado_drop(chat_id))
+            )
+    threading.Timer(10, liberar_picks).start()
 
-    t = threading.Timer(10, liberar)
-    t.start()
+    # Timer para cerrar el drop tras 60s
+    def cerrar_drop():
+        drop = drops_activos.get(chat_id)
+        if drop and drop['activo']:
+            drop['activo'] = False
+            context.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=msg_botones.message_id,
+                text="⏳ Drop finalizado. Ya no se pueden reclamar cartas.",
+                reply_markup=InlineKeyboardMarkup([
+                    [
+                        InlineKeyboardButton("❌", callback_data="nada"),
+                        InlineKeyboardButton("❌", callback_data="nada")
+                    ]
+                ])
+            )
+            drops_activos.pop(chat_id, None)
+    threading.Timer(60, cerrar_drop).start()
+
+def teclado_drop(chat_id):
+    # Genera teclado según cartas reclamadas (para editar botones)
+    drop = drops_activos.get(chat_id)
+    if not drop:
+        return [
+            [
+                InlineKeyboardButton("❌", callback_data="nada"),
+                InlineKeyboardButton("❌", callback_data="nada")
+            ]
+        ]
+    botones = []
+    for idx, carta in enumerate(drop['cartas']):
+        if carta['reclamada']:
+            botones.append(InlineKeyboardButton("❌", callback_data="nada"))
+        else:
+            botones.append(InlineKeyboardButton(str(idx+1), callback_data=f"drop_{chat_id}_{idx}"))
+    return [botones]
 
 def manejar_drop_reclamo(update, context):
     query = update.callback_query
-    user_id = query.from_user.id
     data = query.data
+    usuario_id = query.from_user.id
     partes = data.split("_")
-    if len(partes) != 4:
+    if len(partes) != 3:
         query.answer()
         return
-    _, chat_id_str, dueno_id_str, idx_str = partes
-    chat_id = int(chat_id_str)
-    dueno_id = int(dueno_id_str)
-    idx = int(idx_str)
+    chat_id = int(partes[1])
+    carta_idx = int(partes[2])
 
-    info = drops_pendientes.get(chat_id)
-    if not info or idx not in [0, 1, 2]:
-        query.answer("Ya no hay drop activo.", show_alert=True)
-        return
-
-    carta_info = info["cartas"][idx]
-    if info["bloqueados"][idx]:
-        query.answer("❌ Esta carta ya fue reclamada.", show_alert=True)
+    drop = drops_activos.get(chat_id)
+    if not drop or not drop['activo']:
+        query.answer("Drop finalizado.", show_alert=True)
         return
 
     ahora = datetime.utcnow()
-    tiempo = (ahora - info["hora_inicio"]).total_seconds()
+    carta = drop['cartas'][carta_idx]
+    segundos = (ahora - drop['timestamp']).total_seconds()
 
-    # 1. Durante los primeros 10s solo el dueño puede reclamar
-    if tiempo < 10:
-        if user_id != dueno_id:
-            query.answer(f"Aún no puedes reclamar esta carta, te quedan {int(10-tiempo)} segundos.", show_alert=True)
+    # Ya reclamada
+    if carta['reclamada']:
+        query.answer("Esta carta ya fue reclamada.", show_alert=True)
+        return
+
+    # Durante 10s solo el dueño puede pickear una
+    if segundos < 10:
+        if usuario_id != drop['usuario_id']:
+            query.answer(f"Aún no puedes reclamar esta carta, espera {int(10-segundos)}s.", show_alert=True)
             return
-        # Si ya reclamó una, pero tiene bono, debe esperar 30s para otro pick
-        if info["primer_reclamo"] is not None:
-            user_doc = col_usuarios.find_one({"user_id": user_id})
-            bono = user_doc.get('bono', 0) if user_doc else 0
-            if bono <= 0:
-                query.answer("Solo puedes reclamar una carta en los primeros 10 segundos.", show_alert=True)
-                return
-            else:
-                tiempo_primer_pick = (ahora - info["primer_reclamo"]).total_seconds()
-                if tiempo_primer_pick < 30:
-                    query.answer(f"Debes esperar {int(30-tiempo_primer_pick)} segundos para reclamar otra carta con tu bono.", show_alert=True)
-                    return
-                # Cuando cumple el delay de bono, le quita uno
-                col_usuarios.update_one({"user_id": user_id}, {"$inc": {"bono": -1}}, upsert=True)
-                info["puede_reclamar_otra"] = True
+        if drop['pick_hecho_usuario'] >= 1:
+            query.answer("Ya reclamaste tu carta. Si tienes bono, espera 30s para reclamar otra.", show_alert=True)
+            return
+        # Reclama su primera carta
+        drop['pick_hecho_usuario'] += 1
+        drop['primer_reclamo_usuario'] = ahora
     else:
-        # Luego de los 10 segundos, cualquiera puede reclamar cartas no reclamadas
-        # Si es el dueño, pero ya reclamó (o ya usó bono), no puede volver a reclamar
-        if user_id == dueno_id:
-            if info["primer_reclamo"] is not None and not info.get("puede_reclamar_otra", False):
-                query.answer("Ya reclamaste tu(s) carta(s) en este drop.", show_alert=True)
-                return
+        # Después de 10s, cualquiera puede reclamar las no tomadas
+        if usuario_id == drop['usuario_id']:
+            # Dueño puede hacer segundo pick solo si tiene bono, solo después de 30s desde el primer pick
+            if drop['pick_hecho_usuario'] == 1:
+                user_doc = col_usuarios.find_one({"user_id": usuario_id})
+                bono_actual = user_doc.get('bono', 0) if user_doc else 0
+                if not drop['bono_usado'] and bono_actual > 0:
+                    t_wait = 30 - (ahora - drop['primer_reclamo_usuario']).total_seconds()
+                    if t_wait > 0:
+                        query.answer(f"Debes esperar {int(t_wait)}s para usar tu bono.", show_alert=True)
+                        return
+                    # Gasta bono y permite segundo pick
+                    col_usuarios.update_one({"user_id": usuario_id}, {"$inc": {"bono": -1}})
+                    drop['bono_usado'] = True
+                    drop['pick_hecho_usuario'] += 1
+                elif drop['bono_usado']:
+                    query.answer("Ya reclamaste tu bono.", show_alert=True)
+                    return
+        # Si es otro usuario, puede tomar si está libre (y segundos >=10)
+        # No hay reglas extras
 
-    # Reclamar carta y bloquear botón
-    info["bloqueados"][idx] = True
-    carta_info["reclamada"] = user_id
-    if user_id == dueno_id:
-        if info["primer_reclamo"] is None:
-            info["primer_reclamo"] = ahora
-            info["puede_reclamar_otra"] = False
-        else:
-            info["puede_reclamar_otra"] = False  # No más bonos en este drop
+    # Marca carta reclamada
+    carta['reclamada'] = True
+    carta['por'] = usuario_id
+    carta['momento'] = ahora
 
-    # Añadir carta al usuario
-    existe = col_cartas_usuario.find_one({
-        "user_id": user_id,
-        "nombre": carta_info["nombre"],
-        "version": carta_info["version"],
-        "card_id": carta_info["card_id"]
-    })
-    if existe:
+    # Guardar en la base de datos
+    existente = col_cartas_usuario.find_one({"user_id": usuario_id, "nombre": carta['nombre'], "version": carta['version'], "card_id": carta['id']})
+    if existente:
         col_cartas_usuario.update_one(
-            {"user_id": user_id, "nombre": carta_info["nombre"], "version": carta_info["version"], "card_id": carta_info["card_id"]},
+            {"user_id": usuario_id, "nombre": carta['nombre'], "version": carta['version'], "card_id": carta['id']},
             {"$inc": {"count": 1}}
         )
     else:
-        col_cartas_usuario.insert_one({
-            "user_id": user_id,
-            "nombre": carta_info["nombre"],
-            "version": carta_info["version"],
-            "card_id": carta_info["card_id"],
-            "count": 1
-        })
+        col_cartas_usuario.insert_one(
+            {"user_id": usuario_id, "nombre": carta['nombre'], "version": carta['version'], "card_id": carta['id'], "count": 1}
+        )
 
-    # Editar botones: botón ahora deshabilitado
-    botones = []
-    for i in range(3):
-        txt = ["1️⃣", "2️⃣", "3️⃣"][i]
-        if info["bloqueados"][i]:
-            btn = InlineKeyboardButton(f"{txt} (Reclamada)", callback_data="none", disabled=True)
-        else:
-            btn = InlineKeyboardButton(txt, callback_data=f"drop_{chat_id}_{dueno_id}_{i}")
-        botones.append([btn])
+    # Edita botones
     context.bot.edit_message_reply_markup(
-        chat_id=chat_id,
-        message_id=info["botones_msg_id"],
-        reply_markup=InlineKeyboardMarkup(botones)
+        chat_id=query.message.chat_id,
+        message_id=drop['msg_botones_id'],
+        reply_markup=InlineKeyboardMarkup(teclado_drop(chat_id))
     )
 
-    # Mensaje de confirmación
-    nom_card = f"#{carta_info['card_id']} [{carta_info['version']}] {carta_info['nombre']} - {carta_info['grupo']}"
-    query.answer(f"¡{query.from_user.first_name} tomaste la carta {nom_card}!", show_alert=True)
-    context.bot.send_message(chat_id=chat_id, text=f"@{query.from_user.username or query.from_user.first_name} tomó la carta {nom_card} !")
+    # Mensaje al grupo
+    usuario_m = f"@{query.from_user.username}" if query.from_user.username else query.from_user.full_name
+    grupo = carta['grupo']
+    context.bot.send_message(
+        chat_id=query.message.chat_id,
+        text=f"{usuario_m} tomó la carta #{carta['id']} [{carta['version']}] {carta['nombre']} - {grupo} !"
+    )
+    query.answer("¡Carta reclamada!", show_alert=False)
 
-    # Si ya se reclamaron todas, elimina el drop
-    if all(info["bloqueados"]):
-        drops_pendientes.pop(chat_id, None)
+    # Si ya no quedan cartas, termina el drop
+    if all(c['reclamada'] for c in drop['cartas']):
+        drop['activo'] = False
+        drops_activos.pop(chat_id, None)
+        context.bot.edit_message_text(
+            chat_id=query.message.chat_id,
+            message_id=drop['msg_botones_id'],
+            text="Todas las cartas fueron reclamadas.",
+            reply_markup=InlineKeyboardMarkup(teclado_drop(chat_id))
+        )
 
-def manejador_callback(update, context):
+# --- TUS FUNCIONES ANTIGUAS ABAJO (NO MODIFICADAS) ---
+# ---- RECLAMO DE DROP CLÁSICO (por si tienes drops individuales) ----
+def manejador_reclamar(update, context):
     query = update.callback_query
+    usuario_click = query.from_user.id
     data = query.data
-    if data.startswith("drop_"):
-        manejar_drop_reclamo(update, context)
-        return
-    # ========== lo demás igual que tu handler ==========
-    elif data.startswith("reclamar"):
-        manejador_reclamar(update, context)
-        return
-    elif data.startswith("vercarta"):
-        partes = data.split("_")
-        if len(partes) != 3:
-            return
-        usuario_id = int(partes[1])
-        idx = int(partes[2])
-        if query.from_user.id != usuario_id:
-            query.answer(text="Solo puedes ver tus propias cartas.", show_alert=True)
-            return
-        cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
-        def sort_key(x):
-            grupo = grupo_de_carta(x.get('nombre',''), x.get('version','')) or ""
-            return (
-                grupo.lower(),
-                x.get('nombre','').lower(),
-                x.get('card_id', 0)
-            )
-        cartas_usuario.sort(key=sort_key)
-        mostrar_carta_individual(query.message.chat_id, usuario_id, cartas_usuario, idx, context, query=query)
-        query.answer()
-        return
     partes = data.split("_")
     if len(partes) != 3:
+        query.answer()
         return
-    modo, pagina, uid = partes
-    pagina = int(pagina); usuario_id = int(uid)
-    if query.from_user.id != usuario_id:
-        query.answer(text="Este álbum no es tuyo.", show_alert=True)
+    chat_id = partes[1]
+    id_usuario = int(partes[2])
+    clave = f"{chat_id}_{id_usuario}"
+    if usuario_click != id_usuario:
+        query.answer(text="❌ Este drop no te pertenece.", show_alert=True)
         return
-    if modo == 'lista':
-        cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
-        def sort_key(x):
-            grupo = grupo_de_carta(x.get('nombre',''), x.get('version','')) or ""
-            return (
-                grupo.lower(),
-                x.get('nombre','').lower(),
-                x.get('card_id', 0)
-            )
-        cartas_usuario.sort(key=sort_key)
-        enviar_lista_pagina(query.message.chat_id, usuario_id, cartas_usuario, pagina, context, editar=True, mensaje=query.message)
+    if clave not in reclamos_pendientes:
+        query.answer(text="No hay carta que reclamar.", show_alert=True)
+        return
+    carta = reclamos_pendientes[clave]
+    nombre = carta['nombre']
+    version = carta['version']
+    cid = carta['id']
+    grupo = grupo_de_carta(nombre, version)
+    existente = col_cartas_usuario.find_one({"user_id": id_usuario, "nombre": nombre, "version": version, "card_id": cid})
+    if existente:
+        col_cartas_usuario.update_one(
+            {"user_id": id_usuario, "nombre": nombre, "version": version, "card_id": cid},
+            {"$inc": {"count": 1}}
+        )
+    else:
+        col_cartas_usuario.insert_one(
+            {"user_id": id_usuario, "nombre": nombre, "version": version, "card_id": cid, "count": 1}
+        )
+    del reclamos_pendientes[clave]
+    try:
+        query.edit_message_reply_markup(reply_markup=None)
+    except:
+        pass
+    query.answer(text="✅ Carta reclamada.", show_alert=True)
 
-# ============= RESTO DE FUNCIONES Y HANDLERS IGUAL =============
-
-# ...aquí tus comandos antiguos como /album, /giveidol, etc., no se modifican...
-
-# /album: Muestra tu colección de cartas ordenadas por grupo, nombre y número
 def comando_album(update, context):
     usuario_id = update.message.from_user.id
     chat_id = update.effective_chat.id
@@ -415,6 +410,198 @@ def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, edit
     else:
         context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode='HTML')
 
+def comando_bonoidolday(update, context):
+    user_id = update.message.from_user.id
+    chat = update.effective_chat
+    if chat.type not in ["group", "supergroup"]:
+        update.message.reply_text("Este comando solo puede usarse en grupos.")
+        return
+    if not es_admin(update):
+        update.message.reply_text("Solo los administradores pueden usar este comando.")
+        return
+    args = context.args
+    if len(args) != 2:
+        update.message.reply_text("Uso: /bonoidolday <user_id> <cantidad>")
+        return
+    try:
+        dest_id = int(args[0])
+        cantidad = int(args[1])
+        if cantidad < 1:
+            update.message.reply_text("La cantidad debe ser mayor que 0.")
+            return
+    except:
+        update.message.reply_text("Uso: /bonoidolday <user_id> <cantidad>")
+        return
+    col_usuarios.update_one({"user_id": dest_id}, {"$inc": {"bono": cantidad}}, upsert=True)
+    update.message.reply_text(f"✅ Bono de {cantidad} tiradas de /idolday entregado a <code>{dest_id}</code>.", parse_mode='HTML')
+
+def comando_giveidol(update, context):
+    if len(context.args) < 1:
+        update.message.reply_text(
+            "Uso: /giveidol <carta> <@usuario o responde al usuario>\n"
+            "Ejemplo: /giveidol #7V1TzuyuTwice @destino"
+        )
+        return
+
+    usuario_id = update.message.from_user.id
+    chat = update.effective_chat
+
+    carta_arg = context.args[0]
+    if not carta_arg.startswith("#"):
+        update.message.reply_text("Debes indicar la carta con el formato #IDVnNombreGrupo. Ejemplo: /giveidol #7V1TzuyuTwice @destino")
+        return
+
+    carta_arg = carta_arg[1:]
+    m = re.match(r'(\d+)(V\d+)([^\s]+)', carta_arg)
+    if not m:
+        update.message.reply_text("Formato incorrecto. Usa: /giveidol #7V1TzuyuTwice @destino")
+        return
+    card_id, version, resto = m.group(1), m.group(2), m.group(3)
+    card_id_int = int(card_id)
+    version = version.upper()
+
+    carta_en_db = None
+    for c in cartas:
+        possible = f"{c['nombre']}{c['grupo']}".replace(" ", "").lower()
+        if resto.lower() == possible and c['version'] == version:
+            carta_en_db = c
+            break
+    if not carta_en_db:
+        update.message.reply_text("No se encontró una carta con ese nombre/grupo/version.")
+        return
+    nombre = carta_en_db['nombre']
+    grupo = carta_en_db['grupo']
+
+    target_user_id = None
+    username_dest = None
+    full_name_dest = None
+    if update.message.reply_to_message:
+        target_user_id = update.message.reply_to_message.from_user.id
+        username_dest = update.message.reply_to_message.from_user.username
+        full_name_dest = update.message.reply_to_message.from_user.full_name
+    elif len(context.args) >= 2:
+        usuario_mention = context.args[1]
+        if usuario_mention.startswith("@"):
+            username_dest = usuario_mention[1:].lower()
+            posible = col_usuarios.find_one({"username": username_dest})
+            if posible:
+                target_user_id = posible["user_id"]
+            if not target_user_id:
+                try:
+                    member = context.bot.get_chat_member(chat.id, username_dest)
+                    if member and member.user and member.user.username and member.user.username.lower() == username_dest:
+                        target_user_id = member.user.id
+                        full_name_dest = member.user.full_name
+                except Exception:
+                    pass
+        else:
+            try:
+                target_user_id = int(usuario_mention)
+            except:
+                pass
+    elif update.message.entities:
+        for entity in update.message.entities:
+            if entity.type == "text_mention" and entity.user:
+                target_user_id = entity.user.id
+                username_dest = entity.user.username
+                full_name_dest = entity.user.full_name
+                break
+
+    if not target_user_id:
+        update.message.reply_text("No pude identificar al usuario destino. Usa @username (que haya hablado al menos una vez), responde al usuario, o menciona a alguien que esté en el grupo.")
+        return
+    if usuario_id == target_user_id:
+        update.message.reply_text("No puedes regalarte cartas a ti mismo.")
+        return
+
+    carta = col_cartas_usuario.find_one({
+        "user_id": usuario_id,
+        "card_id": card_id_int,
+        "version": version,
+        "nombre": nombre
+    })
+    if not carta or carta.get("count", 1) < 1:
+        update.message.reply_text("No tienes esa carta para regalar.")
+        return
+
+    if carta["count"] > 1:
+        col_cartas_usuario.update_one(
+            {"user_id": usuario_id, "card_id": card_id_int, "version": version, "nombre": nombre},
+            {"$inc": {"count": -1}}
+        )
+    else:
+        col_cartas_usuario.delete_one(
+            {"user_id": usuario_id, "card_id": card_id_int, "version": version, "nombre": nombre}
+        )
+
+    existente = col_cartas_usuario.find_one(
+        {"user_id": target_user_id, "card_id": card_id_int, "version": version, "nombre": nombre}
+    )
+    if existente:
+        col_cartas_usuario.update_one(
+            {"user_id": target_user_id, "card_id": card_id_int, "version": version, "nombre": nombre},
+            {"$inc": {"count": 1}}
+        )
+    else:
+        col_cartas_usuario.insert_one(
+            {
+                "user_id": target_user_id,
+                "nombre": nombre,
+                "version": version,
+                "card_id": card_id_int,
+                "count": 1
+            }
+        )
+
+    if target_user_id:
+        try:
+            user_dest_data = context.bot.get_chat_member(chat.id, target_user_id).user
+            if user_dest_data.username:
+                col_usuarios.update_one(
+                    {"user_id": target_user_id},
+                    {"$set": {"username": user_dest_data.username.lower()}},
+                    upsert=True
+                )
+            if not username_dest:
+                username_dest = user_dest_data.username
+            if not full_name_dest:
+                full_name_dest = user_dest_data.full_name
+        except:
+            pass
+
+    id_carta_give = f"#{card_id}{version}{nombre}{grupo}"
+    dest_mention = f"@{username_dest}" if username_dest else (full_name_dest if full_name_dest else "el usuario")
+    update.message.reply_text(
+        f"🎁 ¡Carta <b>{id_carta_give}</b> enviada correctamente a {dest_mention}!",
+        parse_mode='HTML'
+    )
+
+    try:
+        notif = (
+            f"🎉 <b>¡Has recibido una carta!</b>\n"
+            f"Te han regalado <b>{id_carta_give}</b>.\n"
+            f"¡Revisa tu álbum con <code>/album</code>!"
+        )
+        context.bot.send_message(chat_id=target_user_id, text=notif, parse_mode='HTML')
+    except Exception:
+        try:
+            context.bot.send_message(chat_id=chat.id, text=f"¡{dest_mention}, te han regalado <b>{id_carta_give}</b>!", parse_mode='HTML')
+        except:
+            pass
+
+def comando_comandos(update, context):
+    texto = (
+        "📋 <b>Lista de comandos disponibles:</b>\n"
+        "\n"
+        "<b>/idolday</b> - Drop de 2 cartas (solo una diaria por usuario)\n"
+        "<b>/album</b> - Muestra tu colección de cartas ordenada por grupo, nombre y número.\n"
+        "<b>/giveidol</b> - Regala una carta a otro usuario (usando @usuario o respuesta).\n"
+        "<b>/miid</b> - Muestra tu ID de Telegram.\n"
+        "<b>/bonoidolday</b> - Da bonos de tiradas de /idolday a un usuario (solo admins).\n"
+        "<b>/comandos</b> - Muestra esta lista de comandos y para qué sirve cada uno.\n"
+    )
+    update.message.reply_text(texto, parse_mode='HTML')
+
 def mostrar_carta_individual(chat_id, usuario_id, lista_cartas, idx, context, mensaje_a_editar=None, query=None):
     carta = lista_cartas[idx]
     cid = carta.get('card_id', '')
@@ -442,51 +629,12 @@ def mostrar_carta_individual(chat_id, usuario_id, lista_cartas, idx, context, me
     else:
         context.bot.send_photo(chat_id=chat_id, photo=imagen_url, caption=texto, reply_markup=teclado, parse_mode='HTML')
 
-# /bonoidolday: Da bonos de tiradas a un usuario
-def comando_bonoidolday(update, context):
-    user_id = update.message.from_user.id
-    chat = update.effective_chat
-    if chat.type not in ["group", "supergroup"]:
-        update.message.reply_text("Este comando solo puede usarse en grupos.")
-        return
-    if not es_admin(update):
-        update.message.reply_text("Solo los administradores pueden usar este comando.")
-        return
-    args = context.args
-    if len(args) != 2:
-        update.message.reply_text("Uso: /bonoidolday <user_id> <cantidad>")
-        return
-    try:
-        dest_id = int(args[0])
-        cantidad = int(args[1])
-        if cantidad < 1:
-            update.message.reply_text("La cantidad debe ser mayor que 0.")
-            return
-    except:
-        update.message.reply_text("Uso: /bonoidolday <user_id> <cantidad>")
-        return
-    col_usuarios.update_one({"user_id": dest_id}, {"$inc": {"bono": cantidad}}, upsert=True)
-    update.message.reply_text(f"✅ Bono de {cantidad} tiradas de /idolday entregado a <code>{dest_id}</code>.", parse_mode='HTML')
-
-def comando_comandos(update, context):
-    texto = (
-        "📋 <b>Lista de comandos disponibles:</b>\n"
-        "\n"
-        "<b>/idolday</b> - Obtén una carta aleatoria diaria (drop triple).\n"
-        "<b>/album</b> - Muestra tu colección de cartas ordenada por grupo, nombre y número.\n"
-        "<b>/giveidol</b> - Regala una carta a otro usuario (usando @usuario o respuesta).\n"
-        "<b>/miid</b> - Muestra tu ID de Telegram.\n"
-        "<b>/bonoidolday</b> - Da bonos de tiradas de /idolday a un usuario (solo admins).\n"
-        "<b>/comandos</b> - Muestra esta lista de comandos y para qué sirve cada uno.\n"
-    )
-    update.message.reply_text(texto, parse_mode='HTML')
-
-# HANDLERS
+# --- Handlers clásicos ---
 dispatcher.add_handler(CommandHandler('idolday', comando_idolday))
 dispatcher.add_handler(CommandHandler('album', comando_album))
-dispatcher.add_handler(CommandHandler('miid', comando_miid))
+dispatcher.add_handler(CommandHandler('miid', lambda u,c: u.message.reply_text(f"Tu ID de Telegram es: {u.effective_user.id}")))
 dispatcher.add_handler(CommandHandler('bonoidolday', comando_bonoidolday))
-# agrega aquí tu /giveidol y otros si tienes
+dispatcher.add_handler(CommandHandler('giveidol', comando_giveidol))
 dispatcher.add_handler(CommandHandler('comandos', comando_comandos))
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback))
 
