@@ -80,6 +80,23 @@ def es_admin(update):
     except:
         return False
 
+# NUEVO: Función para saber si un usuario puede usar /idolday o tiene bono
+def puede_usar_idolday(user_id):
+    user_doc = col_usuarios.find_one({"user_id": user_id})
+    if not user_doc:
+        return True  # nunca ha tirado, está habilitado
+    bono = user_doc.get('bono', 0)
+    last = user_doc.get('last_idolday')
+    ahora = datetime.utcnow()
+    if bono and bono > 0:
+        return True
+    if not last:
+        return True
+    diferencia = ahora - last
+    if diferencia.total_seconds() >= 86400:
+        return True
+    return False
+
 def comando_idolday(update, context):
     usuario_id = update.message.from_user.id
     chat_id = update.effective_chat.id
@@ -244,6 +261,7 @@ def manejador_reclamar(update, context):
     user_doc = col_usuarios.find_one({"user_id": usuario_click}) or {}
     bono = user_doc.get('bono', 0)
 
+    # Dueño: lógica igual que antes
     if usuario_click == drop["dueño"]:
         primer_reclamo = drop.get("primer_reclamo_dueño")
         if primer_reclamo is None:
@@ -258,8 +276,13 @@ def manejador_reclamar(update, context):
                 return
             puede_reclamar = True
             col_usuarios.update_one({"user_id": usuario_click}, {"$inc": {"bono": -1}}, upsert=True)
+    # NO dueño: solo puede reclamar tras 10s SI puede usar /idolday o tiene bono
     elif not solo_dueño and carta["usuario"] is None:
-        puede_reclamar = True
+        if puede_usar_idolday(usuario_click):
+            puede_reclamar = True
+        else:
+            query.answer("Solo puedes reclamar cartas si tienes disponible tu /idolday o tienes un bono disponible.", show_alert=True)
+            return
     else:
         segundos_faltantes = int(10 - tiempo_desde_drop)
         if segundos_faltantes < 0:
