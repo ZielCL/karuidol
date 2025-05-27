@@ -52,7 +52,6 @@ if not os.path.isfile('cartas.json'):
 with open('cartas.json', 'r') as f:
     cartas = json.load(f)
 
-# Drops activos (drop_id: drop_data)
 DROPS_ACTIVOS = {}
 
 def imagen_de_carta(nombre, version):
@@ -81,7 +80,6 @@ def es_admin(update):
     except:
         return False
 
-# /idolday: Drop 2 cartas Karuta-style
 def comando_idolday(update, context):
     usuario_id = update.message.from_user.id
     chat_id = update.effective_chat.id
@@ -115,7 +113,6 @@ def comando_idolday(update, context):
             context.bot.send_message(chat_id=chat_id, text=f"Ya usaste /idolday hoy.")
         return
 
-    # Drop 2 cartas aleatorias
     cartas_disponibles = cartas if len(cartas) >= 2 else cartas * 2
     cartas_drop = random.sample(cartas_disponibles, 2)
     cartas_info = []
@@ -140,30 +137,24 @@ def comando_idolday(update, context):
             "card_id": nuevo_id,
             "reclamada": False,
             "usuario": None,
+            "hora_reclamada": None,
         })
         caption = f"<b>#{nuevo_id} [{version}] {nombre} - {grupo}</b>"
         media_group.append(InputMediaPhoto(media=imagen_url, caption=caption, parse_mode="HTML"))
 
-    # Enviar las imágenes en grupo
     msgs = context.bot.send_media_group(chat_id=chat_id, media=media_group)
-    main_msg = msgs[0]  # El primer mensaje del grupo, usaremos este para los botones
+    main_msg = msgs[0]
 
-    # Botones: 1 y 2 (números)
-    botones = [
-        [
-            InlineKeyboardButton("1️⃣", callback_data=f"reclamar_{main_msg.chat_id}_{main_msg.message_id}_0"),
-            InlineKeyboardButton("2️⃣", callback_data=f"reclamar_{main_msg.chat_id}_{main_msg.message_id}_1"),
-        ]
-    ]
-    texto_drop = (
-        f"@{update.effective_user.username or update.effective_user.first_name} está dropeando 2 cartas!\n"
-        "Pulsa el botón para reclamar la que quieras. Solo el dueño puede reclamar en los primeros 10 segundos."
-    )
+    texto_drop = f"@{update.effective_user.username or update.effective_user.first_name} está dropeando 2 cartas!"
     msg_botones = context.bot.send_message(
         chat_id=chat_id,
         text=texto_drop,
-        reply_markup=InlineKeyboardMarkup(botones),
-        reply_to_message_id=main_msg.message_id
+        reply_markup=InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("1️⃣", callback_data=f"reclamar_{main_msg.chat_id}_{main_msg.message_id}_0"),
+                InlineKeyboardButton("2️⃣", callback_data=f"reclamar_{main_msg.chat_id}_{main_msg.message_id}_1"),
+            ]
+        ])
     )
 
     drop_id = crear_drop_id(chat_id, main_msg.message_id)
@@ -176,9 +167,9 @@ def comando_idolday(update, context):
         "msg_botones": msg_botones,
         "usuarios_reclamaron": [],
         "expirado": False,
+        "primer_reclamo_dueño": None,  # Para controlar segunda carta tras 10s y solo con bono
     }
 
-    # Actualiza usuario (last_idolday)
     col_usuarios.update_one(
         {"user_id": usuario_id},
         {"$set": {
@@ -188,7 +179,6 @@ def comando_idolday(update, context):
         upsert=True
     )
 
-    # Thread para liberar las cartas luego de 10 segundos
     threading.Thread(target=desbloquear_drop, args=(drop_id, ), daemon=True).start()
 
 def desbloquear_drop(drop_id):
@@ -208,8 +198,8 @@ def expira_drop(drop_id):
         return
     keyboard = [
         [
-            InlineKeyboardButton("1️⃣", callback_data="expirado", disabled=True),
-            InlineKeyboardButton("2️⃣", callback_data="expirado", disabled=True),
+            InlineKeyboardButton("❌", callback_data="expirado", disabled=True),
+            InlineKeyboardButton("❌", callback_data="expirado", disabled=True),
         ]
     ]
     try:
@@ -251,9 +241,23 @@ def manejador_reclamar(update, context):
     solo_dueño = tiempo_desde_drop < 10
     puede_reclamar = False
 
+    user_doc = col_usuarios.find_one({"user_id": usuario_click}) or {}
+    bono = user_doc.get('bono', 0)
+
     if usuario_click == drop["dueño"]:
-        if carta["usuario"] is None:
+        primer_reclamo = drop.get("primer_reclamo_dueño")
+        if primer_reclamo is None:
             puede_reclamar = True
+            drop["primer_reclamo_dueño"] = ahora
+        else:
+            if tiempo_desde_drop < 10:
+                query.answer("Solo puedes reclamar una carta antes de 10 segundos. Espera a que pasen 10 segundos para reclamar la otra (si tienes bono).", show_alert=True)
+                return
+            if bono < 1:
+                query.answer("Necesitas al menos 1 bono para reclamar la segunda carta.", show_alert=True)
+                return
+            puede_reclamar = True
+            col_usuarios.update_one({"user_id": usuario_click}, {"$inc": {"bono": -1}}, upsert=True)
     elif not solo_dueño and carta["usuario"] is None:
         puede_reclamar = True
     else:
@@ -269,6 +273,7 @@ def manejador_reclamar(update, context):
 
     carta["reclamada"] = True
     carta["usuario"] = usuario_click
+    carta["hora_reclamada"] = ahora
     drop["usuarios_reclamaron"].append(usuario_click)
 
     nombre = carta['nombre']
@@ -294,7 +299,7 @@ def manejador_reclamar(update, context):
     teclado = []
     for i, c in enumerate(drop["cartas"]):
         if c["reclamada"]:
-            teclado.append(InlineKeyboardButton(f"{i+1}️⃣", callback_data="reclamada", disabled=True))
+            teclado.append(InlineKeyboardButton("❌", callback_data="reclamada", disabled=True))
         else:
             teclado.append(InlineKeyboardButton(f"{i+1}️⃣", callback_data=f"reclamar_{chat_id}_{mensaje_id}_{i}"))
     bot.edit_message_reply_markup(
