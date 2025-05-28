@@ -942,6 +942,12 @@ def handler_regalo_respuesta(update, context):
     carta = data["carta"]
     destino = update.message.text.strip()
 
+    # Si usuario escribe 'cancelar' (en cualquier forma)
+    if destino.lower().strip() == "cancelar":
+        update.message.reply_text("❌ Regalo cancelado. La carta sigue en tu álbum.")
+        del SESIONES_REGALO[user_id]
+        return
+
     # Buscar id Telegram del destino
     if destino.startswith('@'):
         username_dest = destino[1:].lower()
@@ -972,6 +978,23 @@ def handler_regalo_respuesta(update, context):
         update.message.reply_text("Parece que ya no tienes esa carta.")
         del SESIONES_REGALO[user_id]
         return
+
+    # Entregar carta al destinatario (misma id_unico)
+    carta["user_id"] = target_user_id
+    col_cartas_usuario.insert_one(carta)
+
+    # Notificación pública y privada
+    try:
+        update.message.reply_text(f"🎁 ¡Carta [{carta['id_unico']}] enviada correctamente!")
+        notif = (
+            f"🎉 <b>¡Has recibido una carta!</b>\n"
+            f"Te han regalado <b>{carta['id_unico']}</b> ({carta['nombre']} [{carta['version']}])\n"
+            f"¡Revisa tu álbum con <code>/album</code>!"
+        )
+        context.bot.send_message(chat_id=target_user_id, text=notif, parse_mode='HTML')
+    except Exception:
+        update.message.reply_text("La carta fue enviada, pero no pude notificar al usuario destino en privado.")
+    del SESIONES_REGALO[user_id]
 
     # Entregar carta al destinatario (misma id_unico)
     carta["user_id"] = target_user_id
