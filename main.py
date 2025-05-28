@@ -185,36 +185,38 @@ def comando_idolday(update, context):
     media_group = []
     cartas_info = []
     for carta in cartas_drop:
-        nombre = carta['nombre']
-        version = carta['version']
-        grupo = carta.get('grupo', '')
-        imagen_url = carta.get('imagen')
+    nombre = carta['nombre']
+    version = carta['version']
+    grupo = carta.get('grupo', '')
+    imagen_url = carta.get('imagen')
 
-        doc_cont = col_contadores.find_one({"nombre": nombre, "version": version})
-        if doc_cont:
-            nuevo_id = doc_cont['contador'] + 1
-            col_contadores.update_one({"nombre": nombre, "version": version}, {"$inc": {"contador": 1}})
-        else:
-            nuevo_id = 1
-            col_contadores.insert_one({"nombre": nombre, "version": version, "contador": 1})
+    doc_cont = col_contadores.find_one({"nombre": nombre, "version": version})
+    if doc_cont:
+        nuevo_id = doc_cont['contador'] + 1
+        col_contadores.update_one({"nombre": nombre, "version": version}, {"$inc": {"contador": 1}})
+    else:
+        nuevo_id = 1
+        col_contadores.insert_one({"nombre": nombre, "version": version, "contador": 1})
 
-        id_unico = random_id_unico(nuevo_id)
-        caption = f"<b>[★★★] #{nuevo_id} [{version}] {nombre} - {grupo}</b>"  # SIEMPRE 3 estrellas
+    id_unico = random_id_unico(nuevo_id)
+    estrellas = carta.get("estrellas", "★★★")
+    estado = carta.get("estado", "Excelente estado")
+    caption = f"<b>[{estrellas}] #{nuevo_id} [{version}] {nombre} - {grupo}</b>"
 
-        media_group.append(InputMediaPhoto(media=imagen_url, caption=caption, parse_mode="HTML"))
-        cartas_info.append({
-            "nombre": nombre,
-            "version": version,
-            "grupo": grupo,
-            "imagen": imagen_url,
-            "card_id": nuevo_id,
-            "reclamada": False,
-            "usuario": None,
-            "hora_reclamada": None,
-            "id_unico": id_unico,
-            "estado": "Excelente",
-            "estado_estrella": 3,  # SIEMPRE 3 estrellas al mostrar drop
-        })
+    media_group.append(InputMediaPhoto(media=imagen_url, caption=caption, parse_mode="HTML"))
+    cartas_info.append({
+        "nombre": nombre,
+        "version": version,
+        "grupo": grupo,
+        "imagen": imagen_url,
+        "card_id": nuevo_id,
+        "reclamada": False,
+        "usuario": None,
+        "hora_reclamada": None,
+        "id_unico": id_unico,
+        "estado": estado,
+        "estrellas": estrellas,
+    })
 
     msgs = context.bot.send_media_group(chat_id=chat_id, media=media_group)
     main_msg = msgs[0]
@@ -329,27 +331,12 @@ def manejador_reclamar(update, context):
     grupo = carta['grupo']
     cid = carta['card_id']
 
-    # Sistema de estrellas tipo Karuta (★★★, ★★☆, ★☆☆, ☆☆☆)
-    ESTADOS_CARTA = [
-        {"estado": "Excelente estado", "estrellas": "★★★"},
-        {"estado": "Buen estado", "estrellas": "★★☆"},
-        {"estado": "Mal estado", "estrellas": "★☆☆"},
-        {"estado": "Muy mal estado", "estrellas": "☆☆☆"}
-    ]
-
-    idx_estado = random.randint(0, 3)
-    estado_elegido = ESTADOS_CARTA[idx_estado]
-    # Buscar carta exacta (nombre, version, estado)
-    carta_entregada = carta_estado(nombre, version, estado_elegido['estado'])
-    if carta_entregada:
-        estado = carta_entregada['estado']
-        estrellas = estado_elegido['estrellas']
-        imagen_url = carta_entregada['imagen']
-    else:
-        # Fallback
-        estado = "Excelente estado"
-        estrellas = "★★★"
-        imagen_url = carta['imagen']
+    # SOLO ESTADOS QUE EXISTAN PARA ESA CARTA
+    posibles_estados = estados_disponibles_para_carta(nombre, version)
+    carta_entregada = random.choice(posibles_estados)
+    estado = carta_entregada['estado']
+    estrellas = carta_entregada['estado_estrella']  # Siempre usa el campo del json
+    imagen_url = carta_entregada['imagen']
 
     existente = col_cartas_usuario.find_one({
         "user_id": usuario_click,
@@ -374,11 +361,12 @@ def manejador_reclamar(update, context):
                 "estrellas": estrellas,
                 "imagen": imagen_url,
                 "card_id": cid,
-                "count": 1
+                "count": 1,
+                "id_unico": carta.get("id_unico", ""),
+                "estado_estrella": estrellas.count("★"),
             }
         )
 
-    # Actualiza los botones
     teclado = []
     for i, c in enumerate(drop["cartas"]):
         if c["reclamada"]:
@@ -418,44 +406,17 @@ def comando_album(update, context):
     cartas_usuario.sort(key=sort_key)
     pagina = 1
     enviar_lista_pagina(chat_id, usuario_id, cartas_usuario, pagina, context)
-
-def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, editar=False, mensaje=None):
-    total = len(lista_cartas)
-    por_pagina = 10
-    paginas = (total - 1) // por_pagina + 1
-    if pagina < 1: pagina = 1
-    if pagina > paginas: pagina = paginas
-    inicio = (pagina - 1) * por_pagina
-    fin = min(inicio + por_pagina, total)
-    botones = []
-    for idx, carta in enumerate(lista_cartas[inicio:fin], start=inicio):
-        cid = carta.get('card_id', '')
-        version = carta.get('version', '')
-        nombre = carta.get('nombre', '')
-        grupo = grupo_de_carta(nombre, version)
-        id_unico = carta.get('id_unico', 'xxxx')
-        estado_estrella = carta.get('estado_estrella', 3)  # Por defecto 3
-        # Renderiza correctamente 3, 2, 1, 0 estrellas
-        estrellas = "★" * estado_estrella + "☆" * (3 - estado_estrella)
-        texto_boton = f"{id_unico} [{estrellas}] #{cid} [{version}] {nombre} - {grupo}"
-        botones.append([InlineKeyboardButton(texto_boton, callback_data=f"vercarta_{usuario_id}_{idx}")])
-    texto = f"<b>Página {pagina}/{paginas}</b>"
-    nav = []
-    if pagina > 1:
-        nav.append(InlineKeyboardButton("« Anterior", callback_data=f"lista_{pagina-1}_{usuario_id}"))
-    if pagina < paginas:
-        nav.append(InlineKeyboardButton("Siguiente »", callback_data=f"lista_{pagina+1}_{usuario_id}"))
-    if nav:
-        botones.append(nav)
-    teclado = InlineKeyboardMarkup(botones)
-    if editar and mensaje:
-        try:
-            mensaje.edit_text(texto, reply_markup=teclado, parse_mode='HTML')
-        except Exception as e:
-            context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode='HTML')
-    else:
-        context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode='HTML')
-
+----------------------------------------------
+for idx, carta in enumerate(lista_cartas[inicio:fin], start=inicio):
+    cid = carta.get('card_id', '')
+    version = carta.get('version', '')
+    nombre = carta.get('nombre', '')
+    grupo = grupo_de_carta(nombre, version)
+    id_unico = carta.get('id_unico', 'xxxx')
+    estrellas = carta.get('estrellas', '★??')   # Siempre del registro, nunca lo calcules tú
+    texto_boton = f"{id_unico} [{estrellas}] #{cid} [{version}] {nombre} - {grupo}"
+    botones.append([InlineKeyboardButton(texto_boton, callback_data=f"vercarta_{usuario_id}_{idx}")])
+--------------------------------
 
 def mostrar_carta_individual(chat_id, usuario_id, lista_cartas, idx, context, mensaje_a_editar=None, query=None):
     carta = lista_cartas[idx]
@@ -463,10 +424,9 @@ def mostrar_carta_individual(chat_id, usuario_id, lista_cartas, idx, context, me
     version = carta.get('version', '')
     nombre = carta.get('nombre', '')
     grupo = grupo_de_carta(nombre, version)
-    imagen_url = imagen_de_carta(nombre, version)
+    imagen_url = carta.get('imagen', imagen_de_carta(nombre, version))
     id_unico = carta.get('id_unico', '')
-    estado_estrella = carta.get('estado_estrella', 1)
-    estrellas = "★" * estado_estrella + "☆" * (3 - estado_estrella)
+    estrellas = carta.get('estrellas', '★??')
     id_carta = f"<code>{id_unico}</code> [{estrellas}] #{cid} [{version}] {nombre} - {grupo}"
     texto = f"{id_carta}"
     botones = []
