@@ -442,7 +442,7 @@ def comando_album(update, context):
     pagina = 1
     enviar_lista_pagina(chat_id, usuario_id, cartas_usuario, pagina, context)
 
-def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, editar=False, mensaje=None):
+def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, editar=False, mensaje=None, filtro=None):
     total = len(lista_cartas)
     por_pagina = 10
     paginas = (total - 1) // por_pagina + 1
@@ -457,15 +457,18 @@ def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, edit
         nombre = carta.get('nombre', '')
         grupo = grupo_de_carta(nombre, version)
         id_unico = carta.get('id_unico', 'xxxx')
-        estrellas = carta.get('estrellas', '★??')   # Siempre del registro, nunca lo calcules tú
+        estrellas = carta.get('estrellas', '★??')
         texto_boton = f"{id_unico} [{estrellas}] #{cid} [{version}] {nombre} - {grupo}"
-        botones.append([InlineKeyboardButton(texto_boton, callback_data=f"vercarta_{usuario_id}_{idx}")])
+        # Si hay filtro, mándalo en el callback_data
+        callback_base = f"vercarta_{usuario_id}_{idx}"
+        botones.append([InlineKeyboardButton(texto_boton, callback_data=callback_base)])
+
     texto = f"<b>Página {pagina}/{paginas}</b>"
     nav = []
     if pagina > 1:
-        nav.append(InlineKeyboardButton("« Anterior", callback_data=f"lista_{pagina-1}_{usuario_id}"))
+        nav.append(InlineKeyboardButton("« Anterior", callback_data=f"lista_{pagina-1}_{usuario_id}_{filtro or ''}"))
     if pagina < paginas:
-        nav.append(InlineKeyboardButton("Siguiente »", callback_data=f"lista_{pagina+1}_{usuario_id}"))
+        nav.append(InlineKeyboardButton("Siguiente »", callback_data=f"lista_{pagina+1}_{usuario_id}_{filtro or ''}"))
     if nav:
         botones.append(nav)
     teclado = InlineKeyboardMarkup(botones)
@@ -904,32 +907,41 @@ def manejador_callback(update, context):
         return
 
     # --- PAGINACIÓN DE ÁLBUM ---
-    partes = data.split("_")
-    if len(partes) == 3 and partes[0] == "lista":
-        pagina = int(partes[1])
-        usuario_id = int(partes[2])
-        if query.from_user.id != usuario_id:
-            query.answer(text="Este álbum no es tuyo.", show_alert=True)
-            return
-        cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
-        def sort_key(x):
-            grupo = grupo_de_carta(x.get('nombre',''), x.get('version','')) or ""
-            return (
-                grupo.lower(),
-                x.get('nombre','').lower(),
-                x.get('card_id', 0)
-            )
-        cartas_usuario.sort(key=sort_key)
-        enviar_lista_pagina(
-            query.message.chat_id,
-            usuario_id,
-            cartas_usuario,
-            pagina,
-            context,
-            editar=True,
-            mensaje=query.message
+    partes = data.split("_", 3)
+if len(partes) >= 3 and partes[0] == "lista":
+    pagina = int(partes[1])
+    usuario_id = int(partes[2])
+    filtro = partes[3].strip().lower() if len(partes) > 3 and partes[3] else None
+    if query.from_user.id != usuario_id:
+        query.answer(text="Este álbum no es tuyo.", show_alert=True)
+        return
+    cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
+    if filtro:
+        cartas_usuario = [
+            carta for carta in cartas_usuario if
+            filtro in carta.get('nombre', '').lower() or
+            filtro in carta.get('grupo', '').lower() or
+            filtro in carta.get('version', '').lower()
+        ]
+    def sort_key(x):
+        grupo = grupo_de_carta(x.get('nombre',''), x.get('version','')) or ""
+        return (
+            grupo.lower(),
+            x.get('nombre','').lower(),
+            x.get('card_id', 0)
         )
-        query.answer()
+    cartas_usuario.sort(key=sort_key)
+    enviar_lista_pagina(
+        query.message.chat_id,
+        usuario_id,
+        cartas_usuario,
+        pagina,
+        context,
+        editar=True,
+        mensaje=query.message,
+        filtro=filtro
+    )
+    query.answer()
 
 from telegram.ext import MessageHandler, Filters
 
