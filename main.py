@@ -781,7 +781,7 @@ def manejador_callback(update, context):
             )
         cartas_usuario.sort(key=sort_key)
         pagina = 1
-        (query.message.chat_id, usuario_id, cartas_usuario, pagina, context, editar=True, mensaje=query.message)
+        enviar_lista_pagina(query.message.chat_id, usuario_id, cartas_usuario, pagina, context, editar=True, mensaje=query.message)
         query.answer()
         return
 
