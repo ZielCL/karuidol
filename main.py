@@ -987,6 +987,9 @@ def handler_regalo_respuesta(update, context):
 
     del SESIONES_REGALO[user_id]
 
+def comando_setsprogreso(update, context):
+    mostrar_setsprogreso(update, context, pagina=1)
+    
 # --------- HANDLERS ---------
 dispatcher.add_handler(CommandHandler('idolday', comando_idolday))
 dispatcher.add_handler(CommandHandler('album', comando_album))
