@@ -186,7 +186,6 @@ def comando_idolday(update, context):
     # SOLO cartas en estado "Excelente"
     cartas_excelentes = [c for c in cartas if c.get("estado") == "Excelente"]
     if len(cartas_excelentes) < 2:
-        # Si hay menos de 2, duplica la lista
         cartas_excelentes = cartas_excelentes * 2
 
     cartas_drop = random.sample(cartas_excelentes, 2)
@@ -342,7 +341,7 @@ def manejador_reclamar(update, context):
     posibles_estados = estados_disponibles_para_carta(nombre, version)
     carta_entregada = random.choice(posibles_estados)
     estado = carta_entregada['estado']
-    estrellas = carta_entregada['estado_estrella']  # Siempre usa el campo del json
+    estrellas = carta_entregada.get('estado_estrella', "★★★")  # Siempre usa el campo del json
     imagen_url = carta_entregada['imagen']
 
     existente = col_cartas_usuario.find_one({
@@ -386,10 +385,22 @@ def manejador_reclamar(update, context):
         reply_markup=InlineKeyboardMarkup([teclado])
     )
 
+    # Mensaje amigable, SIN estrellas, solo el estado
     user_mention = f"@{query.from_user.username or query.from_user.first_name}"
+    if estado == "Excelente":
+        estado_friendly = "¡está en excelente estado!"
+    elif estado == "Buen estado":
+        estado_friendly = "¡está en buen estado!"
+    elif estado == "Mal estado":
+        estado_friendly = "¡está en mal estado!"
+    elif estado == "Muy mal estado":
+        estado_friendly = "¡está en muy mal estado!"
+    else:
+        estado_friendly = f"¡estado desconocido ({estado})!"
+
     context.bot.send_message(
         chat_id=drop["chat_id"],
-        text=f"{user_mention} tomaste la carta [{estrellas}] #{cid} [{version}] {nombre} - {grupo} !\n<code>{estado}</code>"
+        text=f"{user_mention} tomaste la carta {carta.get('id_unico', '')} #{cid} [{version}] {nombre} - {grupo}, Genial! {estado_friendly}"
     )
     query.answer("¡Carta reclamada!", show_alert=True)
 
