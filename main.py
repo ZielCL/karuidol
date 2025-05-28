@@ -52,6 +52,8 @@ if not os.path.isfile('cartas.json'):
 with open('cartas.json', 'r') as f:
     cartas = json.load(f)
 
+SESIONES_REGALO = {}
+
 DROPS_ACTIVOS = {}
 
 # Estados de carta
@@ -487,13 +489,21 @@ def mostrar_carta_individual(chat_id, usuario_id, lista_cartas, idx, context, me
     estrellas = carta.get('estrellas', '★??')
     id_carta = f"<code>{id_unico}</code> [{estrellas}] #{cid} [{version}] {nombre} - {grupo}"
     texto = f"{id_carta}"
-    botones = []
+
+    botones_nav = []
     if idx > 0:
-        botones.append(InlineKeyboardButton("⬅️ Anterior", callback_data=f"vercarta_{usuario_id}_{idx-1}"))
-    botones.append(InlineKeyboardButton("📒 Album", callback_data=f"albumlista_{usuario_id}"))
+        botones_nav.append(InlineKeyboardButton("⬅️ Anterior", callback_data=f"vercarta_{usuario_id}_{idx-1}"))
+    botones_nav.append(InlineKeyboardButton("📒 Album", callback_data=f"albumlista_{usuario_id}"))
     if idx < len(lista_cartas)-1:
-        botones.append(InlineKeyboardButton("Siguiente ➡️", callback_data=f"vercarta_{usuario_id}_{idx+1}"))
-    teclado = InlineKeyboardMarkup([botones])
+        botones_nav.append(InlineKeyboardButton("Siguiente ➡️", callback_data=f"vercarta_{usuario_id}_{idx+1}"))
+
+    # Botón de regalar
+    botones_accion = [
+        InlineKeyboardButton("🎁 Regalar", callback_data=f"regalar_{usuario_id}_{idx}")
+    ]
+
+    teclado = InlineKeyboardMarkup([botones_nav, botones_accion])
+
     if query is not None:
         try:
             query.edit_message_media(
@@ -836,6 +846,40 @@ def manejador_callback(update, context):
         mostrar_detalle_set(update, context, set_name, pagina=pagina, mensaje=query.message, editar=True)
         query.answer()
         return
+            elif data.startswith("regalar_"):
+        partes = data.split("_")
+        if len(partes) != 3:
+            query.answer()
+            return
+        usuario_id = int(partes[1])
+        idx = int(partes[2])
+        if query.from_user.id != usuario_id:
+            query.answer(text="Solo puedes regalar tus propias cartas.", show_alert=True)
+            return
+        cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
+        def sort_key(x):
+            grupo = grupo_de_carta(x.get('nombre',''), x.get('version','')) or ""
+            return (
+                grupo.lower(),
+                x.get('nombre','').lower(),
+                x.get('card_id', 0)
+            )
+        cartas_usuario.sort(key=sort_key)
+        carta = cartas_usuario[idx]
+        # Guardar sesión de regalo
+        SESIONES_REGALO[usuario_id] = {
+            "carta": carta,
+            "msg_id": query.message.message_id,
+            "chat_id": query.message.chat_id,
+            "tiempo": time.time()
+        }
+        query.edit_message_reply_markup(reply_markup=None)
+        context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text="¿A quién quieres regalar esta carta? Escribe el @username o ID de Telegram aquí en el chat."
+        )
+        query.answer()
+        return
 
     # --- PAGINACIÓN DE ÁLBUM ---
     partes = data.split("_")
@@ -865,6 +909,65 @@ def manejador_callback(update, context):
         )
         query.answer()
 
+from telegram.ext import MessageHandler, Filters
+
+def handler_regalo_respuesta(update, context):
+    user_id = update.message.from_user.id
+    if user_id not in SESIONES_REGALO:
+        return  # No está esperando nada
+
+    data = SESIONES_REGALO[user_id]
+    carta = data["carta"]
+    destino = update.message.text.strip()
+
+    # Buscar id Telegram del destino
+    if destino.startswith('@'):
+        username_dest = destino[1:].lower()
+        posible = col_usuarios.find_one({"username": username_dest})
+        if posible:
+            target_user_id = posible["user_id"]
+        else:
+            update.message.reply_text("No pude identificar al usuario destino. Usa @username o el ID numérico de Telegram.")
+            del SESIONES_REGALO[user_id]
+            return
+    else:
+        try:
+            target_user_id = int(destino)
+        except:
+            update.message.reply_text("No pude identificar al usuario destino. Usa @username o el ID numérico de Telegram.")
+            del SESIONES_REGALO[user_id]
+            return
+
+    if user_id == target_user_id:
+        update.message.reply_text("No puedes regalarte cartas a ti mismo.")
+        del SESIONES_REGALO[user_id]
+        return
+
+    # Quitar carta al remitente
+    res = col_cartas_usuario.delete_one({"user_id": user_id, "id_unico": carta["id_unico"]})
+
+    if res.deleted_count == 0:
+        update.message.reply_text("Parece que ya no tienes esa carta.")
+        del SESIONES_REGALO[user_id]
+        return
+
+    # Entregar carta al destinatario (misma id_unico)
+    carta["user_id"] = target_user_id
+    col_cartas_usuario.insert_one(carta)
+
+    update.message.reply_text(f"🎁 ¡Carta [{carta['id_unico']}] enviada correctamente a <b>@{destino.lstrip('@')}</b>!", parse_mode='HTML')
+    try:
+        notif = (
+            f"🎉 <b>¡Has recibido una carta!</b>\n"
+            f"Te han regalado <b>{carta['id_unico']}</b>.\n"
+            f"¡Revisa tu álbum con <code>/album</code>!"
+        )
+        context.bot.send_message(chat_id=target_user_id, text=notif, parse_mode='HTML')
+    except Exception:
+        pass
+
+    del SESIONES_REGALO[user_id]
+
 # --------- HANDLERS ---------
 dispatcher.add_handler(CommandHandler('idolday', comando_idolday))
 dispatcher.add_handler(CommandHandler('album', comando_album))
@@ -875,6 +978,7 @@ dispatcher.add_handler(CommandHandler('giveidol', comando_giveidol))
 dispatcher.add_handler(CommandHandler('setsprogreso', comando_setsprogreso))
 dispatcher.add_handler(CommandHandler('set', comando_set_detalle))
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback))
+dispatcher.add_handler(MessageHandler(Filters.text & (~Filters.command), handler_regalo_respuesta))
 
 @app.route(f'/{TOKEN}', methods=['POST'])
 def webhook():
