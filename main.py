@@ -781,10 +781,13 @@ def manejador_callback(update, context):
 
     if data.startswith("reclamar"):
         manejador_reclamar(update, context)
+        return
     elif data == "expirado":
         query.answer("Este drop ha expirado.", show_alert=True)
+        return
     elif data == "reclamada":
         query.answer("Esta carta ya fue reclamada.", show_alert=True)
+        return
 
     elif data.startswith("vercarta"):
         partes = data.split("_")
@@ -860,7 +863,22 @@ def manejador_callback(update, context):
                 x.get('card_id', 0)
             )
         cartas_usuario.sort(key=sort_key)
-        mostrar_carta_individual(query.message.chat_id, usuario_id, cartas_usuario, idx, context, query=query)
+        if idx < 0 or idx >= len(cartas_usuario):
+            query.answer(text="Esa carta no existe.", show_alert=True)
+            return
+        carta = cartas_usuario[idx]
+        # Guardar sesión de regalo (debes tener la variable SESIONES_REGALO = {} en la parte superior del código)
+        SESIONES_REGALO[usuario_id] = {
+            "carta": carta,
+            "msg_id": query.message.message_id,
+            "chat_id": query.message.chat_id,
+            "tiempo": time.time()
+        }
+        query.edit_message_reply_markup(reply_markup=None)
+        context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text="¿A quién quieres regalar esta carta? Escribe el @username o ID de Telegram aquí en el chat."
+        )
         query.answer()
         return
 
@@ -880,40 +898,6 @@ def manejador_callback(update, context):
         set_name = "_".join(partes[1:-1])
         pagina = int(partes[-1])
         mostrar_detalle_set(update, context, set_name, pagina=pagina, mensaje=query.message, editar=True)
-        query.answer()
-        return
-    elif data.startswith("regalar_"):
-        partes = data.split("_")
-        if len(partes) != 3:
-            query.answer()
-            return
-        usuario_id = int(partes[1])
-        idx = int(partes[2])
-        if query.from_user.id != usuario_id:
-            query.answer(text="Solo puedes regalar tus propias cartas.", show_alert=True)
-            return
-        cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
-        def sort_key(x):
-            grupo = grupo_de_carta(x.get('nombre',''), x.get('version','')) or ""
-            return (
-                grupo.lower(),
-                x.get('nombre','').lower(),
-                x.get('card_id', 0)
-            )
-        cartas_usuario.sort(key=sort_key)
-        carta = cartas_usuario[idx]
-        # Guardar sesión de regalo
-        SESIONES_REGALO[usuario_id] = {
-            "carta": carta,
-            "msg_id": query.message.message_id,
-            "chat_id": query.message.chat_id,
-            "tiempo": time.time()
-        }
-        query.edit_message_reply_markup(reply_markup=None)
-        context.bot.send_message(
-            chat_id=query.message.chat_id,
-            text="¿A quién quieres regalar esta carta? Escribe el @username o ID de Telegram aquí en el chat."
-        )
         query.answer()
         return
 
