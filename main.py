@@ -785,9 +785,38 @@ def manejador_callback(update, context):
         query.answer("Este drop ha expirado.", show_alert=True)
     elif data == "reclamada":
         query.answer("Esta carta ya fue reclamada.", show_alert=True)
-    elif data.startswith("vercarta"):
-        # ... tu código ...
-        pass
+   elif data.startswith("vercarta"):
+    partes = data.split("_")
+    if len(partes) != 3:
+        query.answer()
+        return
+    usuario_id = int(partes[1])
+    idx = int(partes[2])
+    if query.from_user.id != usuario_id:
+        query.answer(text="Solo puedes ver tus propias cartas.", show_alert=True)
+        return
+    cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
+    def sort_key(x):
+        grupo = grupo_de_carta(x.get('nombre',''), x.get('version','')) or ""
+        return (
+            grupo.lower(),
+            x.get('nombre','').lower(),
+            x.get('card_id', 0)
+        )
+    cartas_usuario.sort(key=sort_key)
+    if idx < 0 or idx >= len(cartas_usuario):
+        query.answer(text="Esa carta no existe.", show_alert=True)
+        return
+    mostrar_carta_individual(
+        query.message.chat_id,
+        usuario_id,
+        cartas_usuario,
+        idx,
+        context,
+        query=query
+    )
+    query.answer()
+       return
     elif data.startswith("albumlista_"):
         # ... tu código ...
         pass
