@@ -407,15 +407,40 @@ def comando_album(update, context):
     pagina = 1
     enviar_lista_pagina(chat_id, usuario_id, cartas_usuario, pagina, context)
 
-for idx, carta in enumerate(lista_cartas[inicio:fin], start=inicio):
-    cid = carta.get('card_id', '')
-    version = carta.get('version', '')
-    nombre = carta.get('nombre', '')
-    grupo = grupo_de_carta(nombre, version)
-    id_unico = carta.get('id_unico', 'xxxx')
-    estrellas = carta.get('estrellas', '★??')   # Siempre del registro, nunca lo calcules tú
-    texto_boton = f"{id_unico} [{estrellas}] #{cid} [{version}] {nombre} - {grupo}"
-    botones.append([InlineKeyboardButton(texto_boton, callback_data=f"vercarta_{usuario_id}_{idx}")])
+def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, editar=False, mensaje=None):
+    total = len(lista_cartas)
+    por_pagina = 10
+    paginas = (total - 1) // por_pagina + 1
+    if pagina < 1: pagina = 1
+    if pagina > paginas: pagina = paginas
+    inicio = (pagina - 1) * por_pagina
+    fin = min(inicio + por_pagina, total)
+    botones = []
+    for idx, carta in enumerate(lista_cartas[inicio:fin], start=inicio):
+        cid = carta.get('card_id', '')
+        version = carta.get('version', '')
+        nombre = carta.get('nombre', '')
+        grupo = grupo_de_carta(nombre, version)
+        id_unico = carta.get('id_unico', 'xxxx')
+        estrellas = carta.get('estrellas', '★??')   # Siempre del registro, nunca lo calcules tú
+        texto_boton = f"{id_unico} [{estrellas}] #{cid} [{version}] {nombre} - {grupo}"
+        botones.append([InlineKeyboardButton(texto_boton, callback_data=f"vercarta_{usuario_id}_{idx}")])
+    texto = f"<b>Página {pagina}/{paginas}</b>"
+    nav = []
+    if pagina > 1:
+        nav.append(InlineKeyboardButton("« Anterior", callback_data=f"lista_{pagina-1}_{usuario_id}"))
+    if pagina < paginas:
+        nav.append(InlineKeyboardButton("Siguiente »", callback_data=f"lista_{pagina+1}_{usuario_id}"))
+    if nav:
+        botones.append(nav)
+    teclado = InlineKeyboardMarkup(botones)
+    if editar and mensaje:
+        try:
+            mensaje.edit_text(texto, reply_markup=teclado, parse_mode='HTML')
+        except Exception as e:
+            context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode='HTML')
+    else:
+        context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode='HTML')
 
 
 def mostrar_carta_individual(chat_id, usuario_id, lista_cartas, idx, context, mensaje_a_editar=None, query=None):
@@ -756,7 +781,7 @@ def manejador_callback(update, context):
             )
         cartas_usuario.sort(key=sort_key)
         pagina = 1
-        enviar_lista_pagina(query.message.chat_id, usuario_id, cartas_usuario, pagina, context, editar=True, mensaje=query.message)
+        (query.message.chat_id, usuario_id, cartas_usuario, pagina, context, editar=True, mensaje=query.message)
         query.answer()
         return
 
@@ -799,7 +824,7 @@ def manejador_callback(update, context):
                 x.get('card_id', 0)
             )
         cartas_usuario.sort(key=sort_key)
-        enviar_lista_pagina(query.message.chat_id, usuario_id, cartas_usuario, pagina, context, editar=True, mensaje=query.message)
+        (query.message.chat_id, usuario_id, cartas_usuario, pagina, context, editar=True, mensaje=query.message)
         query.answer()
 
 # --------- HANDLERS ---------
