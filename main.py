@@ -248,6 +248,13 @@ def comando_idolday(update, context):
 
     threading.Thread(target=desbloquear_drop, args=(drop_id, ), daemon=True).start()
 
+FRASES_ESTADO = {
+    "Excelente estado": "Genial!",
+    "Buen estado": "Nada mal.",
+    "Mal estado": "Podría estar mejor...",
+    "Muy mal estado": "¡Oh no!"
+}
+
 def manejador_reclamar(update, context):
     query = update.callback_query
     usuario_click = query.from_user.id
@@ -380,10 +387,10 @@ def manejador_reclamar(update, context):
     )
 
     user_mention = f"@{query.from_user.username or query.from_user.first_name}"
-    # SOLO mostrar estado como texto, NO estrellas.
+    frase_estado = FRASES_ESTADO.get(estado, "")
     context.bot.send_message(
         chat_id=drop["chat_id"],
-        text=f"{user_mention} tomaste la carta <code>{id_unico}</code> #{nuevo_id} [{version}] {nombre} - {grupo}, Genial! está en <b>{estado.lower()}</b>!",
+        text=f"{user_mention} tomaste la carta <code>{id_unico}</code> #{nuevo_id} [{version}] {nombre} - {grupo}, {frase_estado} está en <b>{estado.lower()}</b>!",
         parse_mode='HTML'
     )
     query.answer("¡Carta reclamada!", show_alert=True)
