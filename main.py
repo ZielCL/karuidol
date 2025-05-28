@@ -196,33 +196,17 @@ def comando_idolday(update, context):
         version = carta['version']
         grupo = carta.get('grupo', '')
         imagen_url = carta.get('imagen')
-
-        doc_cont = col_contadores.find_one({"nombre": nombre, "version": version})
-        if doc_cont:
-            nuevo_id = doc_cont['contador'] + 1
-            col_contadores.update_one({"nombre": nombre, "version": version}, {"$inc": {"contador": 1}})
-        else:
-            nuevo_id = 1
-            col_contadores.insert_one({"nombre": nombre, "version": version, "contador": 1})
-
-        id_unico = random_id_unico(nuevo_id)
-        estrellas = "★★★"  # SIEMPRE 3 estrellas en el drop
-        estado = "Excelente"  # SIEMPRE estado Excelente en el drop
-        caption = f"<b>[{estrellas}] #{nuevo_id} [{version}] {nombre} - {grupo}</b>"
-
+        # NO SE GENERA ID NI ESTADO NI ESTRELLAS EN EL DROP
+        caption = f"<b>{nombre}</b>\n{grupo} [{version}]"
         media_group.append(InputMediaPhoto(media=imagen_url, caption=caption, parse_mode="HTML"))
         cartas_info.append({
             "nombre": nombre,
             "version": version,
             "grupo": grupo,
             "imagen": imagen_url,
-            "card_id": nuevo_id,
             "reclamada": False,
             "usuario": None,
             "hora_reclamada": None,
-            "id_unico": id_unico,
-            "estado": estado,
-            "estrellas": estrellas,
         })
 
     msgs = context.bot.send_media_group(chat_id=chat_id, media=media_group)
@@ -327,33 +311,38 @@ def manejador_reclamar(update, context):
         query.answer("No puedes reclamar esta carta.", show_alert=True)
         return
 
-    carta["reclamada"] = True
-    carta["usuario"] = usuario_click
-    carta["hora_reclamada"] = ahora
-    drop["usuarios_reclamaron"].append(usuario_click)
-
+    # --- Aquí SÍ generamos id_unico, estado y estrellas ---
     nombre = carta['nombre']
     version = carta['version']
     grupo = carta['grupo']
-    cid = carta['card_id']
 
-    # SOLO ESTADOS QUE EXISTAN PARA ESA CARTA
+    doc_cont = col_contadores.find_one({"nombre": nombre, "version": version})
+    if doc_cont:
+        nuevo_id = doc_cont['contador'] + 1
+        col_contadores.update_one({"nombre": nombre, "version": version}, {"$inc": {"contador": 1}})
+    else:
+        nuevo_id = 1
+        col_contadores.insert_one({"nombre": nombre, "version": version, "contador": 1})
+
+    id_unico = random_id_unico(nuevo_id)
+
     posibles_estados = estados_disponibles_para_carta(nombre, version)
     carta_entregada = random.choice(posibles_estados)
     estado = carta_entregada['estado']
-    estrellas = carta_entregada.get('estado_estrella', "★★★")  # Siempre usa el campo del json
+    estrellas = carta_entregada.get('estado_estrella', '★??')
     imagen_url = carta_entregada['imagen']
 
+    # Registrar la carta en la colección del usuario
     existente = col_cartas_usuario.find_one({
         "user_id": usuario_click,
         "nombre": nombre,
         "version": version,
-        "card_id": cid,
+        "card_id": nuevo_id,
         "estado": estado,
     })
     if existente:
         col_cartas_usuario.update_one(
-            {"user_id": usuario_click, "nombre": nombre, "version": version, "card_id": cid, "estado": estado},
+            {"user_id": usuario_click, "nombre": nombre, "version": version, "card_id": nuevo_id, "estado": estado},
             {"$inc": {"count": 1}}
         )
     else:
@@ -366,12 +355,17 @@ def manejador_reclamar(update, context):
                 "estado": estado,
                 "estrellas": estrellas,
                 "imagen": imagen_url,
-                "card_id": cid,
+                "card_id": nuevo_id,
                 "count": 1,
-                "id_unico": carta.get("id_unico", ""),
+                "id_unico": id_unico,
                 "estado_estrella": estrellas.count("★"),
             }
         )
+
+    carta["reclamada"] = True
+    carta["usuario"] = usuario_click
+    carta["hora_reclamada"] = ahora
+    drop["usuarios_reclamaron"].append(usuario_click)
 
     teclado = []
     for i, c in enumerate(drop["cartas"]):
@@ -385,22 +379,12 @@ def manejador_reclamar(update, context):
         reply_markup=InlineKeyboardMarkup([teclado])
     )
 
-    # Mensaje amigable, SIN estrellas, solo el estado
     user_mention = f"@{query.from_user.username or query.from_user.first_name}"
-    if estado == "Excelente":
-        estado_friendly = "¡está en excelente estado!"
-    elif estado == "Buen estado":
-        estado_friendly = "¡está en buen estado!"
-    elif estado == "Mal estado":
-        estado_friendly = "¡está en mal estado!"
-    elif estado == "Muy mal estado":
-        estado_friendly = "¡está en muy mal estado!"
-    else:
-        estado_friendly = f"¡estado desconocido ({estado})!"
-
+    # SOLO mostrar estado como texto, NO estrellas.
     context.bot.send_message(
         chat_id=drop["chat_id"],
-        text=f"{user_mention} tomaste la carta {carta.get('id_unico', '')} #{cid} [{version}] {nombre} - {grupo}, Genial! {estado_friendly}"
+        text=f"{user_mention} tomaste la carta <code>{id_unico}</code> #{nuevo_id} [{version}] {nombre} - {grupo}, Genial! está en <b>{estado.lower()}</b>!",
+        parse_mode='HTML'
     )
     query.answer("¡Carta reclamada!", show_alert=True)
 
