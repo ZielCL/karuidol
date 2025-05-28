@@ -188,7 +188,7 @@ def comando_idolday(update, context):
     if len(cartas_excelentes) < 2:
         cartas_excelentes = cartas_excelentes * 2
 
-    cartas_drop = random.sample(cartas_excelentes, 2)
+    cartas_drop = random.choices(cartas_excelentes, k=2)
     media_group = []
     cartas_info = []
     for carta in cartas_drop:
