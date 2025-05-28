@@ -786,16 +786,21 @@ def manejador_callback(update, context):
     elif data == "reclamada":
         query.answer("Esta carta ya fue reclamada.", show_alert=True)
     elif data.startswith("vercarta"):
+        # ... tu código ...
+    elif data.startswith("albumlista_"):
+        # ... tu código ...
+    elif data.startswith("regalar_"):
         partes = data.split("_")
         if len(partes) != 3:
+            query.answer()
             return
         usuario_id = int(partes[1])
         idx = int(partes[2])
         if query.from_user.id != usuario_id:
-            query.answer(text="Solo puedes ver tus propias cartas.", show_alert=True)
+            query.answer(text="Solo puedes regalar tus propias cartas.", show_alert=True)
             return
         cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
-        def sort_key(x):
+    def sort_key(x):
             grupo = grupo_de_carta(x.get('nombre',''), x.get('version','')) or ""
             return (
                 grupo.lower(),
