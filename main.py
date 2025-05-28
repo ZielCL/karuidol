@@ -188,7 +188,7 @@ def comando_idolday(update, context):
     cartas_drop = random.sample(cartas_disponibles, 2)
     media_group = []
     cartas_info = []
-    for carta in cartas_drop:
+for carta in cartas_drop:
     nombre = carta['nombre']
     version = carta['version']
     grupo = carta.get('grupo', '')
