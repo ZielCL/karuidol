@@ -787,8 +787,10 @@ def manejador_callback(update, context):
         query.answer("Esta carta ya fue reclamada.", show_alert=True)
     elif data.startswith("vercarta"):
         # ... tu código ...
+        pass
     elif data.startswith("albumlista_"):
         # ... tu código ...
+        pass
     elif data.startswith("regalar_"):
         partes = data.split("_")
         if len(partes) != 3:
@@ -800,7 +802,7 @@ def manejador_callback(update, context):
             query.answer(text="Solo puedes regalar tus propias cartas.", show_alert=True)
             return
         cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
-    def sort_key(x):
+        def sort_key(x):
             grupo = grupo_de_carta(x.get('nombre',''), x.get('version','')) or ""
             return (
                 grupo.lower(),
@@ -808,6 +810,7 @@ def manejador_callback(update, context):
                 x.get('card_id', 0)
             )
         cartas_usuario.sort(key=sort_key)
+ 
         mostrar_carta_individual(query.message.chat_id, usuario_id, cartas_usuario, idx, context, query=query)
         query.answer()
         return
