@@ -844,42 +844,45 @@ def manejador_callback(update, context):
         return
 
     elif data.startswith("regalar_"):
-        partes = data.split("_")
-        if len(partes) != 3:
-            query.answer()
-            return
-        usuario_id = int(partes[1])
-        idx = int(partes[2])
-        if query.from_user.id != usuario_id:
-            query.answer(text="Solo puedes regalar tus propias cartas.", show_alert=True)
-            return
-        cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
-        def sort_key(x):
-            grupo = grupo_de_carta(x.get('nombre',''), x.get('version','')) or ""
-            return (
-                grupo.lower(),
-                x.get('nombre','').lower(),
-                x.get('card_id', 0)
-            )
-        cartas_usuario.sort(key=sort_key)
-        if idx < 0 or idx >= len(cartas_usuario):
-            query.answer(text="Esa carta no existe.", show_alert=True)
-            return
-        carta = cartas_usuario[idx]
-        # Guardar sesión de regalo (debes tener la variable SESIONES_REGALO = {} en la parte superior del código)
-        SESIONES_REGALO[usuario_id] = {
-            "carta": carta,
-            "msg_id": query.message.message_id,
-            "chat_id": query.message.chat_id,
-            "tiempo": time.time()
-        }
-        query.edit_message_reply_markup(reply_markup=None)
-        context.bot.send_message(
-            chat_id=query.message.chat_id,
-            text="¿A quién quieres regalar esta carta? Escribe el @username o ID de Telegram aquí en el chat."
-        )
+    partes = data.split("_")
+    if len(partes) != 3:
         query.answer()
         return
+    usuario_id = int(partes[1])
+    idx = int(partes[2])
+    if query.from_user.id != usuario_id:
+        query.answer(text="Solo puedes regalar tus propias cartas.", show_alert=True)
+        return
+    cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
+    def sort_key(x):
+        grupo = grupo_de_carta(x.get('nombre',''), x.get('version','')) or ""
+        return (
+            grupo.lower(),
+            x.get('nombre','').lower(),
+            x.get('card_id', 0)
+        )
+    cartas_usuario.sort(key=sort_key)
+    if idx < 0 or idx >= len(cartas_usuario):
+        query.answer(text="Esa carta no existe.", show_alert=True)
+        return
+    carta = cartas_usuario[idx]
+    SESIONES_REGALO[usuario_id] = {
+        "carta": carta,
+        "msg_id": query.message.message_id,
+        "chat_id": query.message.chat_id,
+        "tiempo": time.time()
+    }
+    query.edit_message_reply_markup(reply_markup=None)
+    context.bot.send_message(
+        chat_id=query.message.chat_id,
+        text=f"¿A quién quieres regalar esta carta?\n\n"
+             f"<b>{carta['nombre']}</b> [{carta['version']}] - {carta['estado']}\n"
+             f"ID: <code>{carta['id_unico']}</code>\n\n"
+             f"Escribe el @usuario, el ID numérico, o <b>cancelar</b> para abortar.",
+        parse_mode="HTML"
+    )
+    query.answer()
+    return
 
     # ---- SETS Y PROGRESO ----
     if data.startswith("setsprogreso_"):
@@ -946,14 +949,14 @@ def handler_regalo_respuesta(update, context):
         if posible:
             target_user_id = posible["user_id"]
         else:
-            update.message.reply_text("No pude identificar al usuario destino. Usa @username o el ID numérico de Telegram.")
+            update.message.reply_text("❌ No pude identificar al usuario destino. Usa @username (de alguien que haya usado el bot) o el ID numérico de Telegram.")
             del SESIONES_REGALO[user_id]
             return
     else:
         try:
             target_user_id = int(destino)
         except:
-            update.message.reply_text("No pude identificar al usuario destino. Usa @username o el ID numérico de Telegram.")
+            update.message.reply_text("❌ No pude identificar al usuario destino. Usa @username (de alguien que haya usado el bot) o el ID numérico de Telegram.")
             del SESIONES_REGALO[user_id]
             return
 
@@ -962,7 +965,7 @@ def handler_regalo_respuesta(update, context):
         del SESIONES_REGALO[user_id]
         return
 
-    # Quitar carta al remitente
+    # Quitar carta al remitente (verifica que aún la tenga)
     res = col_cartas_usuario.delete_one({"user_id": user_id, "id_unico": carta["id_unico"]})
 
     if res.deleted_count == 0:
@@ -974,17 +977,17 @@ def handler_regalo_respuesta(update, context):
     carta["user_id"] = target_user_id
     col_cartas_usuario.insert_one(carta)
 
-    update.message.reply_text(f"🎁 ¡Carta [{carta['id_unico']}] enviada correctamente a <b>@{destino.lstrip('@')}</b>!", parse_mode='HTML')
+    # Notificación pública y privada
     try:
+        update.message.reply_text(f"🎁 ¡Carta [{carta['id_unico']}] enviada correctamente!")
         notif = (
             f"🎉 <b>¡Has recibido una carta!</b>\n"
-            f"Te han regalado <b>{carta['id_unico']}</b>.\n"
+            f"Te han regalado <b>{carta['id_unico']}</b> ({carta['nombre']} [{carta['version']}])\n"
             f"¡Revisa tu álbum con <code>/album</code>!"
         )
         context.bot.send_message(chat_id=target_user_id, text=notif, parse_mode='HTML')
     except Exception:
-        pass
-
+        update.message.reply_text("La carta fue enviada, pero no pude notificar al usuario destino en privado.")
     del SESIONES_REGALO[user_id]
 
 def comando_setsprogreso(update, context):
