@@ -185,9 +185,9 @@ def comando_idolday(update, context):
 
     # El drop SIEMPRE muestra estado Excelente (3 estrellas)
     cartas_disponibles = cartas if len(cartas) >= 2 else cartas * 2
-    cartas_drop = random.sample(cartas_disponibles, 2)
-    media_group = []
-    cartas_info = []
+cartas_drop = random.sample(cartas_disponibles, 2)
+media_group = []
+cartas_info = []
 for carta in cartas_drop:
     nombre = carta['nombre']
     version = carta['version']
