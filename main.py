@@ -851,7 +851,7 @@ def manejador_callback(update, context):
         mostrar_detalle_set(update, context, set_name, pagina=pagina, mensaje=query.message, editar=True)
         query.answer()
         return
-            elif data.startswith("regalar_"):
+    elif data.startswith("regalar_"):
         partes = data.split("_")
         if len(partes) != 3:
             query.answer()
