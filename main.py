@@ -145,6 +145,10 @@ def carta_estado(nombre, version, estado):
             return c
     return None
 
+def estados_disponibles_para_carta(nombre, version):
+    # Devuelve todos los estados disponibles para esa carta (puede ser varios estados: Excelente, Buen estado, etc)
+    return [c for c in cartas if c['nombre'] == nombre and c['version'] == version]
+
 # -- IDOLDAY DROP 2 CARTAS (Drop siempre muestra excelente estado, pero al reclamar puede variar) ---
 def comando_idolday(update, context):
     usuario_id = update.message.from_user.id
@@ -785,7 +789,7 @@ def manejador_callback(update, context):
         query.answer()
         return
 
-        # ---- SETS Y PROGRESO ----
+    # ---- SETS Y PROGRESO ----
     if data.startswith("setsprogreso_"):
         pagina = int(data.split("_")[1])
         mostrar_setsprogreso(update, context, pagina=pagina, mensaje=query.message, editar=True)
@@ -804,10 +808,7 @@ def manejador_callback(update, context):
         query.answer()
         return
 
-
-    # Agrega aquí todos los callbacks para setsprogreso, setlist, setdet, paginación, etc.
-    # Si los necesitas completos, dímelo y te los doy todos para copiar y pegar.
-
+    # --- PAGINACIÓN DE ÁLBUM ---
     partes = data.split("_")
     if len(partes) == 3 and partes[0] == "lista":
         pagina = int(partes[1])
@@ -824,7 +825,15 @@ def manejador_callback(update, context):
                 x.get('card_id', 0)
             )
         cartas_usuario.sort(key=sort_key)
-        (query.message.chat_id, usuario_id, cartas_usuario, pagina, context, editar=True, mensaje=query.message)
+        enviar_lista_pagina(
+            query.message.chat_id,
+            usuario_id,
+            cartas_usuario,
+            pagina,
+            context,
+            editar=True,
+            mensaje=query.message
+        )
         query.answer()
 
 # --------- HANDLERS ---------
