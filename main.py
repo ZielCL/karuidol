@@ -785,42 +785,8 @@ def manejador_callback(update, context):
         query.answer("Este drop ha expirado.", show_alert=True)
     elif data == "reclamada":
         query.answer("Esta carta ya fue reclamada.", show_alert=True)
-   elif data.startswith("vercarta"):
-    partes = data.split("_")
-    if len(partes) != 3:
-        query.answer()
-        return
-    usuario_id = int(partes[1])
-    idx = int(partes[2])
-    if query.from_user.id != usuario_id:
-        query.answer(text="Solo puedes ver tus propias cartas.", show_alert=True)
-        return
-    cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
-    def sort_key(x):
-        grupo = grupo_de_carta(x.get('nombre',''), x.get('version','')) or ""
-        return (
-            grupo.lower(),
-            x.get('nombre','').lower(),
-            x.get('card_id', 0)
-        )
-    cartas_usuario.sort(key=sort_key)
-    if idx < 0 or idx >= len(cartas_usuario):
-        query.answer(text="Esa carta no existe.", show_alert=True)
-        return
-    mostrar_carta_individual(
-        query.message.chat_id,
-        usuario_id,
-        cartas_usuario,
-        idx,
-        context,
-        query=query
-    )
-    query.answer()
-       return
-    elif data.startswith("albumlista_"):
-        # ... tu código ...
-        pass
-    elif data.startswith("regalar_"):
+
+    elif data.startswith("vercarta"):
         partes = data.split("_")
         if len(partes) != 3:
             query.answer()
@@ -828,7 +794,7 @@ def manejador_callback(update, context):
         usuario_id = int(partes[1])
         idx = int(partes[2])
         if query.from_user.id != usuario_id:
-            query.answer(text="Solo puedes regalar tus propias cartas.", show_alert=True)
+            query.answer(text="Solo puedes ver tus propias cartas.", show_alert=True)
             return
         cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
         def sort_key(x):
@@ -839,10 +805,20 @@ def manejador_callback(update, context):
                 x.get('card_id', 0)
             )
         cartas_usuario.sort(key=sort_key)
- 
-        mostrar_carta_individual(query.message.chat_id, usuario_id, cartas_usuario, idx, context, query=query)
+        if idx < 0 or idx >= len(cartas_usuario):
+            query.answer(text="Esa carta no existe.", show_alert=True)
+            return
+        mostrar_carta_individual(
+            query.message.chat_id,
+            usuario_id,
+            cartas_usuario,
+            idx,
+            context,
+            query=query
+        )
         query.answer()
         return
+
     elif data.startswith("albumlista_"):
         partes = data.split("_")
         if len(partes) != 2:
@@ -862,6 +838,29 @@ def manejador_callback(update, context):
         cartas_usuario.sort(key=sort_key)
         pagina = 1
         enviar_lista_pagina(query.message.chat_id, usuario_id, cartas_usuario, pagina, context, editar=True, mensaje=query.message)
+        query.answer()
+        return
+
+    elif data.startswith("regalar_"):
+        partes = data.split("_")
+        if len(partes) != 3:
+            query.answer()
+            return
+        usuario_id = int(partes[1])
+        idx = int(partes[2])
+        if query.from_user.id != usuario_id:
+            query.answer(text="Solo puedes regalar tus propias cartas.", show_alert=True)
+            return
+        cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
+        def sort_key(x):
+            grupo = grupo_de_carta(x.get('nombre',''), x.get('version','')) or ""
+            return (
+                grupo.lower(),
+                x.get('nombre','').lower(),
+                x.get('card_id', 0)
+            )
+        cartas_usuario.sort(key=sort_key)
+        mostrar_carta_individual(query.message.chat_id, usuario_id, cartas_usuario, idx, context, query=query)
         query.answer()
         return
 
