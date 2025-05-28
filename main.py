@@ -189,10 +189,10 @@ def comando_idolday(update, context):
     media_group = []
     cartas_info = []
     for carta in cartas_drop:
-        nombre = carta['nombre']
-        version = carta['version']
-        grupo = carta.get('grupo', '')
-        imagen_url = carta.get('imagen')
+    nombre = carta['nombre']
+    version = carta['version']
+    grupo = carta.get('grupo', '')
+    imagen_url = carta.get('imagen')
 
     doc_cont = col_contadores.find_one({"nombre": nombre, "version": version})
     if doc_cont:
@@ -851,7 +851,7 @@ dispatcher.add_handler(CallbackQueryHandler(manejador_callback))
 def webhook():
     global primer_mensaje
     update = Update.de_json(request.get_json(force=True), bot)
-    if primer_mensaje and update.message:
+    if primer_mensaje and getattr(update, "message", None):
         try:
             bot.send_message(chat_id=update.effective_chat.id, text="Bot activo")
         except:
