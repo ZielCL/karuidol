@@ -145,7 +145,7 @@ def carta_estado(nombre, version, estado):
             return c
     return None
 
-# --------- IDOLDAY DROP 2 CARTAS (Drop siempre muestra excelente estado, pero al reclamar puede variar) ----------
+# -- IDOLDAY DROP 2 CARTAS (Drop siempre muestra excelente estado, pero al reclamar puede variar) ---
 def comando_idolday(update, context):
     usuario_id = update.message.from_user.id
     chat_id = update.effective_chat.id
@@ -406,7 +406,7 @@ def comando_album(update, context):
     cartas_usuario.sort(key=sort_key)
     pagina = 1
     enviar_lista_pagina(chat_id, usuario_id, cartas_usuario, pagina, context)
-----------------------------------------------
+
 for idx, carta in enumerate(lista_cartas[inicio:fin], start=inicio):
     cid = carta.get('card_id', '')
     version = carta.get('version', '')
@@ -416,7 +416,7 @@ for idx, carta in enumerate(lista_cartas[inicio:fin], start=inicio):
     estrellas = carta.get('estrellas', '★??')   # Siempre del registro, nunca lo calcules tú
     texto_boton = f"{id_unico} [{estrellas}] #{cid} [{version}] {nombre} - {grupo}"
     botones.append([InlineKeyboardButton(texto_boton, callback_data=f"vercarta_{usuario_id}_{idx}")])
---------------------------------
+
 
 def mostrar_carta_individual(chat_id, usuario_id, lista_cartas, idx, context, mensaje_a_editar=None, query=None):
     carta = lista_cartas[idx]
