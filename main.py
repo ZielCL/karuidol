@@ -105,6 +105,45 @@ def puede_usar_idolday(user_id):
     if diferencia.total_seconds() >= 86400:
         return True
     return False
+def desbloquear_drop(drop_id):
+    # Espera 30 segundos para bloquear el drop (puedes cambiar el tiempo si quieres)
+    data = DROPS_ACTIVOS.get(drop_id)
+    if not data or data.get("expirado"):
+        return
+    tiempo_inicio = data["inicio"]
+    while True:
+        ahora = time.time()
+        elapsed = ahora - tiempo_inicio
+        if elapsed >= 30:
+            expira_drop(drop_id)
+            break
+        time.sleep(1)
+
+def expira_drop(drop_id):
+    drop = DROPS_ACTIVOS.get(drop_id)
+    if not drop or drop.get("expirado"):
+        return
+    keyboard = [
+        [
+            InlineKeyboardButton("❌", callback_data="expirado", disabled=True),
+            InlineKeyboardButton("❌", callback_data="expirado", disabled=True),
+        ]
+    ]
+    try:
+        bot.edit_message_reply_markup(
+            chat_id=drop["chat_id"],
+            message_id=drop["mensaje_id"],
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    except Exception:
+        pass
+    drop["expirado"] = True
+    
+def carta_estado(nombre, version, estado):
+    for c in cartas:
+        if c['nombre'] == nombre and c['version'] == version and c.get('estado') == estado:
+            return c
+    return None
 
 # --------- IDOLDAY DROP 2 CARTAS (Drop siempre muestra excelente estado, pero al reclamar puede variar) ----------
 def comando_idolday(update, context):
