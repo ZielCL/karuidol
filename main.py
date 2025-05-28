@@ -41,6 +41,11 @@ col_usuarios = db['usuarios']
 col_cartas_usuario = db['cartas_usuario']
 col_contadores = db['contadores']
 
+# --- Cooldowns ---
+COOLDOWN_USUARIO_SEG = 8 * 60 * 60  # 8 horas en segundos
+COOLDOWN_GRUPO_SEG = 30             # 30 segundos global por grupo
+COOLDOWN_GRUPO = {}                 # Guarda el timestamp del último drop por grupo
+
 # Cargar cartas.json
 if not os.path.isfile('cartas.json'):
     raise ValueError("No se encontró el archivo cartas.json")
@@ -154,36 +159,55 @@ def comando_idolday(update, context):
     usuario_id = update.message.from_user.id
     chat_id = update.effective_chat.id
     ahora = datetime.utcnow()
+    ahora_ts = time.time()
     user_doc = col_usuarios.find_one({"user_id": usuario_id})
     bono = user_doc.get('bono', 0) if user_doc else 0
     last = user_doc.get('last_idolday') if user_doc else None
     puede_tirar = False
 
+    # --- Cooldown global por grupo (30 seg) ---
+    ultimo_drop = COOLDOWN_GRUPO.get(chat_id, 0)
+    if ahora_ts - ultimo_drop < COOLDOWN_GRUPO_SEG:
+        faltante = int(COOLDOWN_GRUPO_SEG - (ahora_ts - ultimo_drop))
+        context.bot.send_message(
+            chat_id=chat_id,
+            text=f"⏳ Espera {faltante} segundos antes de volver a dropear cartas en este grupo."
+        )
+        return
+
     if update.effective_chat.type not in ["group", "supergroup"]:
         context.bot.send_message(chat_id=chat_id, text="Este comando solo se puede usar en grupos.")
         return
 
+    # --- Cooldown por usuario (8 horas o bono) ---
     if bono and bono > 0:
         puede_tirar = True
         col_usuarios.update_one({"user_id": usuario_id}, {"$inc": {"bono": -1}}, upsert=True)
     elif last:
         diferencia = ahora - last
-        if diferencia.total_seconds() >= 86400:
+        if diferencia.total_seconds() >= COOLDOWN_USUARIO_SEG:
             puede_tirar = True
     else:
         puede_tirar = True
 
     if not puede_tirar:
         if last:
-            faltante = 86400 - (ahora - last).total_seconds()
+            faltante = COOLDOWN_USUARIO_SEG - (ahora - last).total_seconds()
             horas = int(faltante // 3600)
             minutos = int((faltante % 3600) // 60)
-            context.bot.send_message(chat_id=chat_id, text=f"Ya usaste /idolday hoy. Intenta de nuevo en {horas}h {minutos}m.")
+            segundos = int(faltante % 60)
+            context.bot.send_message(
+                chat_id=chat_id,
+                text=f"Ya usaste /idolday. Intenta de nuevo en {horas}h {minutos}m {segundos}s."
+            )
         else:
-            context.bot.send_message(chat_id=chat_id, text=f"Ya usaste /idolday hoy.")
+            context.bot.send_message(chat_id=chat_id, text=f"Ya usaste /idolday.")
         return
 
-    # SOLO cartas en estado "Excelente"
+    # --- Actualiza el cooldown global ---
+    COOLDOWN_GRUPO[chat_id] = ahora_ts
+
+    # SOLO cartas en estado "Excelente estado"
     cartas_excelentes = [c for c in cartas if c.get("estado") == "Excelente estado"]
     if len(cartas_excelentes) < 2:
         cartas_excelentes = cartas_excelentes * 2
