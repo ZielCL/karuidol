@@ -634,15 +634,13 @@ def obtener_sets_disponibles():
             sets.add(carta["grupo"])
     return sorted(list(sets), key=lambda s: s.lower())
 
-def comando_setsprogreso(update, context):
-    mostrar_setsprogreso(update, context, pagina=1)
-
 def mostrar_setsprogreso(update, context, pagina=1, mensaje=None, editar=False):
     usuario_id = update.effective_user.id
     chat_id = update.effective_chat.id
     sets = obtener_sets_disponibles()
     cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
-    cartas_usuario_set = set((c["nombre"], c["version"]) for c in cartas_usuario)
+    # El usuario puede tener varias copias/estados de una misma carta. Solo cuenta una vez cada (nombre, version).
+    cartas_usuario_unicas = set((c["nombre"], c["version"]) for c in cartas_usuario)
     por_pagina = 5
     total = len(sets)
     paginas = (total - 1) // por_pagina + 1
@@ -652,9 +650,10 @@ def mostrar_setsprogreso(update, context, pagina=1, mensaje=None, editar=False):
     fin = min(inicio + por_pagina, total)
     texto = "<b>📚 Progreso de sets/colecciones:</b>\n\n"
     for s in sets[inicio:fin]:
-        cartas_set = [c for c in cartas if (c.get("set") == s or c.get("grupo") == s)]
-        total_set = len(cartas_set)
-        usuario_tiene = sum(1 for c in cartas_set if (c["nombre"], c["version"]) in cartas_usuario_set)
+        # Solo un registro por (nombre, version)
+        cartas_set_unicas = set((c["nombre"], c["version"]) for c in cartas if (c.get("set") == s or c.get("grupo") == s))
+        total_set = len(cartas_set_unicas)
+        usuario_tiene = sum(1 for carta in cartas_set_unicas if carta in cartas_usuario_unicas)
         if usuario_tiene == 0:
             emoji = "⬜"
         elif usuario_tiene == total_set:
