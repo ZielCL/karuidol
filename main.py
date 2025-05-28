@@ -184,11 +184,11 @@ def comando_idolday(update, context):
     cartas_drop = random.sample(cartas_disponibles, 2)
     media_group = []
     cartas_info = []
-for carta in cartas_drop:
-    nombre = carta['nombre']
-    version = carta['version']
-    grupo = carta.get('grupo', '')
-    imagen_url = carta.get('imagen')
+    for carta in cartas_drop:
+        nombre = carta['nombre']
+        version = carta['version']
+        grupo = carta.get('grupo', '')
+        imagen_url = carta.get('imagen')
 
     doc_cont = col_contadores.find_one({"nombre": nombre, "version": version})
     if doc_cont:
