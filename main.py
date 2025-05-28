@@ -183,9 +183,13 @@ def comando_idolday(update, context):
             context.bot.send_message(chat_id=chat_id, text=f"Ya usaste /idolday hoy.")
         return
 
-    # El drop SIEMPRE muestra estado Excelente (3 estrellas)
-    cartas_disponibles = cartas if len(cartas) >= 2 else cartas * 2
-    cartas_drop = random.sample(cartas_disponibles, 2)
+    # SOLO cartas en estado "Excelente"
+    cartas_excelentes = [c for c in cartas if c.get("estado") == "Excelente"]
+    if len(cartas_excelentes) < 2:
+        # Si hay menos de 2, duplica la lista
+        cartas_excelentes = cartas_excelentes * 2
+
+    cartas_drop = random.sample(cartas_excelentes, 2)
     media_group = []
     cartas_info = []
     for carta in cartas_drop:
@@ -203,8 +207,8 @@ def comando_idolday(update, context):
             col_contadores.insert_one({"nombre": nombre, "version": version, "contador": 1})
 
         id_unico = random_id_unico(nuevo_id)
-        estrellas = carta.get("estrellas", "★★★")
-        estado = carta.get("estado", "Excelente estado")
+        estrellas = "★★★"  # SIEMPRE 3 estrellas en el drop
+        estado = "Excelente"  # SIEMPRE estado Excelente en el drop
         caption = f"<b>[{estrellas}] #{nuevo_id} [{version}] {nombre} - {grupo}</b>"
 
         media_group.append(InputMediaPhoto(media=imagen_url, caption=caption, parse_mode="HTML"))
