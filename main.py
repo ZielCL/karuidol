@@ -442,7 +442,7 @@ def comando_album(update, context):
     pagina = 1
     enviar_lista_pagina(chat_id, usuario_id, cartas_usuario, pagina, context)
 
-def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, editar=False, mensaje=None, filtro=None):
+def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, editar=False, mensaje=None):
     total = len(lista_cartas)
     por_pagina = 10
     paginas = (total - 1) // por_pagina + 1
@@ -452,26 +452,23 @@ def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, edit
         pagina = paginas
     inicio = (pagina - 1) * por_pagina
     fin = min(inicio + por_pagina, total)
-    botones = []
+    texto = f"<b>Álbum de cartas (página {pagina}/{paginas})</b>\n\n"
     for carta in lista_cartas[inicio:fin]:
-       cid = carta.get('card_id', '')
-       version = carta.get('version', '')
-       nombre = carta.get('nombre', '')
-       grupo = grupo_de_carta(nombre, version)
-       id_unico = carta.get('id_unico', 'xxxx')
-       estrellas = carta.get('estrellas', '★??')
-       texto_boton = f"{id_unico} [{estrellas}] #{cid} [{version}] {nombre} - {grupo}"
-       botones.append([InlineKeyboardButton(texto_boton, callback_data=f"vercarta_{usuario_id}_{id_unico}")])
-
-    texto = f"<b>Página {pagina}/{paginas}</b>"
+        cid = carta.get('card_id', '')
+        version = carta.get('version', '')
+        nombre = carta.get('nombre', '')
+        grupo = grupo_de_carta(nombre, version)
+        id_unico = carta.get('id_unico', 'xxxx')
+        estrellas = carta.get('estrellas', '★??')
+        texto += f"• <b>{nombre}</b> [{version}] {grupo}\n"
+        texto += f"   ID: <code>{id_unico}</code>  [{estrellas}]  #{cid}\n"
+    texto += "\nUsa <b>/ampliar &lt;id_unico&gt;</b> para ver una carta en grande."
     nav = []
     if pagina > 1:
-        nav.append(InlineKeyboardButton("« Anterior", callback_data=f"lista_{pagina-1}_{usuario_id}" + (f"_{filtro}" if filtro else "")))
+        nav.append(InlineKeyboardButton("« Anterior", callback_data=f"lista_{pagina-1}_{usuario_id}"))
     if pagina < paginas:
-        nav.append(InlineKeyboardButton("Siguiente »", callback_data=f"lista_{pagina+1}_{usuario_id}" + (f"_{filtro}" if filtro else "")))
-    if nav:
-        botones.append(nav)
-    teclado = InlineKeyboardMarkup(botones)
+        nav.append(InlineKeyboardButton("Siguiente »", callback_data=f"lista_{pagina+1}_{usuario_id}"))
+    teclado = InlineKeyboardMarkup([nav]) if nav else None
     if editar and mensaje:
         try:
             mensaje.edit_text(texto, reply_markup=teclado, parse_mode='HTML')
@@ -548,6 +545,25 @@ def comando_bonoidolday(update, context):
         return
     col_usuarios.update_one({"user_id": dest_id}, {"$inc": {"bono": cantidad}}, upsert=True)
     update.message.reply_text(f"✅ Bono de {cantidad} tiradas de /idolday entregado a <code>{dest_id}</code>.", parse_mode='HTML')
+
+def comando_ampliar(update, context):
+    if not context.args:
+        update.message.reply_text("Debes indicar el ID único de la carta: /ampliar <id_unico>")
+        return
+    usuario_id = update.message.from_user.id
+    id_unico = context.args[0].strip()
+    carta = col_cartas_usuario.find_one({"user_id": usuario_id, "id_unico": id_unico})
+    if not carta:
+        update.message.reply_text("No encontré esa carta en tu álbum.")
+        return
+    imagen_url = carta.get('imagen', imagen_de_carta(carta['nombre'], carta['version']))
+    nombre = carta.get('nombre', '')
+    version = carta.get('version', '')
+    grupo = grupo_de_carta(nombre, version)
+    estrellas = carta.get('estrellas', '★??')
+    estado = carta.get('estado', '')
+    texto = f"<b>{nombre}</b> [{version}] {grupo}\nID: <code>{id_unico}</code>  [{estrellas}]\nEstado: {estado}"
+    update.message.reply_photo(photo=imagen_url, caption=texto, parse_mode='HTML')
 
 def comando_comandos(update, context):
     texto = (
@@ -1032,6 +1048,7 @@ dispatcher.add_handler(CommandHandler('setsprogreso', comando_setsprogreso))
 dispatcher.add_handler(CommandHandler('set', comando_set_detalle))
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback))
 dispatcher.add_handler(MessageHandler(Filters.text & (~Filters.command), handler_regalo_respuesta))
+dispatcher.add_handler(CommandHandler('ampliar', comando_ampliar))
 
 @app.route(f'/{TOKEN}', methods=['POST'])
 def webhook():
