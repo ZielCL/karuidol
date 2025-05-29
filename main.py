@@ -492,11 +492,14 @@ def comando_inventario(update, context):
     # Trae el inventario del usuario
     doc = col_usuarios.find_one({"user_id": usuario_id})
     inventario = doc.get("inventario", {}) if doc else {}
+    kponey = doc.get("kponey", 0) if doc else 0  # <--- Aquí obtenemos el dinero
+
+    texto = f"🎒 <b>Tu inventario</b>:\n"
+    texto += f"<b>Kponey:</b> <code>{kponey}</code>\n\n"  # <--- Mostramos el saldo
 
     if not inventario:
-        texto = "🎒 Tu inventario está vacío."
+        texto += "(Inventario vacío)\n"
     else:
-        texto = "🎒 <b>Tu inventario</b>:\n\n"
         for key, desc in catalogo.items():
             cantidad = inventario.get(key, 0)
             if cantidad > 0:
@@ -505,6 +508,7 @@ def comando_inventario(update, context):
     texto += "———\n<i>Próximamente más objetos y usos.</i>"
 
     update.message.reply_text(texto, parse_mode="HTML")
+
 
 #---------Dinero del bot------------
 def comando_saldo(update, context):
