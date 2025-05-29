@@ -79,6 +79,15 @@ ESTADO_MULTIPLICADORES = {
 }
 #---------------------------
 
+def precio_carta_karuta(nombre, version, estado):
+    total_copias = col_cartas_usuario.count_documents({"nombre": nombre, "version": version})
+    if total_copias == 0:
+        total_copias = 1
+    base = BASE_PRICE + RAREZA / math.sqrt(total_copias)
+    mult = ESTADO_MULTIPLICADORES.get(estado, 1.0)
+    precio = int(base * mult)
+    return precio
+
 def random_id_unico(card_id):
     # 4 letras/números aleatorios + el id de carta (card_id)
     pool = string.ascii_lowercase + string.digits
