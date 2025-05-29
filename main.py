@@ -914,7 +914,7 @@ if len(partes) >= 3 and partes[0] == "lista":
     filtro = partes[3].strip().lower() if len(partes) > 3 and partes[3] else None
     if query.from_user.id != usuario_id:
         query.answer(text="Este álbum no es tuyo.", show_alert=True)
-        return
+    return
     cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
     if filtro:
         cartas_usuario = [
