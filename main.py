@@ -17,6 +17,7 @@ from pymongo import MongoClient
 from dotenv import load_dotenv
 import re
 import string
+import math
 
 load_dotenv()
 
@@ -40,6 +41,7 @@ db = client['karuta_bot']
 col_usuarios = db['usuarios']
 col_cartas_usuario = db['cartas_usuario']
 col_contadores = db['contadores']
+col_mercado = db['mercado_cartas']
 
 # --- Cooldowns ---
 COOLDOWN_USUARIO_SEG = 8 * 60 * 60  # 8 horas en segundos
@@ -64,6 +66,18 @@ ESTADOS_CARTA = [
     ("Muy mal estado", "☆☆☆")
 ]
 ESTADO_LISTA = ["Excelente", "Buen estado", "Mal estado", "Muy mal estado"]
+
+#------Precio de cartas-------
+BASE_PRICE = 250
+RAREZA = 5000
+
+ESTADO_MULTIPLICADORES = {
+    "Excelente estado": 1.0,
+    "Buen estado": 0.4,
+    "Mal estado": 0.15,
+    "Muy mal estado": 0.05
+}
+#---------------------------
 
 def random_id_unico(card_id):
     # 4 letras/números aleatorios + el id de carta (card_id)
@@ -583,6 +597,166 @@ def comando_fav(update, context):
         col_usuarios.update_one({"user_id": usuario_id}, {"$set": {"favoritos": favoritos}}, upsert=True)
         update.message.reply_text(f"⭐ Añadiste a favoritos: <code>[{version}] {nombre}</code>", parse_mode="HTML")
 
+#------------COMANDO PRECIO---------------------
+def comando_precio(update, context):
+    if not context.args:
+        update.message.reply_text("Usa: /precio <id_unico>\nEjemplo: /precio f4fg1")
+        return
+    id_unico = context.args[0].strip()
+    carta = col_cartas_usuario.find_one({"id_unico": id_unico})
+    if not carta:
+        update.message.reply_text("No se encontró la carta con ese ID único en la base de datos.")
+        return
+    nombre = carta['nombre']
+    version = carta['version']
+    estado = carta['estado']
+    precio = precio_carta_karuta(nombre, version, estado)
+    total_copias = col_cartas_usuario.count_documents({"nombre": nombre, "version": version})
+
+    texto = (
+        f"💳 <b>Precio de carta [{id_unico}]</b>\n"
+        f"• Nombre: <b>{nombre}</b>\n"
+        f"• Versión: <b>{version}</b>\n"
+        f"• Estado: <b>{estado}</b>\n"
+        f"• Precio: <code>{precio} Kponey</code>\n"
+        f"• Copias globales: <b>{total_copias}</b>"
+    )
+    update.message.reply_text(texto, parse_mode='HTML')
+
+#------Comando vender--------------------
+def comando_vender(update, context):
+    usuario_id = update.message.from_user.id
+    chat_id = update.effective_chat.id
+
+    if not context.args:
+        update.message.reply_text("Usa: /vender <id_unico>")
+        return
+    id_unico = context.args[0].strip()
+    carta = col_cartas_usuario.find_one({"user_id": usuario_id, "id_unico": id_unico})
+    if not carta:
+        update.message.reply_text("No tienes esa carta en tu inventario.")
+        return
+
+    nombre = carta['nombre']
+    version = carta['version']
+    estado = carta['estado']
+    precio = precio_carta_karuta(nombre, version, estado)
+
+    # Verifica si ya está en mercado
+    ya = col_mercado.find_one({"id_unico": id_unico})
+    if ya:
+        update.message.reply_text("Esta carta ya está en el mercado.")
+        return
+
+    # Quitar de inventario y poner en mercado
+    col_cartas_usuario.delete_one({"user_id": usuario_id, "id_unico": id_unico})
+    col_mercado.insert_one({
+        "id_unico": id_unico,
+        "vendedor_id": usuario_id,
+        "nombre": nombre,
+        "version": version,
+        "estado": estado,
+        "precio": precio,
+        "fecha": datetime.utcnow(),
+        "imagen": carta.get("imagen"),
+        "grupo": carta.get("grupo", "")
+    })
+    update.message.reply_text(
+        f"📦 Carta <b>{nombre} [{version}]</b> puesta en el mercado por <b>{precio} Kponey</b>.",
+        parse_mode='HTML'
+    )
+
+#----------Ver cartas en venta------------------
+
+def comando_mercado(update, context):
+    chat_id = update.effective_chat.id
+    cartas = list(col_mercado.find())
+    if not cartas:
+        update.message.reply_text("No hay cartas a la venta en el mercado.")
+        return
+    texto = "<b>🛒 Cartas en el mercado:</b>\n"
+    for c in cartas[:10]:  # muestra solo las primeras 10
+        texto += (
+            f"• <code>{c['id_unico']}</code> · [{c['estado']}] "
+            f"{c['nombre']} [{c['version']}] — <b>{c['precio']} Kponey</b>\n"
+            f"  /comprar {c['id_unico']}\n"
+        )
+    if len(cartas) > 10:
+        texto += f"Y {len(cartas)-10} más...\n"
+    update.message.reply_text(texto, parse_mode="HTML")
+
+
+#----------Comprar carta del mercado------------------
+
+def comando_comprar(update, context):
+    usuario_id = update.message.from_user.id
+    if not context.args:
+        update.message.reply_text("Usa: /comprar <id_unico>")
+        return
+    id_unico = context.args[0].strip()
+    carta = col_mercado.find_one({"id_unico": id_unico})
+    if not carta:
+        update.message.reply_text("No existe esa carta en el mercado.")
+        return
+    if carta["vendedor_id"] == usuario_id:
+        update.message.reply_text("No puedes comprar tu propia carta.")
+        return
+
+    usuario = col_usuarios.find_one({"user_id": usuario_id}) or {}
+    saldo = usuario.get("kponey", 0)
+    precio = carta["precio"]
+
+    if saldo < precio:
+        update.message.reply_text(f"No tienes suficiente Kponey. Precio: {precio}, tu saldo: {saldo}")
+        return
+
+    # Transacción
+    col_usuarios.update_one({"user_id": usuario_id}, {"$inc": {"kponey": -precio}}, upsert=True)
+    col_usuarios.update_one({"user_id": carta["vendedor_id"]}, {"$inc": {"kponey": precio}}, upsert=True)
+
+    # Quitar del mercado y dar carta al comprador
+    col_mercado.delete_one({"id_unico": id_unico})
+    carta['user_id'] = usuario_id
+    del carta['_id']
+    del carta['vendedor_id']
+    del carta['precio']
+    del carta['fecha']
+    col_cartas_usuario.insert_one(carta)
+
+    update.message.reply_text(f"✅ Compraste la carta <b>{carta['nombre']} [{carta['version']}]</b> por <b>{precio} Kponey</b>.", parse_mode="HTML")
+
+    # Notificar al vendedor (opcional)
+    try:
+        context.bot.send_message(
+            chat_id=carta["vendedor_id"],
+            text=f"💸 ¡Vendiste la carta <b>{carta['nombre']} [{carta['version']}]</b> y ganaste <b>{precio} Kponey</b>!",
+            parse_mode="HTML"
+        )
+    except Exception:
+        pass
+
+#----------Retirar carta del mercado------------------
+
+def comando_retirar(update, context):
+    usuario_id = update.message.from_user.id
+    if not context.args:
+        update.message.reply_text("Usa: /retirar <id_unico>")
+        return
+    id_unico = context.args[0].strip()
+    carta = col_mercado.find_one({"id_unico": id_unico, "vendedor_id": usuario_id})
+    if not carta:
+        update.message.reply_text("No tienes esa carta en el mercado.")
+        return
+    # Devolver carta al usuario
+    col_mercado.delete_one({"id_unico": id_unico})
+    carta['user_id'] = usuario_id
+    del carta['_id']
+    del carta['vendedor_id']
+    del carta['precio']
+    del carta['fecha']
+    col_cartas_usuario.insert_one(carta)
+    update.message.reply_text("Carta retirada del mercado y devuelta a tu álbum.")
+
 
 #---------Dinero del bot------------
 def comando_saldo(update, context):
@@ -698,6 +872,7 @@ def comando_bonoidolday(update, context):
     col_usuarios.update_one({"user_id": dest_id}, {"$inc": {"bono": cantidad}}, upsert=True)
     update.message.reply_text(f"✅ Bono de {cantidad} tiradas de /idolday entregado a <code>{dest_id}</code>.", parse_mode='HTML')
 
+
 def comando_ampliar(update, context):
     if not context.args:
         update.message.reply_text("Debes indicar el ID único de la carta: /ampliar <id_unico>")
@@ -714,30 +889,48 @@ def comando_ampliar(update, context):
     grupo = grupo_de_carta(nombre, version)
     estrellas = carta.get('estrellas', '★??')
     estado = carta.get('estado', '')
+    precio = precio_carta_karuta(nombre, version, estado)
 
-    # Aquí el formato que pides:
     texto = (
         f"<b>{nombre} [{version}] {grupo}</b>\n"
         f"ID: <code>{id_unico}</code>\n"
-        f"{estado} [{estrellas}]"
+        f"{estado} [{estrellas}]\n"
+        f"💰 <b>Precio actual:</b> <code>{precio} Kponey</code>"
     )
     update.message.reply_photo(photo=imagen_url, caption=texto, parse_mode='HTML')
 
 
 def comando_comandos(update, context):
     texto = (
-        "📋 <b>Lista de comandos disponibles:</b>\n"
+        "📋 <b>Lista de comandos disponibles:</b>\n\n"
+        "<b>🎴 Cartas</b>\n"
+        "/idolday — Drop de 2 cartas en el grupo\n"
+        "/album — Muestra tu colección de cartas\n"
+        "/ampliar <id_unico> — Ver detalles y precio de una carta\n"
+        "/giveidol <id_unico> @usuario — Regala una carta a otro usuario\n"
+        "/favoritos — Muestra tus cartas favoritas\n"
+        "/fav [Vn] Nombre — Añade o quita una carta de favoritos\n"
         "\n"
-        "<b>/idolday</b> - Drop de 2 cartas con botones.\n"
-        "<b>/album</b> - Muestra tu colección de cartas.\n"
-        "<b>/giveidol</b> - Regala una carta usando el ID único (ej: <code>/giveidol f4fg1 @usuario</code>).\n"
-        "<b>/miid</b> - Muestra tu ID de Telegram.\n"
-        "<b>/bonoidolday</b> - Da bonos de tiradas de /idolday a un usuario (solo admins).\n"
-        "<b>/setsprogreso</b> - Progreso de sets/colecciones.\n"
-        "<b>/set</b> - Detalles de un set.\n"
-        "<b>/comandos</b> - Muestra esta lista de comandos.\n"
+        "<b>🛒 Mercado</b>\n"
+        "/vender <id_unico> — Vender una carta en el mercado\n"
+        "/mercado — Ver cartas disponibles en el mercado\n"
+        "/comprar <id_unico> — Comprar una carta del mercado\n"
+        "/retirar <id_unico> — Retirar tu carta del mercado\n"
+        "\n"
+        "<b>💸 Economía y extras</b>\n"
+        "/inventario — Ver tus objetos y saldo\n"
+        "/kponey — Consultar tu saldo de Kponey\n"
+        "/precio <id_unico> — Consultar el precio de una carta\n"
+        "/darKponey <@usuario|user_id> <cantidad> — (Admin) Dar/quitar Kponey\n"
+        "\n"
+        "<b>🔖 Otros</b>\n"
+        "/setsprogreso — Ver progreso de sets/colecciones\n"
+        "/set <nombre_set> — Ver detalles de un set\n"
+        "/miid — Consultar tu ID de Telegram\n"
+        "/bonoidolday <user_id> <cantidad> — (Admin) Dar bonos de tiradas extra\n"
     )
     update.message.reply_text(texto, parse_mode='HTML')
+
 
 def comando_giveidol(update, context):
     # Uso: /giveidol <id_unico> @usuario_destino
@@ -1251,6 +1444,11 @@ dispatcher.add_handler(CommandHandler('kponey', comando_saldo))
 dispatcher.add_handler(CommandHandler('darKponey', comando_darKponey))
 dispatcher.add_handler(CommandHandler('fav', comando_fav))
 dispatcher.add_handler(CommandHandler('favoritos', comando_favoritos))
+dispatcher.add_handler(CommandHandler('precio', comando_precio))
+dispatcher.add_handler(CommandHandler('vender', comando_vender))
+dispatcher.add_handler(CommandHandler('mercado', comando_mercado))
+dispatcher.add_handler(CommandHandler('comprar', comando_comprar))
+dispatcher.add_handler(CommandHandler('retirar', comando_retirar))
 
 
 @app.route(f'/{TOKEN}', methods=['POST'])
