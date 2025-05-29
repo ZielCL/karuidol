@@ -488,31 +488,21 @@ def mostrar_carta_individual(chat_id, usuario_id, lista_cartas, idx, context, me
     estado = carta.get('estado', '')
 
     texto = (
-        f"<b>[{version}] · {nombre} · {grupo}\n"
-        f"{estado} · [{estrellas}]\n"
-        f"ID:</b> <code>{id_unico}</code>"
+        f"<b>{nombre} [{version}] {grupo}</b>\n"
+        f"ID: <code>{id_unico}</code>\n"
+        f"<b>{estado} [{estrellas}]</b>"
     )
-
-    # Botones igual que antes...
-    botones_nav = []
-    if idx > 0:
-        botones_nav.append(InlineKeyboardButton("⬅️ Anterior", callback_data=f"vercarta_{usuario_id}_{idx-1}"))
-    botones_nav.append(InlineKeyboardButton("📒 Album", callback_data=f"albumlista_{usuario_id}"))
-    if idx < len(lista_cartas)-1:
-        botones_nav.append(InlineKeyboardButton("Siguiente ➡️", callback_data=f"vercarta_{usuario_id}_{idx+1}"))
-    botones_accion = [InlineKeyboardButton("🎁 Regalar", callback_data=f"regalar_{usuario_id}_{idx}")]
-    teclado = InlineKeyboardMarkup([botones_nav, botones_accion])
 
     if query is not None:
         try:
             query.edit_message_media(
                 media=InputMediaPhoto(media=imagen_url, caption=texto, parse_mode='HTML'),
-                reply_markup=teclado
+                reply_markup=query.message.reply_markup
             )
         except Exception as e:
             query.answer(text="No se pudo actualizar la imagen.", show_alert=True)
     else:
-        context.bot.send_photo(chat_id=chat_id, photo=imagen_url, caption=texto, reply_markup=teclado, parse_mode='HTML')
+        context.bot.send_photo(chat_id=chat_id, photo=imagen_url, caption=texto, parse_mode='HTML')
 
 # ... Aquí pegas la versión nueva de comando_giveidol y resto de comandos extras adaptados ...
 # Si quieres esa parte dime y te la entrego lista para copiar y pegar
