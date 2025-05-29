@@ -415,29 +415,28 @@ def manejador_reclamar(update, context):
     user_mention = f"@{query.from_user.username or query.from_user.first_name}"
     frase_estado = FRASES_ESTADO.get(estado, "")
     context.bot.send_message(
-    chat_id=drop["chat_id"],
-    text=f"{user_mention} tomaste la carta <code>{id_unico}</code> #{nuevo_id} [{version}] {nombre} - {grupo}, {frase_estado} está en <b>{estado.lower()}</b>!",
-    parse_mode='HTML'
-)
-
-# Mostrar favoritos de esta carta justo debajo
-favoritos = list(col_usuarios.find({
-    "favoritos": {"$elemMatch": {"nombre": nombre, "version": version}}
-}))
-if favoritos:
-    nombres = [
-        f"⭐ @{user.get('username', 'SinUser')}" if user.get("username") else f"⭐ ID:{user['user_id']}"
-        for user in favoritos
-    ]
-    texto_favs = "👀 <b>Favoritos de esta carta:</b>\n" + "\n".join(nombres)
-    context.bot.send_message(
         chat_id=drop["chat_id"],
-        text=texto_favs,
+        text=f"{user_mention} tomaste la carta <code>{id_unico}</code> #{nuevo_id} [{version}] {nombre} - {grupo}, {frase_estado} está en <b>{estado.lower()}</b>!",
         parse_mode='HTML'
     )
 
-query.answer("¡Carta reclamada!", show_alert=True)
+    # ----------- FAVORITOS DE ESTA CARTA -------------
+    favoritos = list(col_usuarios.find({
+        "favoritos": {"$elemMatch": {"nombre": nombre, "version": version}}
+    }))
+    if favoritos:
+        nombres = [
+            f"⭐ @{user.get('username', 'SinUser')}" if user.get("username") else f"⭐ ID:{user['user_id']}"
+            for user in favoritos
+        ]
+        texto_favs = "👀 <b>Favoritos de esta carta:</b>\n" + "\n".join(nombres)
+        context.bot.send_message(
+            chat_id=drop["chat_id"],
+            text=texto_favs,
+            parse_mode='HTML'
+        )
 
+    query.answer("¡Carta reclamada!", show_alert=True)
 
 # ----------------- Resto de funciones: album, paginación, etc. -----------------
 # Aquí pego la versión adaptada de /album para usar id_unico, estrellas y letra pegada a la izquierda:
