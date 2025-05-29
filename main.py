@@ -446,28 +446,28 @@ def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, edit
     total = len(lista_cartas)
     por_pagina = 10
     paginas = (total - 1) // por_pagina + 1
-    if pagina < 1: pagina = 1
-    if pagina > paginas: pagina = paginas
+    if pagina < 1:
+        pagina = 1
+    if pagina > paginas:
+        pagina = paginas
     inicio = (pagina - 1) * por_pagina
     fin = min(inicio + por_pagina, total)
     botones = []
- for carta in lista_cartas[inicio:fin]:
-    cid = carta.get('card_id', '')
-    version = carta.get('version', '')
-    nombre = carta.get('nombre', '')
-    grupo = grupo_de_carta(nombre, version)
-    id_unico = carta.get('id_unico', 'xxxx')
-    estrellas = carta.get('estrellas', '★??')
-    texto_boton = f"{id_unico} [{estrellas}] #{cid} [{version}] {nombre} - {grupo}"
-    botones.append([InlineKeyboardButton(texto_boton, callback_data=f"vercarta_{usuario_id}_{id_unico}")])
-
-
+    for carta in lista_cartas[inicio:fin]:
+        cid = carta.get('card_id', '')
+        version = carta.get('version', '')
+        nombre = carta.get('nombre', '')
+        grupo = grupo_de_carta(nombre, version)
+        id_unico = carta.get('id_unico', 'xxxx')
+        estrellas = carta.get('estrellas', '★??')
+        texto_boton = f"{id_unico} [{estrellas}] #{cid} [{version}] {nombre} - {grupo}"
+        botones.append([InlineKeyboardButton(texto_boton, callback_data=f"vercarta_{usuario_id}_{id_unico}")])
     texto = f"<b>Página {pagina}/{paginas}</b>"
     nav = []
     if pagina > 1:
-        nav.append(InlineKeyboardButton("« Anterior", callback_data=f"lista_{pagina-1}_{usuario_id}_{filtro or ''}"))
+        nav.append(InlineKeyboardButton("« Anterior", callback_data=f"lista_{pagina-1}_{usuario_id}" + (f"_{filtro}" if filtro else "")))
     if pagina < paginas:
-        nav.append(InlineKeyboardButton("Siguiente »", callback_data=f"lista_{pagina+1}_{usuario_id}_{filtro or ''}"))
+        nav.append(InlineKeyboardButton("Siguiente »", callback_data=f"lista_{pagina+1}_{usuario_id}" + (f"_{filtro}" if filtro else "")))
     if nav:
         botones.append(nav)
     teclado = InlineKeyboardMarkup(botones)
