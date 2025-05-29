@@ -790,40 +790,30 @@ def manejador_callback(update, context):
     elif data == "reclamada":
         query.answer("Esta carta ya fue reclamada.", show_alert=True)
         return
-elif data.startswith("vercarta"):
-    partes = data.split("_")
-    if len(partes) != 3:
+    elif data.startswith("vercarta"):
+        partes = data.split("_")
+        if len(partes) != 3:
+            query.answer()
+            return
+        usuario_id = int(partes[1])
+        id_unico = partes[2]
+        if query.from_user.id != usuario_id:
+            query.answer(text="Solo puedes ver tus propias cartas.", show_alert=True)
+            return
+        carta = col_cartas_usuario.find_one({"user_id": usuario_id, "id_unico": id_unico})
+        if not carta:
+            query.answer(text="Esa carta no existe.", show_alert=True)
+            return
+        mostrar_carta_individual(
+            query.message.chat_id,
+            usuario_id,
+            [carta],
+            0,
+            context,
+            query=query
+        )
         query.answer()
         return
-    usuario_id = int(partes[1])
-    idx = int(partes[2])
-    if query.from_user.id != usuario_id:
-        query.answer(text="Solo puedes ver tus propias cartas.", show_alert=True)
-        return
-    # Ordenar igual que en el álbum:
-    cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
-    def sort_key(x):
-        grupo = grupo_de_carta(x.get('nombre',''), x.get('version','')) or ""
-        return (
-            grupo.lower(),
-            x.get('nombre','').lower(),
-            x.get('card_id', 0)
-        )
-    cartas_usuario.sort(key=sort_key)
-    if idx < 0 or idx >= len(cartas_usuario):
-        query.answer(text="Esa carta no existe.", show_alert=True)
-        return
-    mostrar_carta_individual(
-        query.message.chat_id,
-        usuario_id,
-        cartas_usuario,
-        idx,
-        context,
-        query=query
-    )
-    query.answer()
-    return
-    
 
     elif data.startswith("albumlista_"):
         partes = data.split("_")
@@ -888,18 +878,19 @@ elif data.startswith("vercarta"):
         query.answer()
         return
 
-    # ---- SETS Y PROGRESO ----
-    if data.startswith("setsprogreso_"):
+    elif data.startswith("setsprogreso_"):
         pagina = int(data.split("_")[1])
         mostrar_setsprogreso(update, context, pagina=pagina, mensaje=query.message, editar=True)
         query.answer()
         return
-    if data.startswith("setlist_"):
+
+    elif data.startswith("setlist_"):
         pagina = int(data.split("_")[1])
         mostrar_lista_set(update, context, pagina=pagina, mensaje=query.message, editar=True)
         query.answer()
         return
-    if data.startswith("setdet_"):
+
+    elif data.startswith("setdet_"):
         partes = data.split("_")
         set_name = "_".join(partes[1:-1])
         pagina = int(partes[-1])
@@ -907,8 +898,7 @@ elif data.startswith("vercarta"):
         query.answer()
         return
 
-    # --- PAGINACIÓN DE ÁLBUM ---
-
+    # --- PAGINACIÓN DE ÁLBUM CON FILTRO ---
     partes = data.split("_", 3)
     if len(partes) >= 3 and partes[0] == "lista":
         pagina = int(partes[1])
@@ -944,9 +934,8 @@ elif data.startswith("vercarta"):
             filtro=filtro
         )
         query.answer()
-        return  # <-- este return termina el bloque del if, está bien aquí
-
-
+        return
+ 
 from telegram.ext import MessageHandler, Filters
 
 def handler_regalo_respuesta(update, context):
