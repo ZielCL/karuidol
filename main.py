@@ -44,7 +44,7 @@ col_contadores = db['contadores']
 col_mercado = db['mercado_cartas']
 
 # --- Cooldowns ---
-COOLDOWN_USUARIO_SEG = 8 * 60 * 60  # 8 horas en segundos
+COOLDOWN_USUARIO_SEG = 6 * 60 * 60  # 6 horas en segundos
 COOLDOWN_GRUPO_SEG = 30             # 30 segundos global por grupo
 COOLDOWN_GRUPO = {}                 # Guarda el timestamp del último drop por grupo
 
@@ -121,20 +121,25 @@ def es_admin(update):
         return False
 
 def puede_usar_idolday(user_id):
-    user_doc = col_usuarios.find_one({"user_id": user_id})
-    if not user_doc:
-        return True
+    user_doc = col_usuarios.find_one({"user_id": user_id}) or {}
     bono = user_doc.get('bono', 0)
     last = user_doc.get('last_idolday')
     ahora = datetime.utcnow()
+    cooldown_listo = False
+    bono_listo = False
+
+    if last:
+        diferencia = ahora - last
+        cooldown_listo = diferencia.total_seconds() >= 6 * 3600  # 6 horas
+    else:
+        cooldown_listo = True
+
     if bono and bono > 0:
-        return True
-    if not last:
-        return True
-    diferencia = ahora - last
-    if diferencia.total_seconds() >= 86400:
-        return True
-    return False
+        bono_listo = True
+
+    return cooldown_listo, bono_listo
+
+
 def desbloquear_drop(drop_id):
     # Espera 30 segundos para bloquear el drop (puedes cambiar el tiempo si quieres)
     data = DROPS_ACTIVOS.get(drop_id)
@@ -205,19 +210,27 @@ def comando_idolday(update, context):
         return
 
     # --- Cooldown por usuario (8 horas o bono) ---
-    if bono and bono > 0:
-        puede_tirar = True
-        col_usuarios.update_one({"user_id": usuario_id}, {"$inc": {"bono": -1}}, upsert=True)
-    elif last:
-        diferencia = ahora - last
-        if diferencia.total_seconds() >= COOLDOWN_USUARIO_SEG:
-            puede_tirar = True
-    else:
-        puede_tirar = True
+        # --- Cooldown por usuario (6 horas o bono) ---
+    puede_tirar = False
+    cooldown_listo, bono_listo = puede_usar_idolday(usuario_id)
 
-    if not puede_tirar:
+    if cooldown_listo:
+        puede_tirar = True
+        col_usuarios.update_one(
+            {"user_id": usuario_id},
+            {"$set": {"last_idolday": ahora}},
+            upsert=True
+        )
+    elif bono_listo:
+        puede_tirar = True
+        col_usuarios.update_one(
+            {"user_id": usuario_id},
+            {"$inc": {"bono": -1}},
+            upsert=True
+        )
+    else:
         if last:
-            faltante = COOLDOWN_USUARIO_SEG - (ahora - last).total_seconds()
+            faltante = 6*3600 - (ahora - last).total_seconds()
             horas = int(faltante // 3600)
             minutos = int((faltante % 3600) // 60)
             segundos = int(faltante % 60)
@@ -336,6 +349,7 @@ def manejador_reclamar(update, context):
     user_doc = col_usuarios.find_one({"user_id": usuario_click}) or {}
     bono = user_doc.get('bono', 0)
 
+    # DUEÑO
     if usuario_click == drop["dueño"]:
         primer_reclamo = drop.get("primer_reclamo_dueño")
         if primer_reclamo is None:
@@ -350,9 +364,15 @@ def manejador_reclamar(update, context):
                 return
             puede_reclamar = True
             col_usuarios.update_one({"user_id": usuario_click}, {"$inc": {"bono": -1}}, upsert=True)
+    # NO DUEÑO
     elif not solo_dueño and carta["usuario"] is None:
-        if puede_usar_idolday(usuario_click):
+        cooldown_listo, bono_listo = puede_usar_idolday(usuario_click)
+        if cooldown_listo:
             puede_reclamar = True
+            # No tocar bonos ni cooldowns, solo dejar reclamar
+        elif bono_listo:
+            puede_reclamar = True
+            col_usuarios.update_one({"user_id": usuario_click}, {"$inc": {"bono": -1}}, upsert=True)
         else:
             query.answer("Solo puedes reclamar cartas si tienes disponible tu /idolday o tienes un bono disponible.", show_alert=True)
             return
@@ -460,6 +480,7 @@ def manejador_reclamar(update, context):
         )
 
     query.answer("¡Carta reclamada!", show_alert=True)
+
 
 # ----------------- Resto de funciones: album, paginación, etc. -----------------
 # Aquí pego la versión adaptada de /album para usar id_unico, estrellas y letra pegada a la izquierda:
