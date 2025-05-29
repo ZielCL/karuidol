@@ -506,6 +506,61 @@ def comando_inventario(update, context):
 
     update.message.reply_text(texto, parse_mode="HTML")
 
+#---------Dinero del bot------------
+def comando_saldo(update, context):
+    usuario_id = update.message.from_user.id
+    usuario = col_usuarios.find_one({"user_id": usuario_id}) or {}
+    kponey = usuario.get("kponey", 0)
+    update.message.reply_text(f"💸 <b>Tus Kponey:</b> <code>{kponey}</code>", parse_mode="HTML")
+
+#---------Para dar dinero------------
+def comando_darKponey(update, context):
+    if not es_admin(update):
+        update.message.reply_text("Solo admins pueden usar este comando.")
+        return
+
+    # Revisar si se responde a alguien (reply)
+    if update.message.reply_to_message:
+        dest_id = update.message.reply_to_message.from_user.id
+    # Revisar si se menciona usuario (@usuario)
+    elif context.args and context.args[0].startswith('@'):
+        username = context.args[0][1:].lower()
+        dest_user = col_usuarios.find_one({"username": username})
+        if not dest_user:
+            update.message.reply_text("Usuario no encontrado. Debe haber usado el bot antes.")
+            return
+        dest_id = dest_user["user_id"]
+    # Revisar si se pasa user_id directamente
+    elif context.args:
+        try:
+            dest_id = int(context.args[0])
+        except ValueError:
+            update.message.reply_text("Uso: /darKponey <@usuario|user_id> <cantidad>")
+            return
+    else:
+        update.message.reply_text("Debes responder a un usuario o especificar @usuario o user_id.")
+        return
+
+    # Cantidad a dar/quitar (negativo para quitar)
+    if update.message.reply_to_message and len(context.args) >= 1:
+        try:
+            cantidad = int(context.args[0])
+        except:
+            update.message.reply_text("Debes poner la cantidad después del comando.")
+            return
+    elif len(context.args) >= 2:
+        try:
+            cantidad = int(context.args[1])
+        except:
+            update.message.reply_text("La cantidad debe ser un número.")
+            return
+    else:
+        update.message.reply_text("Debes indicar la cantidad de Kponey.")
+        return
+
+    col_usuarios.update_one({"user_id": dest_id}, {"$inc": {"kponey": cantidad}}, upsert=True)
+    update.message.reply_text(f"💸 Kponey actualizado para <code>{dest_id}</code> ({cantidad:+})", parse_mode="HTML")
+
 
 
 def mostrar_carta_individual(chat_id, usuario_id, lista_cartas, idx, context, mensaje_a_editar=None, query=None):
@@ -1076,6 +1131,9 @@ dispatcher.add_handler(CallbackQueryHandler(manejador_callback))
 dispatcher.add_handler(MessageHandler(Filters.text & (~Filters.command), handler_regalo_respuesta))
 dispatcher.add_handler(CommandHandler('ampliar', comando_ampliar))
 dispatcher.add_handler(CommandHandler('inventario', comando_inventario))
+dispatcher.add_handler(CommandHandler('kponey', comando_saldo))
+dispatcher.add_handler(CommandHandler('darKponey', comando_darKponey))
+
 
 @app.route(f'/{TOKEN}', methods=['POST'])
 def webhook():
