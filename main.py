@@ -867,7 +867,7 @@ def mostrar_detalle_set(update, context, set_name, pagina=1, mensaje=None, edita
     barra = "🟩" * bloques_llenos + "⬜" * (bloques - bloques_llenos)
     texto = f"<b>🌟 Set: {set_name}</b> <b>({usuario_tiene}/{total})</b>\n{barra}\n\n"
 
-    for carta in cartas_set_unicas[inicio:fin]:
+for carta in cartas_set_unicas[inicio:fin]:
     key = (carta["nombre"], carta["version"])
     nombre_version = f"[{carta['version']}] {carta['nombre']}"
     if key in cartas_usuario_unicas:
