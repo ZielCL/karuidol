@@ -487,16 +487,16 @@ def mostrar_carta_individual(chat_id, usuario_id, lista_cartas, idx, context, me
     estrellas = carta.get('estrellas', '★??')
     estado = carta.get('estado', '')
 
-    # Formato solicitado:
-    # [V1] · Wonyoung · Ive        (negrita)
-    # Buen estado · [★★☆]          (negrita solo 'Buen estado')
-    # ID: sgdj1                    (ID negrita, valor copiable)
+    # Primera línea: [V1] · Danielle · NJZ (negrita todo)
     linea1 = f"<b>[{version}] · {nombre} · {grupo}</b>"
+    # Segunda línea: Buen estado (negrita) · [★★☆] (normal)
     linea2 = f"<b>{estado}</b> · [{estrellas}]"
+    # Tercera línea: ID: (negrita), id_unico (copiable)
     linea3 = f"<b>ID:</b> <code>{id_unico}</code>"
 
     texto = f"{linea1}\n{linea2}\n{linea3}"
 
+    # Navegación y botones
     botones_nav = []
     if idx > 0:
         botones_nav.append(InlineKeyboardButton("⬅️ Anterior", callback_data=f"vercarta_{usuario_id}_{idx-1}"))
