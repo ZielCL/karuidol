@@ -479,28 +479,31 @@ def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, edit
 
 def mostrar_carta_individual(chat_id, usuario_id, lista_cartas, idx, context, mensaje_a_editar=None, query=None):
     carta = lista_cartas[idx]
-    cid = carta.get('card_id', '')
     version = carta.get('version', '')
     nombre = carta.get('nombre', '')
     grupo = grupo_de_carta(nombre, version)
     imagen_url = carta.get('imagen', imagen_de_carta(nombre, version))
     id_unico = carta.get('id_unico', '')
     estrellas = carta.get('estrellas', '★??')
-    id_carta = f"<code>{id_unico}</code> [{estrellas}] #{cid} [{version}] {nombre} - {grupo}"
-    texto = f"{id_carta}"
+    estado = carta.get('estado', '')
 
+    # Primera línea: [V1] · Nombre · Grupo (negrita)
+    linea1 = f"<b>[{version}] · {nombre} · {grupo}</b>"
+    # Segunda línea: Buen estado · [★★☆] (negrita)
+    linea2 = f"<b>{estado} · [{estrellas}]</b>"
+    # Tercera línea: ID: sgdj1 (ID en negrita, sgdj1 copiable)
+    linea3 = f"<b>ID:</b> <code>{id_unico}</code>"
+
+    texto = f"{linea1}\n{linea2}\n{linea3}"
+
+    # Botones de navegación y acción (puedes ajustar si no usas idx)
     botones_nav = []
     if idx > 0:
         botones_nav.append(InlineKeyboardButton("⬅️ Anterior", callback_data=f"vercarta_{usuario_id}_{idx-1}"))
     botones_nav.append(InlineKeyboardButton("📒 Album", callback_data=f"albumlista_{usuario_id}"))
     if idx < len(lista_cartas)-1:
         botones_nav.append(InlineKeyboardButton("Siguiente ➡️", callback_data=f"vercarta_{usuario_id}_{idx+1}"))
-
-    # Botón de regalar
-    botones_accion = [
-        InlineKeyboardButton("🎁 Regalar", callback_data=f"regalar_{usuario_id}_{idx}")
-    ]
-
+    botones_accion = [InlineKeyboardButton("🎁 Regalar", callback_data=f"regalar_{usuario_id}_{idx}")]
     teclado = InlineKeyboardMarkup([botones_nav, botones_accion])
 
     if query is not None:
