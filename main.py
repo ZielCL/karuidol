@@ -907,41 +907,49 @@ def manejador_callback(update, context):
         return
 
     # --- PAGINACIÓN DE ÁLBUM ---
-partes = data.split("_", 3)
-if len(partes) >= 3 and partes[0] == "lista":
-    pagina = int(partes[1])
-    usuario_id = int(partes[2])
-    filtro = partes[3].strip().lower() if len(partes) > 3 and partes[3] else None
-    if query.from_user.id != usuario_id:
-        query.answer(text="Este álbum no es tuyo.", show_alert=True)
-        return
-    cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
-    if filtro:
-        cartas_usuario = [
-            carta for carta in cartas_usuario if
-            filtro in carta.get('nombre', '').lower() or
-            filtro in carta.get('grupo', '').lower() or
-            filtro in carta.get('version', '').lower()
-        ]
-    def sort_key(x):
-        grupo = grupo_de_carta(x.get('nombre',''), x.get('version','')) or ""
-        return (
-            grupo.lower(),
-            x.get('nombre','').lower(),
-            x.get('card_id', 0)
+def manejador_callback(update, context):
+    query = update.callback_query
+    data = query.data
+
+    # ...otros ifs...
+
+    partes = data.split("_", 3)
+    if len(partes) >= 3 and partes[0] == "lista":
+        pagina = int(partes[1])
+        usuario_id = int(partes[2])
+        filtro = partes[3].strip().lower() if len(partes) > 3 and partes[3] else None
+        if query.from_user.id != usuario_id:
+            query.answer(text="Este álbum no es tuyo.", show_alert=True)
+            return
+        cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
+        if filtro:
+            cartas_usuario = [
+                carta for carta in cartas_usuario if
+                filtro in carta.get('nombre', '').lower() or
+                filtro in carta.get('grupo', '').lower() or
+                filtro in carta.get('version', '').lower()
+            ]
+        def sort_key(x):
+            grupo = grupo_de_carta(x.get('nombre',''), x.get('version','')) or ""
+            return (
+                grupo.lower(),
+                x.get('nombre','').lower(),
+                x.get('card_id', 0)
+            )
+        cartas_usuario.sort(key=sort_key)
+        enviar_lista_pagina(
+            query.message.chat_id,
+            usuario_id,
+            cartas_usuario,
+            pagina,
+            context,
+            editar=True,
+            mensaje=query.message,
+            filtro=filtro
         )
-    cartas_usuario.sort(key=sort_key)
-    enviar_lista_pagina(
-        query.message.chat_id,
-        usuario_id,
-        cartas_usuario,
-        pagina,
-        context,
-        editar=True,
-        mensaje=query.message,
-        filtro=filtro
-    )
-    query.answer()
+        query.answer()
+        return  # <-- este return termina el bloque del if, está bien aquí
+
 
 from telegram.ext import MessageHandler, Filters
 
