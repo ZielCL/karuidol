@@ -908,11 +908,6 @@ elif data.startswith("vercarta"):
         return
 
     # --- PAGINACIÓN DE ÁLBUM ---
-def manejador_callback(update, context):
-    query = update.callback_query
-    data = query.data
-
-    # ...otros ifs...
 
     partes = data.split("_", 3)
     if len(partes) >= 3 and partes[0] == "lista":
