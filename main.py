@@ -488,10 +488,10 @@ def mostrar_carta_individual(chat_id, usuario_id, lista_cartas, idx, context, me
     estado = carta.get('estado', '')
 
     texto = (
-        f"<b>{nombre} [{version}] {grupo}</b>\n"
-        f"ID: <code>{id_unico}</code>\n"
-        f"<b>{estado} [{estrellas}]</b>"
-    )
+    f"<b>{nombre} [{version}] {grupo}</b>\n"
+    f"ID: <code>{id_unico}</code>\n"
+    f"{estado} [{estrellas}]"
+)
 
     if query is not None:
         try:
