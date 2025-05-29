@@ -508,7 +508,68 @@ def comando_inventario(update, context):
     texto += "———\n<i>Próximamente más objetos y usos.</i>"
 
     update.message.reply_text(texto, parse_mode="HTML")
+    
+#----------Comando FAV1---------------
 
+def comando_favoritos(update, context):
+    usuario_id = update.message.from_user.id
+    doc = col_usuarios.find_one({"user_id": usuario_id})
+    favoritos = doc.get("favoritos", []) if doc else []
+
+    if not favoritos:
+        update.message.reply_text("⭐ No tienes cartas favoritas aún. Usa <code>/fav [V1] Dahyun</code> para añadir una.", parse_mode="HTML")
+        return
+
+    texto = "⭐ <b>Tus cartas favoritas:</b>\n\n"
+    for fav in favoritos:
+        nombre = fav.get("nombre", "")
+        version = fav.get("version", "")
+        texto += f"<code>[{version}] {nombre}</code>\n"
+    texto += "\n<i>Puedes añadir o quitar favoritos usando /fav [Vn] Nombre</i>"
+
+    update.message.reply_text(texto, parse_mode="HTML")
+
+#----------Comando FAV---------------
+
+def comando_fav(update, context):
+    usuario_id = update.message.from_user.id
+    chat_id = update.effective_chat.id
+
+    if not context.args:
+        update.message.reply_text(
+            "Usa el comando así:\n<code>/fav [V1] Dahyun</code>\n\nDebes copiar el nombre exactamente como aparece en el set.",
+            parse_mode="HTML"
+        )
+        return
+
+    # Unir los argumentos para que admita nombres con espacios
+    nombre_copiado = " ".join(context.args).strip()
+
+    # Extraer versión y nombre
+    import re
+    match = re.match(r"\[([^\]]+)\]\s+(.+)", nombre_copiado)
+    if not match:
+        update.message.reply_text("Debes copiar el nombre exactamente como aparece (incluyendo los corchetes []).")
+        return
+    version, nombre = match.group(1), match.group(2)
+
+    # Busca si existe esa carta en el catálogo
+    existe = any(c for c in cartas if c["nombre"] == nombre and c["version"] == version)
+    if not existe:
+        update.message.reply_text("No existe esa carta. ¡Revisa que esté bien escrito y con la versión correcta!")
+        return
+
+    # Actualiza favoritos en la base de datos
+    col_usuarios.update_one(
+        {"user_id": usuario_id},
+        {"$addToSet": {"favoritos": {"nombre": nombre, "version": version}}},
+        upsert=True
+    )
+
+    update.message.reply_text(
+        f"⭐ Añadido a tus favoritos:\n<code>[{version}] {nombre}</code>",
+        parse_mode="HTML"
+    )
 
 #---------Dinero del bot------------
 def comando_saldo(update, context):
@@ -1163,6 +1224,8 @@ dispatcher.add_handler(CommandHandler('ampliar', comando_ampliar))
 dispatcher.add_handler(CommandHandler('inventario', comando_inventario))
 dispatcher.add_handler(CommandHandler('kponey', comando_saldo))
 dispatcher.add_handler(CommandHandler('darKponey', comando_darKponey))
+dispatcher.add_handler(CommandHandler('fav', comando_fav))
+dispatcher.add_handler(CommandHandler('favoritos', comando_favoritos))
 
 
 @app.route(f'/{TOKEN}', methods=['POST'])
