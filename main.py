@@ -837,36 +837,55 @@ def mostrar_lista_set(update, context, pagina=1, mensaje=None, editar=False, err
 def mostrar_detalle_set(update, context, set_name, pagina=1, mensaje=None, editar=False):
     usuario_id = update.effective_user.id
     chat_id = update.effective_chat.id
+
+    # Todas las cartas del set
     cartas_set = [c for c in cartas if (c.get("set") == set_name or c.get("grupo") == set_name)]
+    # Solo (nombre, version) únicas
+    cartas_set_unicas = []
+    vistos = set()
+    for c in cartas_set:
+        key = (c["nombre"], c["version"])
+        if key not in vistos:
+            cartas_set_unicas.append(c)
+            vistos.add(key)
+
     por_pagina = 8
-    total = len(cartas_set)
+    total = len(cartas_set_unicas)
     paginas = (total - 1) // por_pagina + 1
     if pagina < 1: pagina = 1
     if pagina > paginas: pagina = paginas
     inicio = (pagina - 1) * por_pagina
     fin = min(inicio + por_pagina, total)
+
+    # Cartas únicas que tiene el usuario
     cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
-    cartas_usuario_set = set((c["nombre"], c["version"]) for c in cartas_usuario)
-    usuario_tiene = sum(1 for c in cartas_set if (c["nombre"], c["version"]) in cartas_usuario_set)
+    cartas_usuario_unicas = set((c["nombre"], c["version"]) for c in cartas_usuario)
+
+    usuario_tiene = sum(1 for c in cartas_set_unicas if (c["nombre"], c["version"]) in cartas_usuario_unicas)
     bloques = 10
-    bloques_llenos = int((usuario_tiene / len(cartas_set)) * bloques) if len(cartas_set) > 0 else 0
+    bloques_llenos = int((usuario_tiene / total) * bloques) if total > 0 else 0
     barra = "🟩" * bloques_llenos + "⬜" * (bloques - bloques_llenos)
-    texto = f"<b>🌟 Set: {set_name}</b> <b>({usuario_tiene}/{len(cartas_set)})</b>\n{barra}\n\n"
-    for carta in cartas_set[inicio:fin]:
+    texto = f"<b>🌟 Set: {set_name}</b> <b>({usuario_tiene}/{total})</b>\n{barra}\n\n"
+
+    for carta in cartas_set_unicas[inicio:fin]:
         key = (carta["nombre"], carta["version"])
-        if key in cartas_usuario_set:
+        if key in cartas_usuario_unicas:
             texto += f"✅ <b>{carta['nombre']} [{carta['version']}]</b>\n"
         else:
             texto += f"❌ {carta['nombre']} [{carta['version']}]\n"
+
     texto += f"\nPágina {pagina}/{paginas}"
-    if usuario_tiene == len(cartas_set) and len(cartas_set) > 0:
+    if usuario_tiene == total and total > 0:
         texto += "\n🎉 <b>¡Completaste este set!</b> 🎉"
+
+    # Botones de paginación
     botones = []
     if pagina > 1:
         botones.append(InlineKeyboardButton("⬅️", callback_data=f"setdet_{set_name}_{pagina-1}"))
     if pagina < paginas:
         botones.append(InlineKeyboardButton("➡️", callback_data=f"setdet_{set_name}_{pagina+1}"))
     teclado = InlineKeyboardMarkup([botones]) if botones else None
+
     if editar and mensaje:
         try:
             mensaje.edit_text(texto, reply_markup=teclado, parse_mode='HTML')
@@ -874,6 +893,7 @@ def mostrar_detalle_set(update, context, set_name, pagina=1, mensaje=None, edita
             context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode='HTML')
     else:
         context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode='HTML')
+
 
 # ... Igualmente aquí puedes agregar las funciones de setsprogreso, set, etc. como hablamos ...
 
