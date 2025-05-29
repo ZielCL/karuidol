@@ -907,14 +907,14 @@ def manejador_callback(update, context):
         return
 
     # --- PAGINACIÓN DE ÁLBUM ---
-    partes = data.split("_", 3)
+partes = data.split("_", 3)
 if len(partes) >= 3 and partes[0] == "lista":
     pagina = int(partes[1])
     usuario_id = int(partes[2])
     filtro = partes[3].strip().lower() if len(partes) > 3 and partes[3] else None
     if query.from_user.id != usuario_id:
         query.answer(text="Este álbum no es tuyo.", show_alert=True)
-    return
+        return
     cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
     if filtro:
         cartas_usuario = [
@@ -942,7 +942,6 @@ if len(partes) >= 3 and partes[0] == "lista":
         filtro=filtro
     )
     query.answer()
-
 
 from telegram.ext import MessageHandler, Filters
 
