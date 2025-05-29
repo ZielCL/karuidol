@@ -550,8 +550,15 @@ def comando_ampliar(update, context):
     grupo = grupo_de_carta(nombre, version)
     estrellas = carta.get('estrellas', '★??')
     estado = carta.get('estado', '')
-    texto = f"<b>{nombre}</b> [{version}] {grupo}\nID: <code>{id_unico}</code>  [{estrellas}]\nEstado: {estado}"
+
+    # Aquí el formato que pides:
+    texto = (
+        f"<b>{nombre} [{version}] {grupo}</b>\n"
+        f"ID: <code>{id_unico}</code>\n"
+        f"{estado} [{estrellas}]"
+    )
     update.message.reply_photo(photo=imagen_url, caption=texto, parse_mode='HTML')
+
 
 def comando_comandos(update, context):
     texto = (
