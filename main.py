@@ -415,11 +415,29 @@ def manejador_reclamar(update, context):
     user_mention = f"@{query.from_user.username or query.from_user.first_name}"
     frase_estado = FRASES_ESTADO.get(estado, "")
     context.bot.send_message(
+    chat_id=drop["chat_id"],
+    text=f"{user_mention} tomaste la carta <code>{id_unico}</code> #{nuevo_id} [{version}] {nombre} - {grupo}, {frase_estado} está en <b>{estado.lower()}</b>!",
+    parse_mode='HTML'
+)
+
+# Mostrar favoritos de esta carta justo debajo
+favoritos = list(col_usuarios.find({
+    "favoritos": {"$elemMatch": {"nombre": nombre, "version": version}}
+}))
+if favoritos:
+    nombres = [
+        f"⭐ @{user.get('username', 'SinUser')}" if user.get("username") else f"⭐ ID:{user['user_id']}"
+        for user in favoritos
+    ]
+    texto_favs = "👀 <b>Favoritos de esta carta:</b>\n" + "\n".join(nombres)
+    context.bot.send_message(
         chat_id=drop["chat_id"],
-        text=f"{user_mention} tomaste la carta <code>{id_unico}</code> #{nuevo_id} [{version}] {nombre} - {grupo}, {frase_estado} está en <b>{estado.lower()}</b>!",
+        text=texto_favs,
         parse_mode='HTML'
     )
-    query.answer("¡Carta reclamada!", show_alert=True)
+
+query.answer("¡Carta reclamada!", show_alert=True)
+
 
 # ----------------- Resto de funciones: album, paginación, etc. -----------------
 # Aquí pego la versión adaptada de /album para usar id_unico, estrellas y letra pegada a la izquierda:
@@ -533,43 +551,39 @@ def comando_favoritos(update, context):
 
 def comando_fav(update, context):
     usuario_id = update.message.from_user.id
-    chat_id = update.effective_chat.id
-
-    if not context.args:
-        update.message.reply_text(
-            "Usa el comando así:\n<code>/fav [V1] Dahyun</code>\n\nDebes copiar el nombre exactamente como aparece en el set.",
-            parse_mode="HTML"
-        )
+    args = context.args
+    if not args:
+        update.message.reply_text("Usa: /fav [Vn] Nombre\nPor ejemplo: /fav [V1] Dahyun")
         return
 
-    # Unir los argumentos para que admita nombres con espacios
-    nombre_copiado = " ".join(context.args).strip()
-
-    # Extraer versión y nombre
-    import re
-    match = re.match(r"\[([^\]]+)\]\s+(.+)", nombre_copiado)
-    if not match:
-        update.message.reply_text("Debes copiar el nombre exactamente como aparece (incluyendo los corchetes []).")
+    # Reconstruir nombre y versión correctamente
+    entrada = " ".join(args).strip()
+    if not entrada.startswith("[") or "]" not in entrada:
+        update.message.reply_text("Formato incorrecto. Ejemplo: /fav [V1] Dahyun")
         return
-    version, nombre = match.group(1), match.group(2)
 
-    # Busca si existe esa carta en el catálogo
-    existe = any(c for c in cartas if c["nombre"] == nombre and c["version"] == version)
+    version = entrada.split("]", 1)[0][1:]
+    nombre = entrada.split("]", 1)[1].strip()
+
+    # Busca si la carta existe en el catálogo
+    existe = any(c["nombre"] == nombre and c["version"] == version for c in cartas)
     if not existe:
-        update.message.reply_text("No existe esa carta. ¡Revisa que esté bien escrito y con la versión correcta!")
+        update.message.reply_text(f"No se encontró la carta: [{version}] {nombre}")
         return
 
-    # Actualiza favoritos en la base de datos
-    col_usuarios.update_one(
-        {"user_id": usuario_id},
-        {"$addToSet": {"favoritos": {"nombre": nombre, "version": version}}},
-        upsert=True
-    )
+    doc = col_usuarios.find_one({"user_id": usuario_id}) or {}
+    favoritos = doc.get("favoritos", [])
 
-    update.message.reply_text(
-        f"⭐ Añadido a tus favoritos:\n<code>[{version}] {nombre}</code>",
-        parse_mode="HTML"
-    )
+    key = {"nombre": nombre, "version": version}
+    if key in favoritos:
+        favoritos = [f for f in favoritos if not (f["nombre"] == nombre and f["version"] == version)]
+        col_usuarios.update_one({"user_id": usuario_id}, {"$set": {"favoritos": favoritos}}, upsert=True)
+        update.message.reply_text(f"❌ Quitaste de favoritos: <code>[{version}] {nombre}</code>", parse_mode="HTML")
+    else:
+        favoritos.append(key)
+        col_usuarios.update_one({"user_id": usuario_id}, {"$set": {"favoritos": favoritos}}, upsert=True)
+        update.message.reply_text(f"⭐ Añadiste a favoritos: <code>[{version}] {nombre}</code>", parse_mode="HTML")
+
 
 #---------Dinero del bot------------
 def comando_saldo(update, context):
