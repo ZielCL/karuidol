@@ -789,32 +789,32 @@ def manejador_callback(update, context):
     elif data == "reclamada":
         query.answer("Esta carta ya fue reclamada.", show_alert=True)
         return
-
-elif data.startswith("vercarta"):
-    partes = data.split("_")
-    if len(partes) != 3:
+    elif data.startswith("vercarta"):
+        # ... aquí tu código para mostrar la carta individual ...
+        partes = data.split("_")
+        if len(partes) != 3:
+            query.answer()
+            return
+        usuario_id = int(partes[1])
+        id_unico = partes[2]
+        if query.from_user.id != usuario_id:
+            query.answer(text="Solo puedes ver tus propias cartas.", show_alert=True)
+            return
+        carta = col_cartas_usuario.find_one({"user_id": usuario_id, "id_unico": id_unico})
+        if not carta:
+            query.answer(text="Esa carta no existe.", show_alert=True)
+            return
+        mostrar_carta_individual(
+            query.message.chat_id,
+            usuario_id,
+            [carta],
+            0,
+            context,
+            query=query
+        )
         query.answer()
         return
-    usuario_id = int(partes[1])
-    id_unico = partes[2]
-    if query.from_user.id != usuario_id:
-        query.answer(text="Solo puedes ver tus propias cartas.", show_alert=True)
-        return
-    carta = col_cartas_usuario.find_one({"user_id": usuario_id, "id_unico": id_unico})
-    if not carta:
-        query.answer(text="Esa carta no existe.", show_alert=True)
-        return
-    mostrar_carta_individual(
-        query.message.chat_id,
-        usuario_id,
-        [carta],  # solo una carta en la lista
-        0,
-        context,
-        query=query
-    )
-    query.answer()
-    return
-
+    
 
     elif data.startswith("albumlista_"):
         partes = data.split("_")
