@@ -488,9 +488,9 @@ def mostrar_carta_individual(chat_id, usuario_id, lista_cartas, idx, context, me
     estado = carta.get('estado', '')
 
     texto = (
-        f"<b>[{version}] · {nombre} · {grupo}</b>\n"
-        f"<b>{estado}</b> · [{estrellas}]\n"
-        f"<b>ID:</b> <code>{id_unico}</code>"
+        f"<b>[{version}] · {nombre} · {grupo}\n"
+        f"{estado} · [{estrellas}]\n"
+        f"ID:</b> <code>{id_unico}</code>"
     )
 
     # Botones igual que antes...
