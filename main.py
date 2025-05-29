@@ -451,17 +451,16 @@ def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, edit
     inicio = (pagina - 1) * por_pagina
     fin = min(inicio + por_pagina, total)
     botones = []
-    for idx, carta in enumerate(lista_cartas[inicio:fin], start=inicio):
-        cid = carta.get('card_id', '')
-        version = carta.get('version', '')
-        nombre = carta.get('nombre', '')
-        grupo = grupo_de_carta(nombre, version)
-        id_unico = carta.get('id_unico', 'xxxx')
-        estrellas = carta.get('estrellas', '★??')
-        texto_boton = f"{id_unico} [{estrellas}] #{cid} [{version}] {nombre} - {grupo}"
-        # Si hay filtro, mándalo en el callback_data
-        callback_base = f"vercarta_{usuario_id}_{idx}"
-        botones.append([InlineKeyboardButton(texto_boton, callback_data=callback_base)])
+ for carta in lista_cartas[inicio:fin]:
+    cid = carta.get('card_id', '')
+    version = carta.get('version', '')
+    nombre = carta.get('nombre', '')
+    grupo = grupo_de_carta(nombre, version)
+    id_unico = carta.get('id_unico', 'xxxx')
+    estrellas = carta.get('estrellas', '★??')
+    texto_boton = f"{id_unico} [{estrellas}] #{cid} [{version}] {nombre} - {grupo}"
+    botones.append([InlineKeyboardButton(texto_boton, callback_data=f"vercarta_{usuario_id}_{id_unico}")])
+
 
     texto = f"<b>Página {pagina}/{paginas}</b>"
     nav = []
@@ -791,38 +790,31 @@ def manejador_callback(update, context):
         query.answer("Esta carta ya fue reclamada.", show_alert=True)
         return
 
-    elif data.startswith("vercarta"):
-        partes = data.split("_")
-        if len(partes) != 3:
-            query.answer()
-            return
-        usuario_id = int(partes[1])
-        idx = int(partes[2])
-        if query.from_user.id != usuario_id:
-            query.answer(text="Solo puedes ver tus propias cartas.", show_alert=True)
-            return
-        cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
-        def sort_key(x):
-            grupo = grupo_de_carta(x.get('nombre',''), x.get('version','')) or ""
-            return (
-                grupo.lower(),
-                x.get('nombre','').lower(),
-                x.get('card_id', 0)
-            )
-        cartas_usuario.sort(key=sort_key)
-        if idx < 0 or idx >= len(cartas_usuario):
-            query.answer(text="Esa carta no existe.", show_alert=True)
-            return
-        mostrar_carta_individual(
-            query.message.chat_id,
-            usuario_id,
-            cartas_usuario,
-            idx,
-            context,
-            query=query
-        )
+elif data.startswith("vercarta"):
+    partes = data.split("_")
+    if len(partes) != 3:
         query.answer()
         return
+    usuario_id = int(partes[1])
+    id_unico = partes[2]
+    if query.from_user.id != usuario_id:
+        query.answer(text="Solo puedes ver tus propias cartas.", show_alert=True)
+        return
+    carta = col_cartas_usuario.find_one({"user_id": usuario_id, "id_unico": id_unico})
+    if not carta:
+        query.answer(text="Esa carta no existe.", show_alert=True)
+        return
+    mostrar_carta_individual(
+        query.message.chat_id,
+        usuario_id,
+        [carta],  # solo una carta en la lista
+        0,
+        context,
+        query=query
+    )
+    query.answer()
+    return
+
 
     elif data.startswith("albumlista_"):
         partes = data.split("_")
