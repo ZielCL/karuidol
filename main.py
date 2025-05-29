@@ -867,20 +867,20 @@ def mostrar_detalle_set(update, context, set_name, pagina=1, mensaje=None, edita
     barra = "🟩" * bloques_llenos + "⬜" * (bloques - bloques_llenos)
     texto = f"<b>🌟 Set: {set_name}</b> <b>({usuario_tiene}/{total})</b>\n{barra}\n\n"
 
-for carta in cartas_set_unicas[inicio:fin]:
+    for carta in cartas_set_unicas[inicio:fin]:
     key = (carta["nombre"], carta["version"])
     nombre_version = f"[{carta['version']}] {carta['nombre']}"
     if key in cartas_usuario_unicas:
         texto += f"✅ <code>{nombre_version}</code>\n"
     else:
         texto += f"❌ <code>{nombre_version}</code>\n"
-
 # Mensaje de ayuda para favoritos
 texto += (
     "\n<i>Para añadir una carta a favoritos:</i>\n"
     "Copia el nombre (incluyendo los corchetes) y usa:\n"
     "<code>/fav [V1] Tzuyu</code>\n"
 )
+
     if usuario_tiene == total and total > 0:
         texto += "\n🎉 <b>¡Completaste este set!</b> 🎉"
 
