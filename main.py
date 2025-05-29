@@ -442,7 +442,7 @@ def comando_album(update, context):
     pagina = 1
     enviar_lista_pagina(chat_id, usuario_id, cartas_usuario, pagina, context)
 
-def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, editar=False, mensaje=None):
+def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, editar=False, mensaje=None, filtro=None):
     total = len(lista_cartas)
     por_pagina = 10
     paginas = (total - 1) // por_pagina + 1
@@ -475,6 +475,37 @@ def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, edit
             context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode='HTML')
     else:
         context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode='HTML')
+
+def comando_inventario(update, context):
+    usuario_id = update.message.from_user.id
+    chat_id = update.effective_chat.id
+
+    # Catálogo de objetos con descripciones
+    catalogo = {
+        "bono_idolday": "🎟️ Bono Idolday\nPermite tirar un /idolday adicional.",
+        "ticket_intercambio": "🔁 Ticket de intercambio\nPermite intercambiar cartas con otro usuario.",
+        "cofre_misterioso": "🎁 Cofre Misterioso\n¡Usa /abrir para obtener una recompensa sorpresa!",
+        "lightstick": "💡 Lightstick\nMejora el estado de una carta:\n• ☆☆☆ → ★☆☆ (100%)\n• ★☆☆ → ★★☆ (70%)\n• ★★☆ → ★★★ (40%)",
+        # Agrega más objetos aquí si lo deseas
+    }
+
+    # Trae el inventario del usuario
+    doc = col_usuarios.find_one({"user_id": usuario_id})
+    inventario = doc.get("inventario", {}) if doc else {}
+
+    if not inventario:
+        texto = "🎒 Tu inventario está vacío."
+    else:
+        texto = "🎒 <b>Tu inventario</b>:\n\n"
+        for key, desc in catalogo.items():
+            cantidad = inventario.get(key, 0)
+            if cantidad > 0:
+                texto += f"{desc}\n<b>Cantidad:</b> {cantidad}\n\n"
+
+    texto += "———\n<i>Próximamente más objetos y usos.</i>"
+
+    update.message.reply_text(texto, parse_mode="HTML")
+
 
 
 def mostrar_carta_individual(chat_id, usuario_id, lista_cartas, idx, context, mensaje_a_editar=None, query=None):
@@ -1044,6 +1075,7 @@ dispatcher.add_handler(CommandHandler('set', comando_set_detalle))
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback))
 dispatcher.add_handler(MessageHandler(Filters.text & (~Filters.command), handler_regalo_respuesta))
 dispatcher.add_handler(CommandHandler('ampliar', comando_ampliar))
+dispatcher.add_handler(CommandHandler('inventario', comando_inventario))
 
 @app.route(f'/{TOKEN}', methods=['POST'])
 def webhook():
