@@ -838,9 +838,8 @@ def mostrar_detalle_set(update, context, set_name, pagina=1, mensaje=None, edita
     usuario_id = update.effective_user.id
     chat_id = update.effective_chat.id
 
-    # Todas las cartas del set
+    # Todas las cartas del set (únicas por nombre y versión)
     cartas_set = [c for c in cartas if (c.get("set") == set_name or c.get("grupo") == set_name)]
-    # Solo (nombre, version) únicas
     cartas_set_unicas = []
     vistos = set()
     for c in cartas_set:
@@ -857,7 +856,6 @@ def mostrar_detalle_set(update, context, set_name, pagina=1, mensaje=None, edita
     inicio = (pagina - 1) * por_pagina
     fin = min(inicio + por_pagina, total)
 
-    # Cartas únicas que tiene el usuario
     cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
     cartas_usuario_unicas = set((c["nombre"], c["version"]) for c in cartas_usuario)
 
@@ -867,19 +865,21 @@ def mostrar_detalle_set(update, context, set_name, pagina=1, mensaje=None, edita
     barra = "🟩" * bloques_llenos + "⬜" * (bloques - bloques_llenos)
     texto = f"<b>🌟 Set: {set_name}</b> <b>({usuario_tiene}/{total})</b>\n{barra}\n\n"
 
-for carta in cartas_set_unicas[inicio:fin]:
-    key = (carta["nombre"], carta["version"])
-    nombre_version = f"[{carta['version']}] {carta['nombre']}"
-    if key in cartas_usuario_unicas:
-        texto += f"✅ <code>{nombre_version}</code>\n"
-    else:
-        texto += f"❌ <code>{nombre_version}</code>\n"
-# Mensaje de ayuda para favoritos
-texto += (
-    "\n<i>Para añadir una carta a favoritos:</i>\n"
-    "Copia el nombre (incluyendo los corchetes) y usa:\n"
-    "<code>/fav [V1] Tzuyu</code>\n"
-)
+    # Ahora la lista en el nuevo formato: [Vn] Nombre (copiable)
+    for carta in cartas_set_unicas[inicio:fin]:
+        key = (carta["nombre"], carta["version"])
+        nombre_copiable = f"[{carta['version']}] {carta['nombre']}"
+        if key in cartas_usuario_unicas:
+            texto += f"✅ <code>{nombre_copiable}</code>\n"
+        else:
+            texto += f"❌ <code>{nombre_copiable}</code>\n"
+
+    # Mensaje de ayuda para favoritos (al final)
+    texto += (
+        "\n<i>Para añadir una carta a favoritos:</i>\n"
+        "Copia el nombre (incluyendo los corchetes) y usa:\n"
+        "<code>/fav [V1] Tzuyu</code>\n"
+    )
 
     if usuario_tiene == total and total > 0:
         texto += "\n🎉 <b>¡Completaste este set!</b> 🎉"
