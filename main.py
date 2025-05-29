@@ -461,7 +461,7 @@ def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, edit
         id_unico = carta.get('id_unico', 'xxxx')
         estrellas = carta.get('estrellas', '★??')
         texto += f"• <code>{id_unico}</code> · [{estrellas}] · #{cid} · [{version}] · {nombre} · {grupo}\n"
-    texto += "\nUsa /ampliar <code>&lt;id_unico&gt;</code> para ver una carta en grande."
+    texto += "\nUsa <code>&lt;/ampliar&gt;</code> <b>id_unico</b> para ver una carta en grande."
     nav = []
     if pagina > 1:
         nav.append(InlineKeyboardButton("« Anterior", callback_data=f"lista_{pagina-1}_{usuario_id}"))
