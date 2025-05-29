@@ -790,7 +790,7 @@ def manejador_callback(update, context):
     elif data == "reclamada":
         query.answer("Esta carta ya fue reclamada.", show_alert=True)
         return
-    elif data.startswith("vercarta"):
+elif data.startswith("vercarta"):
     partes = data.split("_")
     if len(partes) != 3:
         query.answer()
