@@ -460,8 +460,7 @@ def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, edit
         grupo = grupo_de_carta(nombre, version)
         id_unico = carta.get('id_unico', 'xxxx')
         estrellas = carta.get('estrellas', '★??')
-        texto += f"• <b>{nombre}</b> [{version}] {grupo}\n"
-        texto += f"   ID: <code>{id_unico}</code>  [{estrellas}]  #{cid}\n"
+        texto += f"• <code>{id_unico}</code> · [{estrellas}] · #{cid} · [{version}] · {nombre} · {grupo}\n"
     texto += "\nUsa <b>/ampliar &lt;id_unico&gt;</b> para ver una carta en grande."
     nav = []
     if pagina > 1:
