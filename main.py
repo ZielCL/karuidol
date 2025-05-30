@@ -596,7 +596,7 @@ def comando_inventario(update, context):
     }
 #----------------------------------------------------
 
-def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar=False):
+def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar=False, filtro=None):
     cartas = list(col_mercado.find())
     por_pagina = 10
     total = len(cartas)
@@ -607,10 +607,12 @@ def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar
         pagina = paginas
     inicio = (pagina - 1) * por_pagina
     fin = min(inicio + por_pagina, total)
+
+    # Cambia el encabezado para mostrar número de página
     if total == 0:
         texto = "No hay cartas a la venta en el mercado."
     else:
-        texto = "<b>🛒 Cartas en el mercado:</b>\n"
+        texto = f"<b>🛒 Cartas en el mercado (página {pagina}/{paginas}):</b>\n"
         for c in cartas[inicio:fin]:
             texto += (
                 f"• <code>{c['id_unico']}</code> · [{c['estado']}] "
@@ -635,6 +637,7 @@ def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar
             context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML")
     else:
         context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML")
+
     
 #----------Comando FAV1---------------
 @cooldown_critico
