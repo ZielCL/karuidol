@@ -597,14 +597,14 @@ def comando_inventario(update, context):
 #----------------------------------------------------
 
 def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar=False, filtro=None, valor_filtro=None):
-    # Filtrado
-    consulta = {}
-    if filtro == "estado":
-        consulta["estrellas"] = valor_filtro
-    elif filtro == "grupo":
-        consulta["grupo"] = valor_filtro
+    # Filtra las cartas según corresponda
+    query = {}
+    if filtro == "estado" and valor_filtro:
+        query["estado"] = valor_filtro
+    if filtro == "grupo" and valor_filtro:
+        query["grupo"] = valor_filtro
 
-    cartas = list(col_mercado.find(consulta))
+    cartas = list(col_mercado.find(query))
     por_pagina = 10
     total = len(cartas)
     paginas = max(1, (total - 1) // por_pagina + 1)
@@ -615,10 +615,15 @@ def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar
     inicio = (pagina - 1) * por_pagina
     fin = min(inicio + por_pagina, total)
 
-    if total == 0:
-        texto = "No hay cartas a la venta en el mercado."
+    # Título con filtro y paginación
+    if filtro and valor_filtro:
+        texto = f"<b>🛒 Cartas en el mercado (página {pagina}/{paginas}) — Filtrado por {filtro}: {valor_filtro}</b>\n"
     else:
-        texto = f"<b>🛒 Cartas en el mercado (página {pagina}/{paginas}):</b>\n"
+        texto = f"<b>🛒 Cartas en el mercado (página {pagina}/{paginas})</b>\n"
+
+    if total == 0:
+        texto += "No hay cartas a la venta en el mercado."
+    else:
         for c in cartas[inicio:fin]:
             texto += (
                 f"• <code>{c['id_unico']}</code> · [{c.get('estrellas', '★??')}] "
@@ -628,18 +633,27 @@ def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar
         if fin < total:
             texto += f"Y {total-fin} más...\n"
 
-    # Botones de paginación y filtro
+    # Botones de navegación y filtros
     botones = []
-    fila_paginacion = []
+    fila_filtros = [
+        InlineKeyboardButton("🔎 Filtrar", callback_data="mercado_filtro")
+    ]
+    if filtro:  # Si hay filtro, deja volver al mercado normal
+        fila_filtros.append(InlineKeyboardButton("❌ Quitar filtro", callback_data="mercado_1"))
+    # Paginación
+    nav = []
     if pagina > 1:
-        fila_paginacion.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_{pagina-1}"))
-    fila_paginacion.append(InlineKeyboardButton("🔎 Filtrar", callback_data="mercado_filtro"))
+        nav.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_{pagina-1}"))
     if pagina < paginas:
-        fila_paginacion.append(InlineKeyboardButton("➡️", callback_data=f"mercado_{pagina+1}"))
-    if fila_paginacion:
-        botones.append(fila_paginacion)
+        nav.append(InlineKeyboardButton("➡️", callback_data=f"mercado_{pagina+1}"))
 
-    teclado = InlineKeyboardMarkup(botones) if botones else None
+    # Arma la matriz de botones
+    matriz = []
+    if fila_filtros:
+        matriz.append(fila_filtros)
+    if nav:
+        matriz.append(nav)
+    teclado = InlineKeyboardMarkup(matriz) if matriz else None
 
     if editar and mensaje is not None:
         try:
