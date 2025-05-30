@@ -908,6 +908,60 @@ def comando_retirar(update, context):
 
     col_cartas_usuario.insert_one(carta)
     update.message.reply_text("Carta retirada del mercado y devuelta a tu álbum.")
+    
+#---------filtros de mercado "grupo"------------------------------------------------
+
+def mostrar_filtros_grupo(chat_id, context, mensaje=None, editar=False, pagina=1):
+    # Encuentra todos los grupos únicos de cartas en el mercado
+    grupos = sorted({c.get("grupo", "") for c in col_mercado.find() if c.get("grupo")})
+    por_pagina = 2  # Número de grupos por página (puedes cambiar a 1 si quieres)
+    total = len(grupos)
+    paginas = max(1, (total - 1) // por_pagina + 1)
+    if pagina < 1:
+        pagina = 1
+    if pagina > paginas:
+        pagina = paginas
+    inicio = (pagina - 1) * por_pagina
+    fin = min(inicio + por_pagina, total)
+    grupos_pagina = grupos[inicio:fin]
+
+    # Botones de grupos (centrales)
+    fila_grupos = [
+        InlineKeyboardButton(nombre, callback_data=f"mercado_filtrargrupo_{nombre}")
+        for nombre in grupos_pagina
+    ]
+
+    # Flechas navegación (extremos)
+    nav_izq = InlineKeyboardButton("⬅️", callback_data=f"mercado_filtrogrupo_{pagina-1}") if pagina > 1 else None
+    nav_der = InlineKeyboardButton("➡️", callback_data=f"mercado_filtrogrupo_{pagina+1}") if pagina < paginas else None
+
+    # Armar la matriz de botones
+    matriz = []
+    fila = []
+    if nav_izq:
+        fila.append(nav_izq)
+    fila.extend(fila_grupos)
+    if nav_der:
+        fila.append(nav_der)
+    matriz.append(fila)
+    matriz.append([InlineKeyboardButton("🔙 Volver", callback_data="mercado_filtro")])
+    teclado = InlineKeyboardMarkup(matriz)
+
+    texto = "Selecciona un grupo para filtrar el mercado:"
+    if editar and mensaje is not None:
+        try:
+            mensaje.edit_text(texto, reply_markup=teclado)
+        except Exception:
+            context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado)
+    else:
+        context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado)
+
+
+
+
+
+
+
 
 
 #---------Dinero del bot------------
@@ -1344,6 +1398,8 @@ def manejador_callback(update, context):
     data = query.data
 
     # ==================== MERCADO Y FILTROS ====================
+
+    # Menú principal de filtros
     if data == "mercado_filtro":
         botones = [
             [InlineKeyboardButton("📊 Por Estado", callback_data="mercado_filtro_estado")],
@@ -1358,12 +1414,13 @@ def manejador_callback(update, context):
         query.answer()
         return
 
+    # Filtro por ESTRELLAS (calidad visual)
     if data == "mercado_filtro_estado":
         botones = [
-            [InlineKeyboardButton("★★★", callback_data="mercado_estado_3")],
-            [InlineKeyboardButton("★★☆", callback_data="mercado_estado_2")],
-            [InlineKeyboardButton("★☆☆", callback_data="mercado_estado_1")],
-            [InlineKeyboardButton("☆☆☆", callback_data="mercado_estado_0")],
+            [InlineKeyboardButton("[★★★]", callback_data="mercado_estado_★★★")],
+            [InlineKeyboardButton("[★★☆]", callback_data="mercado_estado_★★☆")],
+            [InlineKeyboardButton("[★☆☆]", callback_data="mercado_estado_★☆☆")],
+            [InlineKeyboardButton("[☆☆☆]", callback_data="mercado_estado_☆☆☆")],
             [InlineKeyboardButton("🔙 Volver", callback_data="mercado_filtro")],
         ]
         teclado = InlineKeyboardMarkup(botones)
@@ -1374,37 +1431,28 @@ def manejador_callback(update, context):
         query.answer()
         return
 
-    if data == "mercado_filtro_grupo":
-        grupos = sorted({c.get("grupo", "") for c in col_mercado.find() if c.get("grupo")})
-        botones = []
-        for g in grupos[:2]:  # Por ahora solo dos grupos (puedes mejorar luego)
-            if g:
-                botones.append([InlineKeyboardButton(g, callback_data=f"mercado_grupo_{g}")])
-        botones.append([InlineKeyboardButton("🔙 Volver", callback_data="mercado_filtro")])
-        teclado = InlineKeyboardMarkup(botones)
-        try:
-            query.edit_message_reply_markup(reply_markup=teclado)
-        except Exception:
-            query.message.reply_text("Filtra por grupo:", reply_markup=teclado)
+    # Filtro por grupo (con navegación y paginación de grupos)
+    if data.startswith("mercado_filtro_grupo"):
+        # Extraer página si viene: mercado_filtro_grupo_2, etc.
+        partes = data.split("_")
+        pagina = 1
+        if len(partes) == 4 and partes[-1].isdigit():
+            pagina = int(partes[-1])
+        else:
+            pagina = 1
+        # Mostrar filtros por grupo usando función helper
+        mostrar_filtros_grupo(query.message.chat_id, context, mensaje=query.message, editar=True, pagina=pagina)
         query.answer()
         return
 
-    if data.startswith("mercado_estado_"):
-        estrellas = int(data.split("_")[-1])
-        estrellas_map = {3: "★★★", 2: "★★☆", 1: "★☆☆", 0: "☆☆☆"}
-        valor_filtro = estrellas_map[estrellas]
-        mostrar_mercado_pagina(
-            query.message.chat_id,
-            pagina=1,
-            context=context,
-            mensaje=query.message,
-            editar=True,
-            filtro="estado",
-            valor_filtro=valor_filtro
-        )
+    # Navegación de páginas en filtro de grupo
+    if data.startswith("mercado_filtropagegrupo_"):
+        pagina = int(data.split("_")[-1])
+        mostrar_filtros_grupo(query.message.chat_id, context, mensaje=query.message, editar=True, pagina=pagina)
         query.answer()
         return
 
+    # Selección de grupo
     if data.startswith("mercado_grupo_"):
         grupo = data[len("mercado_grupo_"):]
         mostrar_mercado_pagina(
@@ -1419,19 +1467,45 @@ def manejador_callback(update, context):
         query.answer()
         return
 
-    if data.startswith("mercado_"):
-        partes = data.split("_")
-        if len(partes) == 2 and partes[1].isdigit():
-            pagina = int(partes[1])
-            mostrar_mercado_pagina(
-                query.message.chat_id,
-                pagina=pagina,
-                context=context,
-                mensaje=query.message,
-                editar=True
-            )
-            query.answer()
-            return
+    # Filtrado por estrellas visuales
+    if data.startswith("mercado_estado_"):
+        estrellas = data[len("mercado_estado_"):]
+        mostrar_mercado_pagina(
+            query.message.chat_id,
+            pagina=1,
+            context=context,
+            mensaje=query.message,
+            editar=True,
+            filtro="estrellas",  # ¡Usa el campo estrellas!
+            valor_filtro=estrellas
+        )
+        query.answer()
+        return
+
+    # Quitar filtro y volver al mercado normal
+    if data == "mercado_1":
+        mostrar_mercado_pagina(
+            query.message.chat_id,
+            pagina=1,
+            context=context,
+            mensaje=query.message,
+            editar=True
+        )
+        query.answer()
+        return
+
+    # Navegación paginación mercado
+    if data.startswith("mercado_") and data[8:].isdigit():
+        pagina = int(data.split("_")[1])
+        mostrar_mercado_pagina(
+            query.message.chat_id,
+            pagina=pagina,
+            context=context,
+            mensaje=query.message,
+            editar=True
+        )
+        query.answer()
+        return
 
     # ==================== RECLAMAR CARTAS DROP ====================
     if data.startswith("reclamar"):
