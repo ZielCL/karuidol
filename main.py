@@ -42,6 +42,18 @@ col_usuarios = db['usuarios']
 col_cartas_usuario = db['cartas_usuario']
 col_contadores = db['contadores']
 col_mercado = db['mercado_cartas']
+col_mercado.create_index("id_unico", unique=True)
+col_cartas_usuario.create_index("id_unico", unique=True)
+col_cartas_usuario.create_index("user_id")
+col_mercado.create_index("vendedor_id")
+col_usuarios.create_index("user_id", unique=True)
+# TTL para cartas en mercado (ejemplo: 7 días)
+from pymongo import ASCENDING
+import datetime
+col_mercado.create_index(
+    [("fecha", ASCENDING)],
+    expireAfterSeconds=7*24*60*60  # 7 días
+)
 
 # --- Cooldowns ---
 COOLDOWN_USUARIO_SEG = 6 * 60 * 60  # 6 horas en segundos
@@ -78,6 +90,41 @@ ESTADO_MULTIPLICADORES = {
     "Muy mal estado": 0.05
 }
 #---------------------------
+user_last_cmd = {}
+group_last_cmd = {}
+
+COOLDOWN_USER = 3    # 3 segundos mínimo entre comandos por usuario
+COOLDOWN_GROUP = 1   # 1 segundo mínimo entre comandos por grupo
+
+def check_cooldown(update):
+    now = time.time()
+    uid = update.effective_user.id
+    gid = update.effective_chat.id
+    # Por usuario
+    if uid in user_last_cmd and now - user_last_cmd[uid] < COOLDOWN_USER:
+        return False, f"¡Espera {COOLDOWN_USER} segundos entre comandos!"
+    # Por grupo
+    if gid in group_last_cmd and now - group_last_cmd[gid] < COOLDOWN_GROUP:
+        return False, f"Este grupo está usando comandos muy rápido. Espera 1 segundo."
+    user_last_cmd[uid] = now
+    group_last_cmd[gid] = now
+    return True, None
+
+# Ejemplo de uso en cualquier comando:
+def comando_vender(update, context):
+    
+
+   # ... resto de tu código ...
+@cooldown_critico
+def cooldown_critico(func):
+    def wrapper(update, context, *args, **kwargs):
+        ok, msg = check_cooldown(update)
+        if not ok:
+            update.message.reply_text(msg)
+            return
+        return func(update, context, *args, **kwargs)
+    return wrapper
+
 
 def precio_carta_karuta(nombre, version, estado):
     total_copias = col_cartas_usuario.count_documents({"nombre": nombre, "version": version})
@@ -484,7 +531,7 @@ def manejador_reclamar(update, context):
 
 # ----------------- Resto de funciones: album, paginación, etc. -----------------
 # Aquí pego la versión adaptada de /album para usar id_unico, estrellas y letra pegada a la izquierda:
-
+@cooldown_critico
 def comando_album(update, context):
     usuario_id = update.message.from_user.id
     chat_id = update.effective_chat.id
@@ -537,6 +584,7 @@ def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, edit
     else:
         context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode='HTML')
 
+@cooldown_critico
 def comando_inventario(update, context):
     usuario_id = update.message.from_user.id
     chat_id = update.effective_chat.id
@@ -571,7 +619,7 @@ def comando_inventario(update, context):
     update.message.reply_text(texto, parse_mode="HTML")
     
 #----------Comando FAV1---------------
-
+@cooldown_critico
 def comando_favoritos(update, context):
     usuario_id = update.message.from_user.id
     doc = col_usuarios.find_one({"user_id": usuario_id})
@@ -591,7 +639,7 @@ def comando_favoritos(update, context):
     update.message.reply_text(texto, parse_mode="HTML")
 
 #----------Comando FAV---------------
-
+@cooldown_critico
 def comando_fav(update, context):
     usuario_id = update.message.from_user.id
     args = context.args
@@ -628,6 +676,7 @@ def comando_fav(update, context):
         update.message.reply_text(f"⭐ Añadiste a favoritos: <code>[{version}] {nombre}</code>", parse_mode="HTML")
 
 #------------COMANDO PRECIO---------------------
+@cooldown_critico
 def comando_precio(update, context):
     if not context.args:
         update.message.reply_text("Usa: /precio <id_unico>\nEjemplo: /precio f4fg1")
@@ -654,6 +703,7 @@ def comando_precio(update, context):
     update.message.reply_text(texto, parse_mode='HTML')
 
 #------Comando vender--------------------
+@cooldown_critico
 def comando_vender(update, context):
     usuario_id = update.message.from_user.id
     chat_id = update.effective_chat.id
@@ -697,7 +747,7 @@ def comando_vender(update, context):
     )
 
 #----------Ver cartas en venta------------------
-
+@cooldown_critico
 def comando_mercado(update, context):
     chat_id = update.effective_chat.id
     cartas = list(col_mercado.find())
@@ -717,19 +767,22 @@ def comando_mercado(update, context):
 
 
 #----------Comprar carta del mercado------------------
-
+@cooldown_critico
 def comando_comprar(update, context):
     usuario_id = update.message.from_user.id
     if not context.args:
         update.message.reply_text("Usa: /comprar <id_unico>")
         return
     id_unico = context.args[0].strip()
-    carta = col_mercado.find_one({"id_unico": id_unico})
+    # Transacción atómica: solo uno puede comprarla
+    carta = col_mercado.find_one_and_delete({"id_unico": id_unico})
     if not carta:
-        update.message.reply_text("No existe esa carta en el mercado.")
+        update.message.reply_text("Esa carta ya no está disponible o ya fue comprada.")
         return
     if carta["vendedor_id"] == usuario_id:
         update.message.reply_text("No puedes comprar tu propia carta.")
+        # Devuelve la carta al mercado si el vendedor intentó comprarla
+        col_mercado.insert_one(carta)
         return
 
     usuario = col_usuarios.find_one({"user_id": usuario_id}) or {}
@@ -738,21 +791,20 @@ def comando_comprar(update, context):
 
     if saldo < precio:
         update.message.reply_text(f"No tienes suficiente Kponey. Precio: {precio}, tu saldo: {saldo}")
+        # Devuelve la carta al mercado si el usuario no tiene saldo suficiente
+        col_mercado.insert_one(carta)
         return
 
-    # Transacción
+    # Transacción de dinero
     col_usuarios.update_one({"user_id": usuario_id}, {"$inc": {"kponey": -precio}}, upsert=True)
     col_usuarios.update_one({"user_id": carta["vendedor_id"]}, {"$inc": {"kponey": precio}}, upsert=True)
 
-    # Quitar del mercado y dar carta al comprador
-    col_mercado.delete_one({"id_unico": id_unico})
+    # Preparar carta para el inventario del usuario
     carta['user_id'] = usuario_id
     del carta['_id']
     del carta['vendedor_id']
     del carta['precio']
     del carta['fecha']
-
-    # --- CORRECCIÓN: asegúrate de que tenga el campo 'estrellas' correcto ---
     if 'estrellas' not in carta or not carta['estrellas'] or carta['estrellas'] == '★??':
         estado = carta.get('estado')
         for c in cartas:
@@ -761,16 +813,12 @@ def comando_comprar(update, context):
                 break
         else:
             carta['estrellas'] = '★??'
-    # (Opcional) también podrías poner estado_estrella numérico si tu album lo usa
-    # carta['estado_estrella'] = carta['estrellas'].count('★') if 'estrellas' in carta else 0
-
     col_cartas_usuario.insert_one(carta)
 
     update.message.reply_text(
         f"✅ Compraste la carta <b>{carta['nombre']} [{carta['version']}]</b> por <b>{precio} Kponey</b>.",
         parse_mode="HTML"
     )
-
 
     # Notificar al vendedor (opcional)
     try:
@@ -817,6 +865,7 @@ def comando_retirar(update, context):
 
 
 #---------Dinero del bot------------
+@cooldown_critico
 def comando_saldo(update, context):
     usuario_id = update.message.from_user.id
     usuario = col_usuarios.find_one({"user_id": usuario_id}) or {}
@@ -957,7 +1006,7 @@ def comando_ampliar(update, context):
     )
     update.message.reply_photo(photo=imagen_url, caption=texto, parse_mode='HTML')
 
-
+@cooldown_critico
 def comando_comandos(update, context):
     texto = (
         "📋 <b>Lista de comandos disponibles:</b>\n\n"
