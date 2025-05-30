@@ -595,19 +595,12 @@ def comando_inventario(update, context):
         # Agrega más objetos aquí si lo deseas
     }
 #----------------------------------------------------
+
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar=False):
-    """
-    Muestra las cartas del mercado paginadas, con botones para navegar.
-    chat_id: chat donde se enviará o editará el mensaje
-    pagina: número de página a mostrar
-    context: contexto de telegram (para enviar/editar mensajes)
-    mensaje: mensaje a editar (si corresponde)
-    editar: bool, si True se edita el mensaje; si False, se envía uno nuevo
-    """
-    por_pagina = 8
     cartas = list(col_mercado.find())
+    por_pagina = 10
     total = len(cartas)
     paginas = (total - 1) // por_pagina + 1
     if pagina < 1:
@@ -623,18 +616,18 @@ def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar
             f"{c['nombre']} [{c['version']}] — <b>{c['precio']} Kponey</b>\n"
             f"  /comprar {c['id_unico']}\n"
         )
-    if total > fin:
+    if total == 0:
+        texto = "No hay cartas a la venta en el mercado."
+    elif fin < total:
         texto += f"Y {total-fin} más...\n"
 
-    # --- Botones de paginación ---
-    botones = []
+    nav = []
     if pagina > 1:
-        botones.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_{pagina-1}"))
+        nav.append(InlineKeyboardButton("« Anterior", callback_data=f"mercado_{pagina-1}"))
     if pagina < paginas:
-        botones.append(InlineKeyboardButton("➡️", callback_data=f"mercado_{pagina+1}"))
-    teclado = InlineKeyboardMarkup([botones]) if botones else None
+        nav.append(InlineKeyboardButton("Siguiente »", callback_data=f"mercado_{pagina+1}"))
+    teclado = InlineKeyboardMarkup([nav]) if nav else None
 
-    # --- Envía o edita el mensaje según corresponda ---
     if editar and mensaje:
         try:
             mensaje.edit_text(texto, reply_markup=teclado, parse_mode="HTML")
@@ -642,6 +635,7 @@ def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar
             context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML")
     else:
         context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML")
+
 
 
 
