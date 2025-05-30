@@ -596,36 +596,38 @@ def comando_inventario(update, context):
         # Agrega más objetos aquí si lo deseas
     }
 #----------------------------------------------------
-def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar=False, usuario_id=None):
-    cartas = list(col_mercado.find())
+def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar=False):
     por_pagina = 10
-    total = len(cartas)
-    paginas = (total - 1) // por_pagina + 1
-    if pagina < 1: pagina = 1
-    if pagina > paginas: pagina = paginas
-    inicio = (pagina - 1) * por_pagina
-    fin = min(inicio + por_pagina, total)
-    texto = f"<b>🛒 Cartas en el mercado (página {pagina}/{paginas}):</b>\n\n"
-    for c in cartas[inicio:fin]:
-        texto += (
-            f"• <code>{c['id_unico']}</code> · [{c['estado']}] "
-            f"{c['nombre']} [{c['version']}] — <b>{c['precio']} Kponey</b>\n"
-            f"  /comprar {c['id_unico']}\n"
-        )
-    if total > fin:
-        texto += f"\nY {total-fin} más...\n"
-    # Muestra saldo si tienes usuario_id
-    if usuario_id:
-        doc = col_usuarios.find_one({"user_id": usuario_id})
-        saldo = doc.get("kponey", 0) if doc else 0
-        texto += f"\n💰 Tu saldo: <b>{saldo} Kponey</b>\n"
+    total_cartas = col_mercado.count_documents({})
+    paginas = max(1, (total_cartas - 1) // por_pagina + 1)
+    if pagina < 1:
+        pagina = 1
+    if pagina > paginas:
+        pagina = paginas
+    cartas = list(col_mercado.find().skip((pagina-1)*por_pagina).limit(por_pagina))
+    texto = f"<b>🛒 Cartas en el mercado (Página {pagina}/{paginas}):</b>\n"
+    if not cartas:
+        texto += "No hay cartas a la venta en el mercado."
+    else:
+        for c in cartas:
+            texto += (
+                f"• <code>{c['id_unico']}</code> · [{c['estado']}] "
+                f"{c['nombre']} [{c['version']}] — <b>{c['precio']} Kponey</b>\n"
+                f"  /comprar {c['id_unico']}\n"
+            )
+        if total_cartas > pagina * por_pagina:
+            texto += f"\nY {total_cartas - pagina * por_pagina} más..."
+
+    # Botones de paginación
     botones = []
     if pagina > 1:
         botones.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_{pagina-1}"))
     if pagina < paginas:
         botones.append(InlineKeyboardButton("➡️", callback_data=f"mercado_{pagina+1}"))
     teclado = InlineKeyboardMarkup([botones]) if botones else None
-    if editar and mensaje:
+
+    # Decide cómo enviar el mensaje:
+    if editar and mensaje is not None:
         try:
             mensaje.edit_text(texto, reply_markup=teclado, parse_mode="HTML")
         except Exception:
@@ -634,7 +636,23 @@ def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar
         context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML")
 
 
+    # Botones de paginación
+    botones = []
+    if pagina > 1:
+        botones.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_{pagina-1}"))
+    if pagina < paginas:
+        botones.append(InlineKeyboardButton("➡️", callback_data=f"mercado_{pagina+1}"))
+    teclado = InlineKeyboardMarkup([botones]) if botones else None
 
+    # Decide cómo enviar el mensaje:
+    if editar and mensaje is not None:
+        try:
+            mensaje.edit_text(texto, reply_markup=teclado, parse_mode="HTML")
+        except Exception:
+            # Si editar falla, manda un mensaje nuevo (por si acaso)
+            context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML")
+    else:
+        context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML")
     
     # Trae el inventario del usuario
     doc = col_usuarios.find_one({"user_id": usuario_id})
@@ -788,8 +806,7 @@ def comando_vender(update, context):
 @cooldown_critico
 def comando_mercado(update, context):
     chat_id = update.effective_chat.id
-    usuario_id = update.message.from_user.id
-    mostrar_mercado_pagina(chat_id, pagina=1, context=context, usuario_id=usuario_id)
+    mostrar_mercado_pagina(chat_id, pagina=1, context=context)
     if not cartas:
         update.message.reply_text("No hay cartas a la venta en el mercado.")
         return
@@ -1336,6 +1353,23 @@ def manejador_callback(update, context):
     query = update.callback_query
     data = query.data
 
+    # ---- Paginación para el mercado ----
+    if data.startswith("mercado_"):
+        partes = data.split("_")
+        if len(partes) != 2:
+            query.answer()
+            return
+        pagina = int(partes[1])
+        mostrar_mercado_pagina(
+            query.message.chat_id,
+            pagina=pagina,
+            context=context,
+            mensaje=query.message,
+            editar=True
+        )
+        query.answer()
+        return
+
     if data.startswith("reclamar"):
         manejador_reclamar(update, context)
         return
@@ -1492,23 +1526,21 @@ def manejador_callback(update, context):
         return
 
     # ---- Paginación para el mercado ----
-    elif data.startswith("mercado_"):
-        pagina = int(data.split("_")[1])
-        usuario_id = query.from_user.id
+    if data.startswith("mercado_"):
+        partes = data.split("_")
+        if len(partes) != 2:
+            query.answer()
+            return
+        pagina = int(partes[1])
         mostrar_mercado_pagina(
             query.message.chat_id,
             pagina=pagina,
             context=context,
             mensaje=query.message,
-            editar=True,
-            usuario_id=usuario_id
+            editar=True
         )
         query.answer()
         return
-
-    # Si ningún callback anterior se usó
-    query.answer()
-
 
 #------------------------------------------------------------
 from telegram.ext import MessageHandler, Filters
