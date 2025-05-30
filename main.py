@@ -1411,12 +1411,13 @@ def manejador_callback(update, context):
     # Filtro por ESTRELLAS (calidad visual)
     if data == "mercado_filtro_estado":
         botones = [
-            [InlineKeyboardButton("[★★★]", callback_data="mercado_estado_★★★")],
-            [InlineKeyboardButton("[★★☆]", callback_data="mercado_estado_★★☆")],
-            [InlineKeyboardButton("[★☆☆]", callback_data="mercado_estado_★☆☆")],
-            [InlineKeyboardButton("[☆☆☆]", callback_data="mercado_estado_☆☆☆")],
+            [InlineKeyboardButton("★★★", callback_data="mercado_estado_3")],
+            [InlineKeyboardButton("★★☆", callback_data="mercado_estado_2")],
+            [InlineKeyboardButton("★☆☆", callback_data="mercado_estado_1")],
+            [InlineKeyboardButton("☆☆☆", callback_data="mercado_estado_0")],
             [InlineKeyboardButton("🔙 Volver", callback_data="mercado_filtro")],
         ]
+
         teclado = InlineKeyboardMarkup(botones)
         try:
             query.edit_message_reply_markup(reply_markup=teclado)
