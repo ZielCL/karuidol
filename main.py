@@ -298,23 +298,33 @@ def comando_idolday(update, context):
     cartas_drop = random.choices(cartas_excelentes, k=2)
     media_group = []
     cartas_info = []
-    for carta in cartas_drop:
-        nombre = carta['nombre']
-        version = carta['version']
-        grupo = carta.get('grupo', '')
-        imagen_url = carta.get('imagen')
-        # NO SE GENERA ID NI ESTADO NI ESTRELLAS EN EL DROP
-        caption = f"<b>{nombre}</b>\n{grupo} [{version}]"
-        media_group.append(InputMediaPhoto(media=imagen_url, caption=caption, parse_mode="HTML"))
-        cartas_info.append({
-            "nombre": nombre,
-            "version": version,
-            "grupo": grupo,
-            "imagen": imagen_url,
-            "reclamada": False,
-            "usuario": None,
-            "hora_reclamada": None,
-        })
+for carta in cartas_drop:
+    nombre = carta['nombre']
+    version = carta['version']
+    grupo = carta.get('grupo', '')
+    imagen_url = carta.get('imagen')
+    # ===== RESERVA EL NÚMERO DE CARTA AQUÍ =====
+    doc_cont = col_contadores.find_one_and_update(
+        {"nombre": nombre, "version": version},
+        {"$inc": {"contador": 1}},
+        upsert=True,
+        return_document=True
+    )
+    nuevo_id = doc_cont['contador'] if doc_cont else 1
+    # ============================================
+    caption = f"<b>{nombre}</b>\n{grupo} [{version}]"
+    media_group.append(InputMediaPhoto(media=imagen_url, caption=caption, parse_mode="HTML"))
+    cartas_info.append({
+        "nombre": nombre,
+        "version": version,
+        "grupo": grupo,
+        "imagen": imagen_url,
+        "reclamada": False,
+        "usuario": None,
+        "hora_reclamada": None,
+        "card_id": nuevo_id  # <-- Guarda el número aquí
+    })
+
 
     msgs = context.bot.send_media_group(chat_id=chat_id, media=media_group)
     main_msg = msgs[0]
@@ -442,15 +452,9 @@ def manejador_reclamar(update, context):
     version = carta['version']
     grupo = carta['grupo']
 
-    doc_cont = col_contadores.find_one({"nombre": nombre, "version": version})
-    if doc_cont:
-        nuevo_id = doc_cont['contador'] + 1
-        col_contadores.update_one({"nombre": nombre, "version": version}, {"$inc": {"contador": 1}})
-    else:
-        nuevo_id = 1
-        col_contadores.insert_one({"nombre": nombre, "version": version, "contador": 1})
-
+    nuevo_id = carta.get("card_id", 1)
     id_unico = random_id_unico(nuevo_id)
+
 
     posibles_estados = estados_disponibles_para_carta(nombre, version)
     carta_entregada = random.choice(posibles_estados)
