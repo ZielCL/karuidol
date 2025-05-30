@@ -18,7 +18,6 @@ from dotenv import load_dotenv
 import re
 import string
 import math
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 load_dotenv()
 
