@@ -596,8 +596,15 @@ def comando_inventario(update, context):
     }
 #----------------------------------------------------
 
-def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar=False, filtro=None):
+def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar=False, filtro=None, valor_filtro=None):
     cartas = list(col_mercado.find())
+
+    # Filtrado básico (más adelante se mejora con el sistema de filtros)
+    if filtro == "estado" and valor_filtro:
+        cartas = [c for c in cartas if c.get("estado_estrella", "") == valor_filtro]
+    elif filtro == "grupo" and valor_filtro:
+        cartas = [c for c in cartas if c.get("grupo", "") == valor_filtro]
+
     por_pagina = 10
     total = len(cartas)
     paginas = max(1, (total - 1) // por_pagina + 1)
@@ -607,26 +614,32 @@ def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar
         pagina = paginas
     inicio = (pagina - 1) * por_pagina
     fin = min(inicio + por_pagina, total)
-
-    # Cambia el encabezado para mostrar número de página
     if total == 0:
         texto = "No hay cartas a la venta en el mercado."
     else:
-        texto = f"<b>🛒 Cartas en el mercado (página {pagina}/{paginas}):</b>\n"
+        texto = f"<b>🛒 Cartas en el mercado (página {pagina}/{paginas})</b>\n"
         for c in cartas[inicio:fin]:
             texto += (
                 f"• <code>{c['id_unico']}</code> · [{c['estado']}] "
                 f"{c['nombre']} [{c['version']}] — <b>{c['precio']} Kponey</b>\n"
                 f"  /comprar {c['id_unico']}\n"
             )
-    
-    # Botones de paginación
+        if fin < total:
+            texto += f"Y {total-fin} más...\n"
+
+    # Botones de navegación y filtro
     botones = []
+    nav = []
     if pagina > 1:
-        botones.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_{pagina-1}"))
+        nav.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_{pagina-1}"))
     if pagina < paginas:
-        botones.append(InlineKeyboardButton("➡️", callback_data=f"mercado_{pagina+1}"))
-    teclado = InlineKeyboardMarkup([botones]) if botones else None
+        nav.append(InlineKeyboardButton("➡️", callback_data=f"mercado_{pagina+1}"))
+    if nav:
+        botones.append(nav)
+    # Nuevo botón Filtro
+    botones.append([InlineKeyboardButton("🔎 Filtrar", callback_data="mercado_filtro")])
+
+    teclado = InlineKeyboardMarkup(botones) if botones else None
 
     if editar and mensaje is not None:
         try:
