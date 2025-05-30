@@ -596,22 +596,16 @@ def comando_inventario(update, context):
     }
 #----------------------------------------------------
 def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar=False):
-    usuario_id = None
-    # Intenta obtener usuario_id si viene desde un comando
-    try:
-        usuario_id = context._user_id_and_data[0]
-    except Exception:
-        pass
-
+    por_pagina = 8
     cartas = list(col_mercado.find())
     total = len(cartas)
-    por_pagina = 10
     paginas = (total - 1) // por_pagina + 1
-    if pagina < 1: pagina = 1
-    if pagina > paginas: pagina = paginas
+    if pagina < 1:
+        pagina = 1
+    if pagina > paginas:
+        pagina = paginas
     inicio = (pagina - 1) * por_pagina
     fin = min(inicio + por_pagina, total)
-
     texto = "<b>🛒 Cartas en el mercado:</b>\n"
     for c in cartas[inicio:fin]:
         texto += (
@@ -619,9 +613,7 @@ def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar
             f"{c['nombre']} [{c['version']}] — <b>{c['precio']} Kponey</b>\n"
             f"  /comprar {c['id_unico']}\n"
         )
-    if total == 0:
-        texto = "No hay cartas a la venta en el mercado."
-    elif total > fin:
+    if total > fin:
         texto += f"Y {total-fin} más...\n"
 
     # Botones de paginación
@@ -632,6 +624,7 @@ def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar
         botones.append(InlineKeyboardButton("➡️", callback_data=f"mercado_{pagina+1}"))
     teclado = InlineKeyboardMarkup([botones]) if botones else None
 
+    # Si es edición (viene de CallbackQuery)
     if editar and mensaje:
         try:
             mensaje.edit_text(texto, reply_markup=teclado, parse_mode="HTML")
@@ -639,6 +632,7 @@ def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar
             context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML")
     else:
         context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML")
+
 
     # Botones de paginación
     botones = []
@@ -676,7 +670,7 @@ def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar
 
     texto += "———\n<i>Próximamente más objetos y usos.</i>"
 
-    update.message.reply_text(texto, parse_mode="HTML")
+    mensaje.edit_text(texto, reply_markup=teclado, parse_mode="HTML")
     
 #----------Comando FAV1---------------
 @cooldown_critico
@@ -810,13 +804,7 @@ def comando_vender(update, context):
 @cooldown_critico
 def comando_mercado(update, context):
     chat_id = update.effective_chat.id
-    mostrar_mercado_pagina(
-        chat_id,
-        pagina=1,
-        context=context,
-        mensaje=None,
-        editar=False
-    )
+    mostrar_mercado_pagina(chat_id, pagina=1, context=context, mensaje=None, editar=False)
     if not cartas:
         update.message.reply_text("No hay cartas a la venta en el mercado.")
         return
