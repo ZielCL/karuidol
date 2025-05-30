@@ -596,7 +596,7 @@ def comando_inventario(update, context):
         # Agrega más objetos aquí si lo deseas
     }
 #----------------------------------------------------
-def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar=False):
+def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar=False, usuario_id=None):
     por_pagina = 10
     total_cartas = col_mercado.count_documents({})
     paginas = max(1, (total_cartas - 1) // por_pagina + 1)
@@ -631,10 +631,10 @@ def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar
         try:
             mensaje.edit_text(texto, reply_markup=teclado, parse_mode="HTML")
         except Exception:
+            # Si editar falla, manda un mensaje nuevo (por si acaso)
             context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML")
     else:
         context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML")
-
 
     # Botones de paginación
     botones = []
@@ -806,7 +806,8 @@ def comando_vender(update, context):
 @cooldown_critico
 def comando_mercado(update, context):
     chat_id = update.effective_chat.id
-    mostrar_mercado_pagina(chat_id, pagina=1, context=context)
+    usuario_id = update.effective_user.id
+    mostrar_mercado_pagina(chat_id, pagina=1, context=context, usuario_id=usuario_id)
     if not cartas:
         update.message.reply_text("No hay cartas a la venta en el mercado.")
         return
@@ -1361,12 +1362,14 @@ def manejador_callback(update, context):
             return
         pagina = int(partes[1])
         mostrar_mercado_pagina(
-            query.message.chat_id,
-            pagina=pagina,
-            context=context,
-            mensaje=query.message,
-            editar=True
-        )
+        query.message.chat_id,
+        pagina=pagina,
+        context=context,
+        mensaje=query.message,
+        editar=True,
+        usuario_id=query.from_user.id
+    )
+
         query.answer()
         return
 
