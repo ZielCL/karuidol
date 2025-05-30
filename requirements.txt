@@ -8,3 +8,4 @@ telegram
 nest-asyncio
 motor
 pyTelegramBotAPI==4.14.0
+Pillow
