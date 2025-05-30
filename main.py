@@ -111,9 +111,13 @@ def check_cooldown(update):
     return True, None
 
 # Ejemplo de uso en cualquier comando:
+@cooldown_critico
 def comando_vender(update, context):
-    
-
+    ok, msg = check_cooldown(update)
+    if not ok:
+        update.message.reply_text(msg)
+        return
+        
    # ... resto de tu código ...
 @cooldown_critico
 def cooldown_critico(func):
