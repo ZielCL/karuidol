@@ -786,17 +786,6 @@ def comando_vender(update, context):
 def comando_mercado(update, context):
     chat_id = update.effective_chat.id
     mostrar_mercado_pagina(chat_id, pagina=1, context=context, mensaje=None, editar=False)
- 
-    texto = "<b>🛒 Cartas en el mercado:</b>\n"
-    for c in cartas[:10]:  # muestra solo las primeras 10
-        texto += (
-            f"• <code>{c['id_unico']}</code> · [{c['estado']}] "
-            f"{c['nombre']} [{c['version']}] — <b>{c['precio']} Kponey</b>\n"
-            f"  /comprar {c['id_unico']}\n"
-        )
-    if len(cartas) > 10:
-        texto += f"Y {len(cartas)-10} más...\n"
-    update.message.reply_text(texto, parse_mode="HTML")
 
 
 #----------Comprar carta del mercado------------------
