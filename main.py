@@ -238,7 +238,6 @@ def comando_idolday(update, context):
     user_doc = col_usuarios.find_one({"user_id": usuario_id})
     bono = user_doc.get('bono', 0) if user_doc else 0
     last = user_doc.get('last_idolday') if user_doc else None
-    puede_tirar = False
 
     # --- Cooldown global por grupo (30 seg) ---
     ultimo_drop = COOLDOWN_GRUPO.get(chat_id, 0)
@@ -254,8 +253,7 @@ def comando_idolday(update, context):
         context.bot.send_message(chat_id=chat_id, text="Este comando solo se puede usar en grupos.")
         return
 
-    # --- Cooldown por usuario (8 horas o bono) ---
-        # --- Cooldown por usuario (6 horas o bono) ---
+    # --- Cooldown por usuario (6 horas o bono) ---
     puede_tirar = False
     cooldown_listo, bono_listo = puede_usar_idolday(usuario_id)
 
@@ -298,35 +296,37 @@ def comando_idolday(update, context):
     cartas_drop = random.choices(cartas_excelentes, k=2)
     media_group = []
     cartas_info = []
+
     for carta in cartas_drop:
         nombre = carta['nombre']
         version = carta['version']
         grupo = carta.get('grupo', '')
         imagen_url = carta.get('imagen')
-    # ===== RESERVA EL NÚMERO DE CARTA AQUÍ =====
-    doc_cont = col_contadores.find_one_and_update(
-        {"nombre": nombre, "version": version},
-        {"$inc": {"contador": 1}},
-        upsert=True,
-        return_document=True
-    )
-    nuevo_id = doc_cont['contador'] if doc_cont else 1
-    # ============================================
-    caption = f"<b>{nombre}</b>\n{grupo} [{version}]"
-    media_group.append(InputMediaPhoto(media=imagen_url, caption=caption, parse_mode="HTML"))
-    cartas_info.append({
-        "nombre": nombre,
-        "version": version,
-        "grupo": grupo,
-        "imagen": imagen_url,
-        "reclamada": False,
-        "usuario": None,
-        "hora_reclamada": None,
-        "card_id": nuevo_id  # <-- Guarda el número aquí
-    })
 
+        # ===== RESERVA EL NÚMERO DE CARTA AQUÍ =====
+        doc_cont = col_contadores.find_one_and_update(
+            {"nombre": nombre, "version": version},
+            {"$inc": {"contador": 1}},
+            upsert=True,
+            return_document=True
+        )
+        nuevo_id = doc_cont['contador'] if doc_cont else 1
+        # ============================================
+        caption = f"<b>{nombre}</b>\n{grupo} [{version}]"
+        media_group.append(InputMediaPhoto(media=imagen_url, caption=caption, parse_mode="HTML"))
+        cartas_info.append({
+            "nombre": nombre,
+            "version": version,
+            "grupo": grupo,
+            "imagen": imagen_url,
+            "reclamada": False,
+            "usuario": None,
+            "hora_reclamada": None,
+            "card_id": nuevo_id  # <-- Guarda el número aquí
+        })
 
     msgs = context.bot.send_media_group(chat_id=chat_id, media=media_group)
+    # El mensaje para botones es el del primer drop (puede cambiarse si quieres)
     main_msg = msgs[0]
 
     texto_drop = f"@{update.effective_user.username or update.effective_user.first_name} está dropeando 2 cartas!"
@@ -363,7 +363,8 @@ def comando_idolday(update, context):
         upsert=True
     )
 
-    threading.Thread(target=desbloquear_drop, args=(drop_id, ), daemon=True).start()
+    threading.Thread(target=desbloquear_drop, args=(drop_id,), daemon=True).start()
+
 
 FRASES_ESTADO = {
     "Excelente estado": "Genial!",
