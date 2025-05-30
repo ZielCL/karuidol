@@ -106,9 +106,9 @@ def check_cooldown(update):
     # Por grupo
     if gid in group_last_cmd and now - group_last_cmd[gid] < COOLDOWN_GROUP:
         return False, f"Este grupo está usando comandos muy rápido. Espera 1 segundo."
-    user_last_cmd[uid] = now
-    group_last_cmd[gid] = now
+    # Aquí **NO actualices el timestamp todavía**
     return True, None
+
 
         
    # ... resto de tu código ...
@@ -119,8 +119,15 @@ def cooldown_critico(func):
         if not ok:
             update.message.reply_text(msg)
             return
+        # SOLO aquí actualizas el cooldown
+        now = time.time()
+        uid = update.effective_user.id
+        gid = update.effective_chat.id
+        user_last_cmd[uid] = now
+        group_last_cmd[gid] = now
         return func(update, context, *args, **kwargs)
     return wrapper
+
 
 
 def precio_carta_karuta(nombre, version, estado):
