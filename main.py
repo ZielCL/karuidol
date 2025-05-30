@@ -777,17 +777,29 @@ def comando_vender(update, context):
 
     # Quitar de inventario y poner en mercado
     col_cartas_usuario.delete_one({"user_id": usuario_id, "id_unico": id_unico})
-    col_mercado.insert_one({
-        "id_unico": id_unico,
-        "vendedor_id": usuario_id,
-        "nombre": nombre,
-        "version": version,
-        "estado": estado,
-        "precio": precio,
-        "fecha": datetime.datetime.utcnow(),
-        "imagen": carta.get("imagen"),
-        "grupo": carta.get("grupo", "")
-    })
+    # Busca las estrellas en la carta o en tu catálogo de cartas
+if 'estrellas' in carta and carta['estrellas']:
+    estrellas = carta['estrellas']
+else:
+    # Busca las estrellas en el catálogo de cartas
+    estrellas = "★??"
+    for c in cartas:
+        if c['nombre'] == nombre and c['version'] == version and c['estado'] == estado:
+            estrellas = c.get('estado_estrella', "★??")
+            break
+
+col_mercado.insert_one({
+    "id_unico": id_unico,
+    "vendedor_id": usuario_id,
+    "nombre": nombre,
+    "version": version,
+    "estado": estado,
+    "estrellas": estrellas,
+    "precio": precio,
+    "fecha": datetime.utcnow(),
+    "imagen": carta.get("imagen"),
+    "grupo": carta.get("grupo", "")
+})
     update.message.reply_text(
         f"📦 Carta <b>{nombre} [{version}]</b> puesta en el mercado por <b>{precio} Kponey</b>.",
         parse_mode='HTML'
