@@ -602,39 +602,41 @@ def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar
     cartas = list(col_mercado.find())
     por_pagina = 10
     total = len(cartas)
-    paginas = (total - 1) // por_pagina + 1
+    paginas = max(1, (total - 1) // por_pagina + 1)
     if pagina < 1:
         pagina = 1
     if pagina > paginas:
         pagina = paginas
     inicio = (pagina - 1) * por_pagina
     fin = min(inicio + por_pagina, total)
-    texto = "<b>🛒 Cartas en el mercado:</b>\n"
-    for c in cartas[inicio:fin]:
-        texto += (
-            f"• <code>{c['id_unico']}</code> · [{c['estado']}] "
-            f"{c['nombre']} [{c['version']}] — <b>{c['precio']} Kponey</b>\n"
-            f"  /comprar {c['id_unico']}\n"
-        )
     if total == 0:
         texto = "No hay cartas a la venta en el mercado."
-    elif fin < total:
-        texto += f"Y {total-fin} más...\n"
-
-    nav = []
+    else:
+        texto = "<b>🛒 Cartas en el mercado:</b>\n"
+        for c in cartas[inicio:fin]:
+            texto += (
+                f"• <code>{c['id_unico']}</code> · [{c['estado']}] "
+                f"{c['nombre']} [{c['version']}] — <b>{c['precio']} Kponey</b>\n"
+                f"  /comprar {c['id_unico']}\n"
+            )
+        if fin < total:
+            texto += f"Y {total-fin} más...\n"
+    # Botones de paginación
+    botones = []
     if pagina > 1:
-        nav.append(InlineKeyboardButton("« Anterior", callback_data=f"mercado_{pagina-1}"))
+        botones.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_{pagina-1}"))
     if pagina < paginas:
-        nav.append(InlineKeyboardButton("Siguiente »", callback_data=f"mercado_{pagina+1}"))
-    teclado = InlineKeyboardMarkup([nav]) if nav else None
+        botones.append(InlineKeyboardButton("➡️", callback_data=f"mercado_{pagina+1}"))
+    teclado = InlineKeyboardMarkup([botones]) if botones else None
 
-    if editar and mensaje:
+    if editar and mensaje is not None:
         try:
             mensaje.edit_text(texto, reply_markup=teclado, parse_mode="HTML")
         except Exception:
             context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML")
     else:
         context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML")
+
 
 
 
@@ -810,9 +812,7 @@ def comando_vender(update, context):
 def comando_mercado(update, context):
     chat_id = update.effective_chat.id
     mostrar_mercado_pagina(chat_id, pagina=1, context=context, mensaje=None, editar=False)
-    if not cartas:
-        update.message.reply_text("No hay cartas a la venta en el mercado.")
-        return
+ 
     texto = "<b>🛒 Cartas en el mercado:</b>\n"
     for c in cartas[:10]:  # muestra solo las primeras 10
         texto += (
