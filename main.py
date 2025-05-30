@@ -912,9 +912,8 @@ def comando_retirar(update, context):
 #---------filtros de mercado "grupo"------------------------------------------------
 
 def mostrar_filtros_grupo(chat_id, context, mensaje=None, editar=False, pagina=1):
-    # Encuentra todos los grupos únicos de cartas en el mercado
     grupos = sorted({c.get("grupo", "") for c in col_mercado.find() if c.get("grupo")})
-    por_pagina = 2  # Número de grupos por página (puedes cambiar a 1 si quieres)
+    por_pagina = 2
     total = len(grupos)
     paginas = max(1, (total - 1) // por_pagina + 1)
     if pagina < 1:
@@ -925,25 +924,20 @@ def mostrar_filtros_grupo(chat_id, context, mensaje=None, editar=False, pagina=1
     fin = min(inicio + por_pagina, total)
     grupos_pagina = grupos[inicio:fin]
 
-    # Botones de grupos (centrales)
-    fila_grupos = [
-        InlineKeyboardButton(nombre, callback_data=f"mercado_filtrargrupo_{nombre}")
-        for nombre in grupos_pagina
-    ]
+    # Botones de grupo (máx 2 por fila)
+    fila_grupos = [InlineKeyboardButton(g, callback_data=f"mercado_grupo_{g}") for g in grupos_pagina]
+    # Botones de navegación (flechas) en una fila aparte
+    fila_flechas = []
+    if pagina > 1:
+        fila_flechas.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_filtropagegrupo_{pagina-1}"))
+    if pagina < paginas:
+        fila_flechas.append(InlineKeyboardButton("➡️", callback_data=f"mercado_filtropagegrupo_{pagina+1}"))
 
-    # Flechas navegación (extremos)
-    nav_izq = InlineKeyboardButton("⬅️", callback_data=f"mercado_filtrogrupo_{pagina-1}") if pagina > 1 else None
-    nav_der = InlineKeyboardButton("➡️", callback_data=f"mercado_filtrogrupo_{pagina+1}") if pagina < paginas else None
-
-    # Armar la matriz de botones
     matriz = []
-    fila = []
-    if nav_izq:
-        fila.append(nav_izq)
-    fila.extend(fila_grupos)
-    if nav_der:
-        fila.append(nav_der)
-    matriz.append(fila)
+    if fila_grupos:
+        matriz.append(fila_grupos)
+    if fila_flechas:
+        matriz.append(fila_flechas)
     matriz.append([InlineKeyboardButton("🔙 Volver", callback_data="mercado_filtro")])
     teclado = InlineKeyboardMarkup(matriz)
 
@@ -956,12 +950,7 @@ def mostrar_filtros_grupo(chat_id, context, mensaje=None, editar=False, pagina=1
     else:
         context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado)
 
-
-
-
-
-
-
+#--------------------------------------------------------------------------------
 
 
 #---------Dinero del bot------------
