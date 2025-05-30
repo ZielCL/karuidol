@@ -106,12 +106,7 @@ def check_cooldown(update):
     # Por grupo
     if gid in group_last_cmd and now - group_last_cmd[gid] < COOLDOWN_GROUP:
         return False, f"Este grupo está usando comandos muy rápido. Espera 1 segundo."
-    # Aquí **NO actualices el timestamp todavía**
     return True, None
-
-
-        
-   # ... resto de tu código ...
 
 def cooldown_critico(func):
     def wrapper(update, context, *args, **kwargs):
@@ -119,7 +114,7 @@ def cooldown_critico(func):
         if not ok:
             update.message.reply_text(msg)
             return
-        # SOLO aquí actualizas el cooldown
+        # SOLO AQUÍ actualiza el timestamp cuando el comando pasa
         now = time.time()
         uid = update.effective_user.id
         gid = update.effective_chat.id
