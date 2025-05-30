@@ -811,8 +811,13 @@ def comando_vender(update, context):
 @cooldown_critico
 def comando_mercado(update, context):
     chat_id = update.effective_chat.id
-    usuario_id = update.effective_user.id
-    mostrar_mercado_pagina(chat_id, pagina=1, context=context, usuario_id=usuario_id)
+    mostrar_mercado_pagina(
+        chat_id,
+        pagina=1,
+        context=context,
+        mensaje=None,
+        editar=False
+    )
     if not cartas:
         update.message.reply_text("No hay cartas a la venta en el mercado.")
         return
