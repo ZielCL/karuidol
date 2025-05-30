@@ -598,11 +598,9 @@ def comando_inventario(update, context):
 #----------------------------------------------------
 
 def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar=False, filtro=None, valor_filtro=None):
-    # Filtra las cartas según corresponda
     query = {}
-    if filtro in ["estrellas"] and valor_filtro:
-        valor = valor_filtro.replace("[", "").replace("]", "")  # solo las estrellas, sin corchetes
-        query["estrellas"] = valor
+    if filtro == "estrellas" and valor_filtro:
+        query["estrellas"] = valor_filtro  # Solo los símbolos de estrella, tal cual
     if filtro == "grupo" and valor_filtro:
         query["grupo"] = valor_filtro
 
@@ -617,7 +615,6 @@ def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar
     inicio = (pagina - 1) * por_pagina
     fin = min(inicio + por_pagina, total)
 
-    # Título con filtro y paginación
     if filtro and valor_filtro:
         texto = f"<b>🛒 Cartas en el mercado (página {pagina}/{paginas}) — Filtrado por estrellas: {valor_filtro}</b>\n"
     else:
@@ -636,21 +633,18 @@ def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar
         if fin < total:
             texto += f"Y {total-fin} más...\n"
 
-    # Botones de navegación y filtros
     botones = []
     fila_filtros = [
         InlineKeyboardButton("🔎 Filtrar", callback_data="mercado_filtro")
     ]
-    if filtro:  # Si hay filtro, deja volver al mercado normal
+    if filtro:
         fila_filtros.append(InlineKeyboardButton("❌ Quitar filtro", callback_data="mercado_1"))
-    # Paginación
     nav = []
     if pagina > 1:
         nav.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_{pagina-1}"))
     if pagina < paginas:
         nav.append(InlineKeyboardButton("➡️", callback_data=f"mercado_{pagina+1}"))
 
-    # Arma la matriz de botones
     matriz = []
     if fila_filtros:
         matriz.append(fila_filtros)
@@ -665,6 +659,7 @@ def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar
             context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML")
     else:
         context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML")
+
 
     
 #----------Comando FAV1---------------
@@ -1464,18 +1459,21 @@ def manejador_callback(update, context):
 
     # Filtrado por estrellas visuales
     if data.startswith("mercado_estado_"):
-        estrellas = data[len("mercado_estado_"):]
-        mostrar_mercado_pagina(
-            query.message.chat_id,
-            pagina=1,
-            context=context,
-            mensaje=query.message,
-            editar=True,
-            filtro="estrellas",  # ¡Usa el campo estrellas!
-            valor_filtro=estrellas
-        )
-        query.answer()
-        return
+       estrellas_idx = int(data[len("mercado_estado_"):])
+       estrellas_map = {3: "★★★", 2: "★★☆", 1: "★☆☆", 0: "☆☆☆"}
+       valor_filtro = estrellas_map[estrellas_idx]
+       mostrar_mercado_pagina(
+         query.message.chat_id,
+         pagina=1,
+         context=context,
+         mensaje=query.message,
+         editar=True,
+         filtro="estrellas",
+         valor_filtro=valor_filtro
+       )
+       query.answer()
+       return
+
 
     # Quitar filtro y volver al mercado normal
     if data == "mercado_1":
