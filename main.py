@@ -18,6 +18,7 @@ from dotenv import load_dotenv
 import re
 import string
 import math
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 load_dotenv()
 
@@ -594,7 +595,45 @@ def comando_inventario(update, context):
         "lightstick": "💡 Lightstick\nMejora el estado de una carta:\n• ☆☆☆ → ★☆☆ (100%)\n• ★☆☆ → ★★☆ (70%)\n• ★★☆ → ★★★ (40%)",
         # Agrega más objetos aquí si lo deseas
     }
+#----------------------------------------------------
+def mostrar_mercado_pagina(chat_id, pagina, context, mensaje=None, editar=False):
+    cartas = list(col_mercado.find())
+    total = len(cartas)
+    por_pagina = 10
+    paginas = (total - 1) // por_pagina + 1
+    if pagina < 1:
+        pagina = 1
+    if pagina > paginas:
+        pagina = paginas
+    inicio = (pagina - 1) * por_pagina
+    fin = min(inicio + por_pagina, total)
+    texto = f"<b>🛒 Cartas en el mercado (página {pagina}/{paginas})</b>\n\n"
+    for c in cartas[inicio:fin]:
+        texto += (
+            f"• <code>{c['id_unico']}</code> · [{c['estado']}] "
+            f"{c['nombre']} [{c['version']}] — <b>{c['precio']} Kponey</b>\n"
+            f"  /comprar {c['id_unico']}\n"
+        )
+    if total == 0:
+        texto += "No hay cartas a la venta en el mercado.\n"
 
+    botones = []
+    if pagina > 1:
+        botones.append(InlineKeyboardButton("« Anterior", callback_data=f"mercado_{pagina-1}"))
+    if pagina < paginas:
+        botones.append(InlineKeyboardButton("Siguiente »", callback_data=f"mercado_{pagina+1}"))
+    teclado = InlineKeyboardMarkup([botones]) if botones else None
+
+    if editar and mensaje:
+        try:
+            mensaje.edit_text(texto, reply_markup=teclado, parse_mode="HTML")
+        except Exception:
+            context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML")
+    else:
+        context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML")
+
+
+    
     # Trae el inventario del usuario
     doc = col_usuarios.find_one({"user_id": usuario_id})
     inventario = doc.get("inventario", {}) if doc else {}
@@ -747,7 +786,7 @@ def comando_vender(update, context):
 @cooldown_critico
 def comando_mercado(update, context):
     chat_id = update.effective_chat.id
-    cartas = list(col_mercado.find())
+    mostrar_mercado_pagina(chat_id, pagina=1, context=context)
     if not cartas:
         update.message.reply_text("No hay cartas a la venta en el mercado.")
         return
@@ -1408,6 +1447,51 @@ def manejador_callback(update, context):
         set_name = "_".join(partes[1:-1])
         pagina = int(partes[-1])
         mostrar_detalle_set(update, context, set_name, pagina=pagina, mensaje=query.message, editar=True)
+        query.answer()
+        return
+
+    # --- PAGINACIÓN DE ÁLBUM CON FILTRO ---
+    partes = data.split("_", 3)
+    if len(partes) >= 3 and partes[0] == "lista":
+        pagina = int(partes[1])
+        usuario_id = int(partes[2])
+        filtro = partes[3].strip().lower() if len(partes) > 3 and partes[3] else None
+        if query.from_user.id != usuario_id:
+            query.answer(text="Este álbum no es tuyo.", show_alert=True)
+            return
+        cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
+        if filtro:
+            cartas_usuario = [
+                carta for carta in cartas_usuario if
+                filtro in carta.get('nombre', '').lower() or
+                filtro in carta.get('grupo', '').lower() or
+                filtro in carta.get('version', '').lower()
+            ]
+        def sort_key(x):
+            grupo = grupo_de_carta(x.get('nombre',''), x.get('version','')) or ""
+            return (
+                grupo.lower(),
+                x.get('nombre','').lower(),
+                x.get('card_id', 0)
+            )
+        cartas_usuario.sort(key=sort_key)
+        enviar_lista_pagina(
+            query.message.chat_id,
+            usuario_id,
+            cartas_usuario,
+            pagina,
+            context,
+            editar=True,
+            mensaje=query.message,
+            filtro=filtro
+        )
+        query.answer()
+        return
+
+    # --- PAGINACIÓN MERCADO ---
+    elif data.startswith("mercado_"):
+        pagina = int(data.split("_")[1])
+        mostrar_mercado_pagina(query.message.chat_id, pagina=pagina, context=context, mensaje=query.message, editar=True)
         query.answer()
         return
 
