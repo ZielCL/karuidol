@@ -229,7 +229,7 @@ def desbloquear_drop(drop_id):
     while True:
         ahora = time.time()
         elapsed = ahora - tiempo_inicio
-        if elapsed >= 30:
+        if elapsed >= 60:
             expira_drop(drop_id)
             break
         time.sleep(1)
