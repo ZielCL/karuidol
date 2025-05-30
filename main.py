@@ -751,6 +751,7 @@ def comando_precio(update, context):
 
 #------Comando vender--------------------
 @cooldown_critico
+@cooldown_critico
 def comando_vender(update, context):
     usuario_id = update.message.from_user.id
     chat_id = update.effective_chat.id
@@ -775,19 +776,17 @@ def comando_vender(update, context):
         update.message.reply_text("Esta carta ya está en el mercado.")
         return
 
+    # Busca las estrellas en la carta, o en el catálogo si no las tiene
+    estrellas = carta.get('estrellas')
+    if not estrellas or estrellas == "★??":
+        estrellas = "★??"
+        for c in cartas:
+            if c['nombre'] == nombre and c['version'] == version and c['estado'] == estado:
+                estrellas = c.get('estado_estrella', "★??")
+                break
+
     # Quitar de inventario y poner en mercado
     col_cartas_usuario.delete_one({"user_id": usuario_id, "id_unico": id_unico})
-    # Busca las estrellas en la carta o en tu catálogo de cartas
-if 'estrellas' in carta and carta['estrellas']:
-    estrellas = carta['estrellas']
-else:
-    # Busca las estrellas en el catálogo de cartas
-    estrellas = "★??"
-    for c in cartas:
-        if c['nombre'] == nombre and c['version'] == version and c['estado'] == estado:
-            estrellas = c.get('estado_estrella', "★??")
-            break
-
     col_mercado.insert_one({
        "id_unico": id_unico,
        "vendedor_id": usuario_id,
@@ -800,7 +799,7 @@ else:
        "imagen": carta.get("imagen"),
        "grupo": carta.get("grupo", "")
     })
-    
+
     update.message.reply_text(
         f"📦 Carta <b>{nombre} [{version}]</b> puesta en el mercado por <b>{precio} Kponey</b>.",
         parse_mode='HTML'
