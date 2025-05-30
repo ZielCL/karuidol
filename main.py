@@ -49,7 +49,6 @@ col_mercado.create_index("vendedor_id")
 col_usuarios.create_index("user_id", unique=True)
 # TTL para cartas en mercado (ejemplo: 7 días)
 from pymongo import ASCENDING
-import datetime
 col_mercado.create_index(
     [("fecha", ASCENDING)],
     expireAfterSeconds=7*24*60*60  # 7 días
@@ -796,7 +795,7 @@ def comando_vender(update, context):
        "estado": estado,
        "estrellas": estrellas,
        "precio": precio,
-       "fecha": datetime.utcnow(),
+       "fecha": datetime.datetime.utcnow(),
        "imagen": carta.get("imagen"),
        "grupo": carta.get("grupo", "")
     })
