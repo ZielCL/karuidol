@@ -619,19 +619,6 @@ def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar
             )
         if fin < total:
             texto += f"Y {total-fin} más...\n"
-    # Botones de paginación
-    botones = []
-    if pagina > 1:
-        botones.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_{pagina-1}"))
-    if pagina < paginas:
-        botones.append(InlineKeyboardButton("➡️", callback_data=f"mercado_{pagina+1}"))
-    teclado = InlineKeyboardMarkup([botones]) if botones else None
-
-    if editar and mensaje is not None:
-        try:
-            mensaje.edit_text(texto, reply_markup=teclado, parse_mode="HTML")
-    else:
-        context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML")
 
     # Botones de paginación
     botones = []
@@ -641,12 +628,10 @@ def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar
         botones.append(InlineKeyboardButton("➡️", callback_data=f"mercado_{pagina+1}"))
     teclado = InlineKeyboardMarkup([botones]) if botones else None
 
-    # Decide cómo enviar el mensaje:
     if editar and mensaje is not None:
         try:
             mensaje.edit_text(texto, reply_markup=teclado, parse_mode="HTML")
         except Exception:
-            # Si editar falla, manda un mensaje nuevo (por si acaso)
             context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML")
     else:
         context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML")
