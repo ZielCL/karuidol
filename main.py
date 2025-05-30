@@ -751,9 +751,26 @@ def comando_comprar(update, context):
     del carta['vendedor_id']
     del carta['precio']
     del carta['fecha']
+
+    # --- CORRECCIÓN: asegúrate de que tenga el campo 'estrellas' correcto ---
+    if 'estrellas' not in carta or not carta['estrellas'] or carta['estrellas'] == '★??':
+        estado = carta.get('estado')
+        for c in cartas:
+            if c['nombre'] == carta['nombre'] and c['version'] == carta['version'] and c['estado'] == estado:
+                carta['estrellas'] = c.get('estado_estrella', '★??')
+                break
+        else:
+            carta['estrellas'] = '★??'
+    # (Opcional) también podrías poner estado_estrella numérico si tu album lo usa
+    # carta['estado_estrella'] = carta['estrellas'].count('★') if 'estrellas' in carta else 0
+
     col_cartas_usuario.insert_one(carta)
 
-    update.message.reply_text(f"✅ Compraste la carta <b>{carta['nombre']} [{carta['version']}]</b> por <b>{precio} Kponey</b>.", parse_mode="HTML")
+    update.message.reply_text(
+        f"✅ Compraste la carta <b>{carta['nombre']} [{carta['version']}]</b> por <b>{precio} Kponey</b>.",
+        parse_mode="HTML"
+    )
+
 
     # Notificar al vendedor (opcional)
     try:
@@ -784,6 +801,17 @@ def comando_retirar(update, context):
     del carta['vendedor_id']
     del carta['precio']
     del carta['fecha']
+
+    # --- CORRECCIÓN: asegura el campo 'estrellas' ---
+    if 'estrellas' not in carta or not carta['estrellas'] or carta['estrellas'] == '★??':
+        estado = carta.get('estado')
+        for c in cartas:
+            if c['nombre'] == carta['nombre'] and c['version'] == carta['version'] and c['estado'] == estado:
+                carta['estrellas'] = c.get('estado_estrella', '★??')
+                break
+        else:
+            carta['estrellas'] = '★??'
+
     col_cartas_usuario.insert_one(carta)
     update.message.reply_text("Carta retirada del mercado y devuelta a tu álbum.")
 
