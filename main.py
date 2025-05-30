@@ -596,8 +596,6 @@ def comando_inventario(update, context):
     }
 #----------------------------------------------------
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-
 def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar=False):
     cartas = list(col_mercado.find())
     por_pagina = 10
@@ -637,10 +635,6 @@ def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar
     else:
         context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML")
 
-
-
-
-
     # Botones de paginación
     botones = []
     if pagina > 1:
@@ -658,26 +652,6 @@ def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar
             context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML")
     else:
         context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML")
-    
-    # Trae el inventario del usuario
-    doc = col_usuarios.find_one({"user_id": usuario_id})
-    inventario = doc.get("inventario", {}) if doc else {}
-    kponey = doc.get("kponey", 0) if doc else 0  # <--- Aquí obtenemos el dinero
-
-    texto = f"🎒 <b>Tu inventario</b>:\n"
-    texto += f"<b>Kponey:</b> <code>{kponey}</code>\n\n"  # <--- Mostramos el saldo
-
-    if not inventario:
-        texto += "(Inventario vacío)\n"
-    else:
-        for key, desc in catalogo.items():
-            cantidad = inventario.get(key, 0)
-            if cantidad > 0:
-                texto += f"{desc}\n<b>Cantidad:</b> {cantidad}\n\n"
-
-    texto += "———\n<i>Próximamente más objetos y usos.</i>"
-
-    mensaje.edit_text(texto, reply_markup=teclado, parse_mode="HTML")
     
 #----------Comando FAV1---------------
 @cooldown_critico
