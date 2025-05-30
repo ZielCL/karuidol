@@ -788,18 +788,19 @@ else:
             estrellas = c.get('estado_estrella', "★??")
             break
 
-col_mercado.insert_one({
-    "id_unico": id_unico,
-    "vendedor_id": usuario_id,
-    "nombre": nombre,
-    "version": version,
-    "estado": estado,
-    "estrellas": estrellas,
-    "precio": precio,
-    "fecha": datetime.utcnow(),
-    "imagen": carta.get("imagen"),
-    "grupo": carta.get("grupo", "")
-})
+    col_mercado.insert_one({
+       "id_unico": id_unico,
+       "vendedor_id": usuario_id,
+       "nombre": nombre,
+       "version": version,
+       "estado": estado,
+       "estrellas": estrellas,
+       "precio": precio,
+       "fecha": datetime.utcnow(),
+       "imagen": carta.get("imagen"),
+       "grupo": carta.get("grupo", "")
+    })
+    
     update.message.reply_text(
         f"📦 Carta <b>{nombre} [{version}]</b> puesta en el mercado por <b>{precio} Kponey</b>.",
         parse_mode='HTML'
