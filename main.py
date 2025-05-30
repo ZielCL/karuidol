@@ -597,14 +597,14 @@ def comando_inventario(update, context):
 #----------------------------------------------------
 
 def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar=False, filtro=None, valor_filtro=None):
-    cartas = list(col_mercado.find())
-
-    # Filtrado básico (más adelante se mejora con el sistema de filtros)
+    # Filtra las cartas según corresponda
+    query = {}
     if filtro == "estado" and valor_filtro:
-        cartas = [c for c in cartas if c.get("estado_estrella", "") == valor_filtro]
-    elif filtro == "grupo" and valor_filtro:
-        cartas = [c for c in cartas if c.get("grupo", "") == valor_filtro]
+        query["estado"] = valor_filtro
+    if filtro == "grupo" and valor_filtro:
+        query["grupo"] = valor_filtro
 
+    cartas = list(col_mercado.find(query))
     por_pagina = 10
     total = len(cartas)
     paginas = max(1, (total - 1) // por_pagina + 1)
@@ -614,10 +614,16 @@ def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar
         pagina = paginas
     inicio = (pagina - 1) * por_pagina
     fin = min(inicio + por_pagina, total)
-    if total == 0:
-        texto = "No hay cartas a la venta en el mercado."
+
+    # Título con filtro y paginación
+    if filtro and valor_filtro:
+        texto = f"<b>🛒 Cartas en el mercado (página {pagina}/{paginas}) — Filtrado por {filtro}: {valor_filtro}</b>\n"
     else:
         texto = f"<b>🛒 Cartas en el mercado (página {pagina}/{paginas})</b>\n"
+
+    if total == 0:
+        texto += "No hay cartas a la venta en el mercado."
+    else:
         for c in cartas[inicio:fin]:
             texto += (
                 f"• <code>{c['id_unico']}</code> · [{c['estado']}] "
@@ -627,19 +633,27 @@ def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar
         if fin < total:
             texto += f"Y {total-fin} más...\n"
 
-    # Botones de navegación y filtro
+    # Botones de navegación y filtros
     botones = []
+    fila_filtros = [
+        InlineKeyboardButton("🔎 Filtrar", callback_data="mercado_filtro")
+    ]
+    if filtro:  # Si hay filtro, deja volver al mercado normal
+        fila_filtros.append(InlineKeyboardButton("❌ Quitar filtro", callback_data="mercado_1"))
+    # Paginación
     nav = []
     if pagina > 1:
         nav.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_{pagina-1}"))
     if pagina < paginas:
         nav.append(InlineKeyboardButton("➡️", callback_data=f"mercado_{pagina+1}"))
-    if nav:
-        botones.append(nav)
-    # Nuevo botón Filtro
-    botones.append([InlineKeyboardButton("🔎 Filtrar", callback_data="mercado_filtro")])
 
-    teclado = InlineKeyboardMarkup(botones) if botones else None
+    # Arma la matriz de botones
+    matriz = []
+    if fila_filtros:
+        matriz.append(fila_filtros)
+    if nav:
+        matriz.append(nav)
+    teclado = InlineKeyboardMarkup(matriz) if matriz else None
 
     if editar and mensaje is not None:
         try:
@@ -1316,38 +1330,111 @@ def manejador_callback(update, context):
     query = update.callback_query
     data = query.data
 
-    # ---- Paginación para el mercado ----
-    if data.startswith("mercado_"):
-        partes = data.split("_")
-        if len(partes) != 2:
-            query.answer()
-            return
-        pagina = int(partes[1])
+    # ==================== MERCADO Y FILTROS ====================
+    if data == "mercado_filtro":
+        botones = [
+            [InlineKeyboardButton("📊 Por Estado", callback_data="mercado_filtro_estado")],
+            [InlineKeyboardButton("👥 Por Grupo", callback_data="mercado_filtro_grupo")],
+            [InlineKeyboardButton("🔙 Volver", callback_data="mercado_1")],
+        ]
+        teclado = InlineKeyboardMarkup(botones)
+        try:
+            query.edit_message_reply_markup(reply_markup=teclado)
+        except Exception:
+            query.message.reply_text("Elige un filtro:", reply_markup=teclado)
+        query.answer()
+        return
+
+    if data == "mercado_filtro_estado":
+        botones = [
+            [InlineKeyboardButton("★★★", callback_data="mercado_estado_3")],
+            [InlineKeyboardButton("★★☆", callback_data="mercado_estado_2")],
+            [InlineKeyboardButton("★☆☆", callback_data="mercado_estado_1")],
+            [InlineKeyboardButton("☆☆☆", callback_data="mercado_estado_0")],
+            [InlineKeyboardButton("🔙 Volver", callback_data="mercado_filtro")],
+        ]
+        teclado = InlineKeyboardMarkup(botones)
+        try:
+            query.edit_message_reply_markup(reply_markup=teclado)
+        except Exception:
+            query.message.reply_text("Filtra por calidad:", reply_markup=teclado)
+        query.answer()
+        return
+
+    if data == "mercado_filtro_grupo":
+        grupos = sorted({c.get("grupo", "") for c in col_mercado.find() if c.get("grupo")})
+        botones = []
+        for g in grupos[:2]:  # Por ahora solo dos grupos (puedes mejorar luego)
+            if g:
+                botones.append([InlineKeyboardButton(g, callback_data=f"mercado_grupo_{g}")])
+        botones.append([InlineKeyboardButton("🔙 Volver", callback_data="mercado_filtro")])
+        teclado = InlineKeyboardMarkup(botones)
+        try:
+            query.edit_message_reply_markup(reply_markup=teclado)
+        except Exception:
+            query.message.reply_text("Filtra por grupo:", reply_markup=teclado)
+        query.answer()
+        return
+
+    if data.startswith("mercado_estado_"):
+        estrellas = int(data.split("_")[-1])
+        estrellas_map = {3: "★★★", 2: "★★☆", 1: "★☆☆", 0: "☆☆☆"}
+        valor_filtro = estrellas_map[estrellas]
         mostrar_mercado_pagina(
             query.message.chat_id,
-            pagina=pagina,
+            pagina=1,
             context=context,
             mensaje=query.message,
-            editar=True
+            editar=True,
+            filtro="estado",
+            valor_filtro=valor_filtro
         )
         query.answer()
         return
 
-    # --- Reclamar carta drop ---
+    if data.startswith("mercado_grupo_"):
+        grupo = data[len("mercado_grupo_"):]
+        mostrar_mercado_pagina(
+            query.message.chat_id,
+            pagina=1,
+            context=context,
+            mensaje=query.message,
+            editar=True,
+            filtro="grupo",
+            valor_filtro=grupo
+        )
+        query.answer()
+        return
+
+    if data.startswith("mercado_"):
+        partes = data.split("_")
+        if len(partes) == 2 and partes[1].isdigit():
+            pagina = int(partes[1])
+            mostrar_mercado_pagina(
+                query.message.chat_id,
+                pagina=pagina,
+                context=context,
+                mensaje=query.message,
+                editar=True
+            )
+            query.answer()
+            return
+
+    # ==================== RECLAMAR CARTAS DROP ====================
     if data.startswith("reclamar"):
         manejador_reclamar(update, context)
         return
 
-    # --- Drop expirado/reclamada ---
-    elif data == "expirado":
+    # ==================== DROP EXPIRADO / RECLAMADA ====================
+    if data == "expirado":
         query.answer("Este drop ha expirado.", show_alert=True)
         return
-    elif data == "reclamada":
+    if data == "reclamada":
         query.answer("Esta carta ya fue reclamada.", show_alert=True)
         return
 
-    # --- Ver carta individual ---
-    elif data.startswith("vercarta"):
+    # ==================== VER CARTA INDIVIDUAL ====================
+    if data.startswith("vercarta"):
         partes = data.split("_")
         if len(partes) != 3:
             query.answer()
@@ -1372,8 +1459,8 @@ def manejador_callback(update, context):
         query.answer()
         return
 
-    # --- Paginación de álbum (página por defecto 1) ---
-    elif data.startswith("albumlista_"):
+    # ==================== PAGINACIÓN ÁLBUM ====================
+    if data.startswith("albumlista_"):
         partes = data.split("_")
         if len(partes) != 2:
             return
@@ -1403,8 +1490,8 @@ def manejador_callback(update, context):
         query.answer()
         return
 
-    # --- Regalar carta ---
-    elif data.startswith("regalar_"):
+    # ==================== REGALAR CARTA ====================
+    if data.startswith("regalar_"):
         partes = data.split("_")
         if len(partes) != 3:
             query.answer()
@@ -1445,22 +1532,22 @@ def manejador_callback(update, context):
         query.answer()
         return
 
-    # --- Paginación progreso sets ---
-    elif data.startswith("setsprogreso_"):
+    # ==================== PAGINACIÓN PROGRESO SETS ====================
+    if data.startswith("setsprogreso_"):
         pagina = int(data.split("_")[1])
         mostrar_setsprogreso(update, context, pagina=pagina, mensaje=query.message, editar=True)
         query.answer()
         return
 
-    # --- Paginación lista sets ---
-    elif data.startswith("setlist_"):
+    # ==================== PAGINACIÓN LISTA SETS ====================
+    if data.startswith("setlist_"):
         pagina = int(data.split("_")[1])
         mostrar_lista_set(update, context, pagina=pagina, mensaje=query.message, editar=True)
         query.answer()
         return
 
-    # --- Paginación detalle set ---
-    elif data.startswith("setdet_"):
+    # ==================== PAGINACIÓN DETALLE SET ====================
+    if data.startswith("setdet_"):
         partes = data.split("_")
         set_name = "_".join(partes[1:-1])
         pagina = int(partes[-1])
@@ -1468,7 +1555,7 @@ def manejador_callback(update, context):
         query.answer()
         return
 
-    # --- Paginación de álbum con filtro (buscador) ---
+    # ==================== PAGINACIÓN ÁLBUM CON FILTRO ====================
     partes = data.split("_", 3)
     if len(partes) >= 3 and partes[0] == "lista":
         pagina = int(partes[1])
@@ -1505,6 +1592,7 @@ def manejador_callback(update, context):
         )
         query.answer()
         return
+
 
 #------------------------------------------------------------
 from telegram.ext import MessageHandler, Filters
