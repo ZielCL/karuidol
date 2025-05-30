@@ -394,22 +394,27 @@ def manejador_reclamar(update, context):
     user_doc = col_usuarios.find_one({"user_id": usuario_click}) or {}
     bono = user_doc.get('bono', 0)
 
-    # DUEÑO
+    # DUEÑO DEL DROP
     if usuario_click == drop["dueño"]:
         primer_reclamo = drop.get("primer_reclamo_dueño")
         if primer_reclamo is None:
             puede_reclamar = True
             drop["primer_reclamo_dueño"] = ahora
         else:
-            if tiempo_desde_drop < 15:
-                query.answer("Solo puedes reclamar una carta antes de 15 segundos. Espera a que pasen 15 segundos para reclamar la otra (si tienes bono).", show_alert=True)
+            tiempo_faltante = 15 - (ahora - drop["primer_reclamo_dueño"])
+            if tiempo_faltante > 0:
+                segundos_faltantes = int(round(tiempo_faltante))
+                query.answer(
+                    f"Solo puedes reclamar una carta antes de 15 segundos. Te quedan {segundos_faltantes} segundos para poder reclamar la otra (si tienes bono).",
+                    show_alert=True
+                )
                 return
             if bono < 1:
                 query.answer("Necesitas al menos 1 bono para reclamar la segunda carta.", show_alert=True)
                 return
             puede_reclamar = True
             col_usuarios.update_one({"user_id": usuario_click}, {"$inc": {"bono": -1}}, upsert=True)
-    # NO DUEÑO
+    # NO DUEÑO DEL DROP
     elif not solo_dueño and carta["usuario"] is None:
         cooldown_listo, bono_listo = puede_usar_idolday(usuario_click)
         if cooldown_listo:
@@ -501,6 +506,12 @@ def manejador_reclamar(update, context):
     )
 
     user_mention = f"@{query.from_user.username or query.from_user.first_name}"
+    FRASES_ESTADO = {
+        "Excelente estado": "Genial!",
+        "Buen estado": "Nada mal.",
+        "Mal estado": "Podría estar mejor...",
+        "Muy mal estado": "¡Oh no!"
+    }
     frase_estado = FRASES_ESTADO.get(estado, "")
     context.bot.send_message(
         chat_id=drop["chat_id"],
@@ -525,7 +536,6 @@ def manejador_reclamar(update, context):
         )
 
     query.answer("¡Carta reclamada!", show_alert=True)
-
 
 # ----------------- Resto de funciones: album, paginación, etc. -----------------
 # Aquí pego la versión adaptada de /album para usar id_unico, estrellas y letra pegada a la izquierda:
