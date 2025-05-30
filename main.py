@@ -753,7 +753,6 @@ def comando_precio(update, context):
 
 #------Comando vender--------------------
 @cooldown_critico
-@cooldown_critico
 def comando_vender(update, context):
     usuario_id = update.message.from_user.id
     chat_id = update.effective_chat.id
