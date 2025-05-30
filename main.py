@@ -405,7 +405,7 @@ def manejador_reclamar(update, context):
             if tiempo_faltante > 0:
                 segundos_faltantes = int(round(tiempo_faltante))
                 query.answer(
-                    f"Solo puedes reclamar una carta antes de 15 segundos. Te quedan {segundos_faltantes} segundos para poder reclamar la otra (si tienes bono).",
+                    f"Te quedan {segundos_faltantes} segundos para poder reclamar la otra (si tienes bono).",
                     show_alert=True
                 )
                 return
