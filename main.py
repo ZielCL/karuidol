@@ -619,9 +619,7 @@ def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar
                 f"{c['nombre']} [{c['version']}] — <b>{c['precio']} Kponey</b>\n"
                 f"  /comprar {c['id_unico']}\n"
             )
-        if fin < total:
-            texto += f"Y {total-fin} más...\n"
-
+    
     # Botones de paginación
     botones = []
     if pagina > 1:
