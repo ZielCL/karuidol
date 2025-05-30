@@ -600,11 +600,14 @@ def comando_inventario(update, context):
 def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar=False, filtro=None, valor_filtro=None):
     # Filtra las cartas según corresponda
     query = {}
-    if filtro == "estado" and valor_filtro:
-        valor = valor_filtro.replace("[", "").replace("]", "")  # <-- clave
+    if filtro in ["estado", "estrellas"] and valor_filtro:
+        # Ahora funciona tanto si llega "estado" como "estrellas"
+        valor = valor_filtro.replace("[", "").replace("]", "")
         query["estrellas"] = valor
     if filtro == "grupo" and valor_filtro:
         query["grupo"] = valor_filtro
+    # ... resto igual ...
+
 
     cartas = list(col_mercado.find(query))
     por_pagina = 10
