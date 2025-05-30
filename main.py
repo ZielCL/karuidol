@@ -18,6 +18,9 @@ from dotenv import load_dotenv
 import re
 import string
 import math
+from PIL import Image, ImageDraw, ImageFont
+import requests
+from io import BytesIO
 
 load_dotenv()
 
@@ -121,6 +124,40 @@ def cooldown_critico(func):
         group_last_cmd[gid] = now
         return func(update, context, *args, **kwargs)
     return wrapper
+
+def agregar_numero_a_imagen(imagen_url, numero):
+    # Descarga la imagen de internet
+    response = requests.get(imagen_url)
+    img = Image.open(BytesIO(response.content)).convert("RGBA")
+    draw = ImageDraw.Draw(img)
+
+    # Configura el texto "#n"
+    ancho, alto = img.size
+    font_size = int(alto * 0.10)
+    try:
+        # Usa Arial si está disponible, si no el default
+        font = ImageFont.truetype("arial.ttf", font_size)
+    except:
+        font = ImageFont.load_default()
+    texto = f"#{str(numero).zfill(2)}"   # ejemplo: #01, #12
+
+    # Calcula posición abajo a la izquierda
+    text_width, text_height = draw.textsize(texto, font=font)
+    x = 10
+    y = alto - text_height - 10
+
+    # Dibuja un rectángulo negro semitransparente detrás del texto
+    draw.rectangle([x-6, y-4, x-6+text_width+14, y-4+text_height+8], fill=(0,0,0,170))
+    # Dibuja el texto blanco
+    draw.text((x, y), texto, font=font, fill=(255,255,255,255))
+
+    # Guarda la imagen en memoria como archivo temporal
+    temp_io = BytesIO()
+    img.save(temp_io, format="PNG")
+    temp_io.seek(0)
+    return temp_io
+
+
 
 
 
@@ -296,14 +333,13 @@ def comando_idolday(update, context):
     cartas_drop = random.choices(cartas_excelentes, k=2)
     media_group = []
     cartas_info = []
-
-    for carta in cartas_drop:
+    for i, carta in enumerate(cartas_drop):
         nombre = carta['nombre']
         version = carta['version']
         grupo = carta.get('grupo', '')
         imagen_url = carta.get('imagen')
 
-        # ===== RESERVA EL NÚMERO DE CARTA AQUÍ =====
+    # --- Reserva número de carta ---
         doc_cont = col_contadores.find_one_and_update(
             {"nombre": nombre, "version": version},
             {"$inc": {"contador": 1}},
@@ -311,18 +347,21 @@ def comando_idolday(update, context):
             return_document=True
         )
         nuevo_id = doc_cont['contador'] if doc_cont else 1
-        # ============================================
+
+        # --- Genera imagen con "#n" ---
+        imagen_con_numero = agregar_numero_a_imagen(imagen_url, nuevo_id)
+
         caption = f"<b>{nombre}</b>\n{grupo} [{version}]"
-        media_group.append(InputMediaPhoto(media=imagen_url, caption=caption, parse_mode="HTML"))
+        media_group.append(InputMediaPhoto(media=imagen_con_numero, caption=caption, parse_mode="HTML"))
         cartas_info.append({
-            "nombre": nombre,
-            "version": version,
-            "grupo": grupo,
-            "imagen": imagen_url,
-            "reclamada": False,
-            "usuario": None,
-            "hora_reclamada": None,
-            "card_id": nuevo_id  # <-- Guarda el número aquí
+        "nombre": nombre,
+        "version": version,
+        "grupo": grupo,
+        "imagen": imagen_url,
+        "reclamada": False,
+        "usuario": None,
+        "hora_reclamada": None,
+        "card_id": nuevo_id
         })
 
     msgs = context.bot.send_media_group(chat_id=chat_id, media=media_group)
