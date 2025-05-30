@@ -601,7 +601,8 @@ def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar
     # Filtra las cartas según corresponda
     query = {}
     if filtro == "estado" and valor_filtro:
-        query["estado"] = valor_filtro
+        valor = valor_filtro.replace("[", "").replace("]", "")
+        query["estrellas"] = valor
     if filtro == "grupo" and valor_filtro:
         query["grupo"] = valor_filtro
 
@@ -663,7 +664,6 @@ def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar
             context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML")
     else:
         context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML")
-
 
     
 #----------Comando FAV1---------------
