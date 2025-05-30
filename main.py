@@ -799,7 +799,7 @@ def comando_vender(update, context):
        "estrellas": estrellas,
        "precio": precio,
        "card_id": card_id,  # <---- ¡AQUÍ GUARDA EL card_id!
-       "fecha": datetime.datetime.utcnow(),
+       "fecha": datetime.utcnow(),
        "imagen": carta.get("imagen"),
        "grupo": carta.get("grupo", "")
     })
