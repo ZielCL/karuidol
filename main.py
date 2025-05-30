@@ -601,7 +601,7 @@ def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar
     # Filtra las cartas según corresponda
     query = {}
     if filtro == "estado" and valor_filtro:
-        valor = valor_filtro.replace("[", "").replace("]", "")
+        valor = valor_filtro.replace("[", "").replace("]", "")  # <-- clave
         query["estrellas"] = valor
     if filtro == "grupo" and valor_filtro:
         query["grupo"] = valor_filtro
@@ -619,7 +619,7 @@ def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar
 
     # Título con filtro y paginación
     if filtro and valor_filtro:
-        texto = f"<b>🛒 Cartas en el mercado (página {pagina}/{paginas}) — Filtrado por {filtro}: {valor_filtro}</b>\n"
+        texto = f"<b>🛒 Cartas en el mercado (página {pagina}/{paginas}) — Filtrado por estrellas: {valor_filtro}</b>\n"
     else:
         texto = f"<b>🛒 Cartas en el mercado (página {pagina}/{paginas})</b>\n"
 
@@ -627,8 +627,9 @@ def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar
         texto += "No hay cartas a la venta en el mercado."
     else:
         for c in cartas[inicio:fin]:
+            estrellas = c.get('estrellas', '★??')
             texto += (
-                f"• <code>{c['id_unico']}</code> · [{c.get('estrellas', '★??')}] "
+                f"• <code>{c['id_unico']}</code> · [{estrellas}] "
                 f"{c['nombre']} [{c['version']}] — <b>{c['precio']} Kponey</b>\n"
                 f"  /comprar {c['id_unico']}\n"
             )
