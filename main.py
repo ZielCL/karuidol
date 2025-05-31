@@ -1525,18 +1525,21 @@ def manejador_callback(update, context):
     query = update.callback_query
     data = query.data
 
+    # --- Resto de lógica (del callback general) ---
+    if data.startswith("reclamar"):
+        manejador_reclamar(update, context)
+        return
 
-def callback_ampliar_vender(update, context):
-    query = update.callback_query
-    data = query.data
-    if not data.startswith("ampliar_vender_"):
+    if data == "expirado":
+        query.answer("Este drop ha expirado.", show_alert=True)
         return
-    id_unico = data.replace("ampliar_vender_", "")
-    usuario_id = query.from_user.id
-    carta = col_cartas_usuario.find_one({"user_id": usuario_id, "id_unico": id_unico})
-    if not carta:
-        query.answer("No tienes esa carta en tu álbum.", show_alert=True)
+    if data == "reclamada":
+        query.answer("Esta carta ya fue reclamada.", show_alert=True)
         return
+
+    # ...todo el resto de lógica de mercado, álbum, sets, etc...
+    # (Todo lo que ya tienes en tu manejador_callback)
+
 
     # Realiza venta igual que el comando /vender
     nombre = carta['nombre']
