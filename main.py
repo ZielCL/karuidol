@@ -1587,46 +1587,49 @@ def manejador_callback(update, context):
         query.answer("Esta carta ya fue reclamada.", show_alert=True)
         return
 
-    # ...todo el resto de lógica de mercado, álbum, sets, etc...
-    # (Todo lo que ya tienes en tu manejador_callback)
+    # --- Añade esto si tienes botón de vender desde ampliar ---
+    if data.startswith("ampliar_vender_"):
+        id_unico = data.replace("ampliar_vender_", "")
+        usuario_id = query.from_user.id
+        carta = col_cartas_usuario.find_one({"user_id": usuario_id, "id_unico": id_unico})
+        if not carta:
+            query.answer("No tienes esa carta en tu álbum.", show_alert=True)
+            return
 
+        nombre = carta['nombre']
+        version = carta['version']
+        estado = carta['estado']
+        precio = precio_carta_karuta(nombre, version, estado, id_unico=id_unico)
+        card_id = carta.get("card_id", extraer_card_id_de_id_unico(id_unico))
 
-    # Realiza venta igual que el comando /vender
-    nombre = carta['nombre']
-    version = carta['version']
-    estado = carta['estado']
-    precio = precio_carta_karuta(nombre, version, estado, id_unico=id_unico)
-    card_id = carta.get("card_id", extraer_card_id_de_id_unico(id_unico))
+        # Ya está en mercado?
+        ya = col_mercado.find_one({"id_unico": id_unico})
+        if ya:
+            query.answer("Esta carta ya está en el mercado.", show_alert=True)
+            return
 
-    # Ya está en mercado?
-    ya = col_mercado.find_one({"id_unico": id_unico})
-    if ya:
-        query.answer("Esta carta ya está en el mercado.", show_alert=True)
-        return
+        col_cartas_usuario.delete_one({"user_id": usuario_id, "id_unico": id_unico})
+        estrellas = carta.get('estrellas', '★??')
+        col_mercado.insert_one({
+           "id_unico": id_unico,
+           "vendedor_id": usuario_id,
+           "nombre": nombre,
+           "version": version,
+           "estado": estado,
+           "estrellas": estrellas,
+           "precio": precio,
+           "card_id": card_id,
+           "fecha": datetime.utcnow(),
+           "imagen": carta.get("imagen"),
+           "grupo": carta.get("grupo", "")
+        })
 
-    col_cartas_usuario.delete_one({"user_id": usuario_id, "id_unico": id_unico})
-    estrellas = carta.get('estrellas', '★??')
-    col_mercado.insert_one({
-       "id_unico": id_unico,
-       "vendedor_id": usuario_id,
-       "nombre": nombre,
-       "version": version,
-       "estado": estado,
-       "estrellas": estrellas,
-       "precio": precio,
-       "card_id": card_id,
-       "fecha": datetime.utcnow(),
-       "imagen": carta.get("imagen"),
-       "grupo": carta.get("grupo", "")
-    })
-
-    query.answer("Carta puesta en el mercado.", show_alert=True)
-    query.edit_message_caption(
-        caption="📦 Carta puesta en el mercado.",
-        parse_mode='HTML'
-    )
-
-    
+        query.answer("Carta puesta en el mercado.", show_alert=True)
+        query.edit_message_caption(
+            caption="📦 Carta puesta en el mercado.",
+            parse_mode='HTML'
+        )
+        return      
     # ==================== MERCADO Y FILTROS ====================
 
     # Menú principal de filtros
