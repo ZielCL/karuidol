@@ -710,21 +710,32 @@ def comando_inventario(update, context):
     }
 #----------------------------------------------------
 
-def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar=False, filtro=None, valor_filtro=None):
+def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar=False, filtro=None, valor_filtro=None, orden=None):
     query = {}
+    sort_order = None
+
+    # Filtros
     if filtro == "estrellas" and valor_filtro:
         query["estrellas"] = valor_filtro
     if filtro == "grupo" and valor_filtro:
         query["grupo"] = valor_filtro
 
-    cartas = list(col_mercado.find(query))
+    # Orden por #n (card_id)
+    if orden == "mayor":
+        sort_order = [("card_id", -1)]
+    elif orden == "menor":
+        sort_order = [("card_id", 1)]
+
+    if sort_order:
+        cartas = list(col_mercado.find(query).sort(sort_order))
+    else:
+        cartas = list(col_mercado.find(query))
+
     por_pagina = 10
     total = len(cartas)
     paginas = max(1, (total - 1) // por_pagina + 1)
-    if pagina < 1:
-        pagina = 1
-    if pagina > paginas:
-        pagina = paginas
+    if pagina < 1: pagina = 1
+    if pagina > paginas: pagina = paginas
     inicio = (pagina - 1) * por_pagina
     fin = min(inicio + por_pagina, total)
 
@@ -732,7 +743,7 @@ def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar
         texto = f"<b>🛒 Cartas en el mercado (página {pagina}/{paginas}) — Filtrado por: {valor_filtro}</b>\n"
     else:
         texto = f"<b>🛒 Cartas en el mercado (página {pagina}/{paginas})</b>\n"
-    texto += "━━━━━━━━━━━━━━━━━━\n"
+    texto += "━━━━━━━━━━━━━━━━━\n"
 
     if total == 0:
         texto += "⚠️ <b>No hay cartas a la venta en el mercado.</b>\n"
@@ -744,7 +755,7 @@ def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar
             nombre = c.get('nombre', '')
             version = c.get('version', '')
             card_id = c.get('card_id', '')
-            precio = c.get('precio', precio_carta_karuta(nombre, version, estrellas, id_unico=id_unico))
+            precio = c.get('precio', precio_carta_karuta(nombre, version, c.get('estado',''), id_unico=id_unico))
             # Emoji por rareza
             if estrellas == "★★★":
                 icon = "🌟"
@@ -763,8 +774,12 @@ def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar
         if fin < total:
             texto += f"Y {total-fin} más...\n"
 
+    # Botones
     botones = []
-    fila_filtros = [InlineKeyboardButton("🔎 Filtrar", callback_data="mercado_filtro")]
+    fila_filtros = [
+        InlineKeyboardButton("🔎 Filtrar", callback_data="mercado_filtro"),
+        InlineKeyboardButton("🟧 Ordenar por #n", callback_data="mercado_ordenar_numero"),
+    ]
     if filtro:
         fila_filtros.append(InlineKeyboardButton("❌ Quitar filtro", callback_data="mercado_1"))
     nav = []
@@ -772,9 +787,9 @@ def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar
         nav.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_{pagina-1}"))
     if pagina < paginas:
         nav.append(InlineKeyboardButton("➡️", callback_data=f"mercado_{pagina+1}"))
+
     matriz = []
-    if fila_filtros:
-        matriz.append(fila_filtros)
+    matriz.append(fila_filtros)
     if nav:
         matriz.append(nav)
     teclado = InlineKeyboardMarkup(matriz) if matriz else None
@@ -786,7 +801,6 @@ def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar
             context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML")
     else:
         context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML")
-
 
 
     
@@ -1620,11 +1634,12 @@ def manejador_callback(update, context):
     query = update.callback_query
     data = query.data
 
-    # --- Resto de lógica (del callback general) ---
+    # --- Reclamar cartas del drop
     if data.startswith("reclamar"):
         manejador_reclamar(update, context)
         return
 
+    # --- Drop expirado o ya reclamada
     if data == "expirado":
         query.answer("Este drop ha expirado.", show_alert=True)
         return
@@ -1632,7 +1647,7 @@ def manejador_callback(update, context):
         query.answer("Esta carta ya fue reclamada.", show_alert=True)
         return
 
-    # --- Añade esto si tienes botón de vender desde ampliar ---
+    # --- Venta desde /ampliar
     if data.startswith("ampliar_vender_"):
         id_unico = data.replace("ampliar_vender_", "")
         usuario_id = query.from_user.id
@@ -1674,7 +1689,48 @@ def manejador_callback(update, context):
             caption="📦 Carta puesta en el mercado.",
             parse_mode='HTML'
         )
-        return      
+        return
+
+    # =================== ORDENAR POR #n ===================
+    if data == "mercado_ordenar_numero":
+        # Muestra los dos botones de orden ascendente/descendente
+        botones = [
+            [InlineKeyboardButton("⬆️ Menor a mayor", callback_data="mercado_ordenar_n_menor")],
+            [InlineKeyboardButton("⬇️ Mayor a menor", callback_data="mercado_ordenar_n_mayor")],
+            [InlineKeyboardButton("🔙 Volver", callback_data="mercado_1")],
+        ]
+        teclado = InlineKeyboardMarkup(botones)
+        try:
+            query.edit_message_reply_markup(reply_markup=teclado)
+        except Exception:
+            query.message.reply_text("Elige el tipo de orden:", reply_markup=teclado)
+        query.answer()
+        return
+
+    if data == "mercado_ordenar_n_menor":
+        mostrar_mercado_pagina(
+            query.message.chat_id,
+            pagina=1,
+            context=context,
+            mensaje=query.message,
+            editar=True,
+            orden="menor"
+        )
+        query.answer()
+        return
+
+    if data == "mercado_ordenar_n_mayor":
+        mostrar_mercado_pagina(
+            query.message.chat_id,
+            pagina=1,
+            context=context,
+            mensaje=query.message,
+            editar=True,
+            orden="mayor"
+        )
+        query.answer()
+        return
+
     # ==================== MERCADO Y FILTROS ====================
 
     # Menú principal de filtros
@@ -1701,7 +1757,6 @@ def manejador_callback(update, context):
             [InlineKeyboardButton("☆☆☆", callback_data="mercado_estado_0")],
             [InlineKeyboardButton("🔙 Volver", callback_data="mercado_filtro")],
         ]
-
         teclado = InlineKeyboardMarkup(botones)
         try:
             query.edit_message_reply_markup(reply_markup=teclado)
@@ -1748,21 +1803,20 @@ def manejador_callback(update, context):
 
     # Filtrado por estrellas visuales
     if data.startswith("mercado_estado_"):
-       estrellas_idx = int(data[len("mercado_estado_"):])
-       estrellas_map = {3: "★★★", 2: "★★☆", 1: "★☆☆", 0: "☆☆☆"}
-       valor_filtro = estrellas_map[estrellas_idx]
-       mostrar_mercado_pagina(
-         query.message.chat_id,
-         pagina=1,
-         context=context,
-         mensaje=query.message,
-         editar=True,
-         filtro="estrellas",
-         valor_filtro=valor_filtro
-       )
-       query.answer()
-       return
-
+        estrellas_idx = int(data[len("mercado_estado_"):])
+        estrellas_map = {3: "★★★", 2: "★★☆", 1: "★☆☆", 0: "☆☆☆"}
+        valor_filtro = estrellas_map[estrellas_idx]
+        mostrar_mercado_pagina(
+            query.message.chat_id,
+            pagina=1,
+            context=context,
+            mensaje=query.message,
+            editar=True,
+            filtro="estrellas",
+            valor_filtro=valor_filtro
+        )
+        query.answer()
+        return
 
     # Quitar filtro y volver al mercado normal
     if data == "mercado_1":
@@ -1787,19 +1841,6 @@ def manejador_callback(update, context):
             editar=True
         )
         query.answer()
-        return
-
-    # ==================== RECLAMAR CARTAS DROP ====================
-    if data.startswith("reclamar"):
-        manejador_reclamar(update, context)
-        return
-
-    # ==================== DROP EXPIRADO / RECLAMADA ====================
-    if data == "expirado":
-        query.answer("Este drop ha expirado.", show_alert=True)
-        return
-    if data == "reclamada":
-        query.answer("Esta carta ya fue reclamada.", show_alert=True)
         return
 
     # ==================== VER CARTA INDIVIDUAL ====================
