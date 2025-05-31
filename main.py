@@ -439,6 +439,7 @@ FRASES_ESTADO = {
 }
 
 def manejador_reclamar(update, context):
+    print("Entrando a manejador_reclamar...")
     query = update.callback_query
     usuario_click = query.from_user.id
     data = query.data
