@@ -732,7 +732,7 @@ def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar
         texto = f"<b>🛒 Cartas en el mercado (página {pagina}/{paginas}) — Filtrado por: {valor_filtro}</b>\n"
     else:
         texto = f"<b>🛒 Cartas en el mercado (página {pagina}/{paginas})</b>\n"
-    texto += "━━━━━━━━━━━━━━━━━\n"
+    texto += "━━━━━━━━━━━━━━━━━━\n"
 
     if total == 0:
         texto += "⚠️ <b>No hay cartas a la venta en el mercado.</b>\n"
@@ -743,9 +743,8 @@ def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar
             id_unico = c.get('id_unico', '')
             nombre = c.get('nombre', '')
             version = c.get('version', '')
-            estado = c.get('estado', '')
             card_id = c.get('card_id', '')
-            precio = c.get('precio', precio_carta_karuta(nombre, version, estado, id_unico=id_unico))
+            precio = c.get('precio', precio_carta_karuta(nombre, version, estrellas, id_unico=id_unico))
             # Emoji por rareza
             if estrellas == "★★★":
                 icon = "🌟"
@@ -757,19 +756,15 @@ def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar
                 icon = "⚪"
             texto += (
                 f"{icon} <b>{nombre}</b> [{version}] · <b>#{card_id}</b> · [{estrellas}]\n"
-                f"   <b>💲{precio}</b>   <i>Estado:</i> <b>{estado}</b>\n"
+                f"   <b>💲{precio}</b>\n"
                 f"   <code>/comprar {id_unico}</code>\n"
                 "━━━━━━━━━━━━━━━━━━\n"
             )
         if fin < total:
             texto += f"Y {total-fin} más...\n"
 
-    # (Botones de filtro/paginación igual que tu versión actual)
-    # ...
     botones = []
-    fila_filtros = [
-        InlineKeyboardButton("🔎 Filtrar", callback_data="mercado_filtro")
-    ]
+    fila_filtros = [InlineKeyboardButton("🔎 Filtrar", callback_data="mercado_filtro")]
     if filtro:
         fila_filtros.append(InlineKeyboardButton("❌ Quitar filtro", callback_data="mercado_1"))
     nav = []
@@ -777,7 +772,6 @@ def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar
         nav.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_{pagina-1}"))
     if pagina < paginas:
         nav.append(InlineKeyboardButton("➡️", callback_data=f"mercado_{pagina+1}"))
-
     matriz = []
     if fila_filtros:
         matriz.append(fila_filtros)
