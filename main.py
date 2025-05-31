@@ -163,15 +163,39 @@ def agregar_numero_a_imagen(imagen_url, numero):
     return output
 
 
+def extraer_card_id_de_id_unico(id_unico):
+    """
+    Extrae el número de carta (card_id) del id_unico que termina con el número después de los 4 primeros caracteres.
+    Ej: 'abcd1' -> 1, 'gh4h55' -> 55, '0asd100' -> 100
+    """
+    if id_unico and len(id_unico) > 4:
+        try:
+            return int(id_unico[4:])
+        except:
+            return None
+    return None
 
-def precio_carta_karuta(nombre, version, estado):
+
+def precio_carta_karuta(nombre, version, estado, id_unico=None, card_id=None):
     total_copias = col_cartas_usuario.count_documents({"nombre": nombre, "version": version})
     if total_copias == 0:
         total_copias = 1
     base = BASE_PRICE + RAREZA / math.sqrt(total_copias)
     mult = ESTADO_MULTIPLICADORES.get(estado, 1.0)
     precio = int(base * mult)
+
+    if card_id is None and id_unico:
+        card_id = extraer_card_id_de_id_unico(id_unico)
+    if card_id is not None:
+        if card_id == 1:
+            precio *= 5
+        elif 2 <= card_id <= 10:
+            precio *= 3
+        elif 11 <= card_id <= 99:
+            precio *= 2
+        # desde #100 no cambia
     return precio
+
 
 def random_id_unico(card_id):
     # 4 letras/números aleatorios + el id de carta (card_id)
@@ -681,11 +705,17 @@ def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar
     else:
         for c in cartas[inicio:fin]:
             estrellas = c.get('estrellas', '★??')
+            id_unico = c.get('id_unico', '')
+            nombre = c.get('nombre', '')
+            version = c.get('version', '')
+            estado = c.get('estado', '')
+            precio = precio_carta_karuta(nombre, version, estado, id_unico=id_unico)
             texto += (
-                f"• <code>{c['id_unico']}</code> · [{estrellas}] "
-                f"{c['nombre']} [{c['version']}] — <b>{c['precio']} Kponey</b>\n"
-                f"  /comprar {c['id_unico']}\n"
+                f"• <code>{id_unico}</code> · [{estrellas}] "
+                f"{nombre} [{version}] — <b>{precio} Kponey</b>\n"
+                f"  /comprar {id_unico}\n"
             )
+
         if fin < total:
             texto += f"Y {total-fin} más...\n"
 
@@ -789,9 +819,9 @@ def comando_precio(update, context):
     nombre = carta['nombre']
     version = carta['version']
     estado = carta['estado']
-    precio = precio_carta_karuta(nombre, version, estado)
+    # EXTRA: saca el card_id desde id_unico, para el precio especial
+    precio = precio_carta_karuta(nombre, version, estado, id_unico=id_unico)
     total_copias = col_cartas_usuario.count_documents({"nombre": nombre, "version": version})
-
     texto = (
         f"💳 <b>Precio de carta [{id_unico}]</b>\n"
         f"• Nombre: <b>{nombre}</b>\n"
@@ -801,6 +831,7 @@ def comando_precio(update, context):
         f"• Copias globales: <b>{total_copias}</b>"
     )
     update.message.reply_text(texto, parse_mode='HTML')
+
 
 #------Comando vender--------------------
 @cooldown_critico
@@ -820,8 +851,8 @@ def comando_vender(update, context):
     nombre = carta['nombre']
     version = carta['version']
     estado = carta['estado']
-    precio = precio_carta_karuta(nombre, version, estado)
-    card_id = carta.get("card_id", "")
+    id_unico = carta.get("id_unico", "")
+    precio = precio_carta_karuta(nombre, version, estado, id_unico=id_unico)
 
     # Verifica si ya está en mercado
     ya = col_mercado.find_one({"id_unico": id_unico})
@@ -832,7 +863,7 @@ def comando_vender(update, context):
     # Quitar de inventario y poner en mercado
     col_cartas_usuario.delete_one({"user_id": usuario_id, "id_unico": id_unico})
 
-    # Busca las estrellas
+    # Busca las estrellas (corregido)
     estrellas = carta.get('estrellas')
     if not estrellas:
         # Busca las estrellas en el catálogo de cartas
@@ -842,6 +873,10 @@ def comando_vender(update, context):
                 estrellas = c.get('estado_estrella', "★??")
                 break
 
+    # --- 👇 CORRECCIÓN AQUÍ: Obtén card_id seguro 👇 ---
+    card_id = carta.get('card_id', extraer_card_id_de_id_unico(id_unico))
+    # -----------------------------------------------
+
     col_mercado.insert_one({
        "id_unico": id_unico,
        "vendedor_id": usuario_id,
@@ -850,7 +885,7 @@ def comando_vender(update, context):
        "estado": estado,
        "estrellas": estrellas,
        "precio": precio,
-       "card_id": card_id,  # <---- ¡AQUÍ GUARDA EL card_id!
+       "card_id": card_id,  # <---- ¡Ahora siempre se guarda!
        "fecha": datetime.utcnow(),
        "imagen": carta.get("imagen"),
        "grupo": carta.get("grupo", "")
@@ -901,12 +936,19 @@ def comando_comprar(update, context):
     col_usuarios.update_one({"user_id": usuario_id}, {"$inc": {"kponey": -precio}}, upsert=True)
     col_usuarios.update_one({"user_id": carta["vendedor_id"]}, {"$inc": {"kponey": precio}}, upsert=True)
 
+    # --- 👇 CORRECCIÓN AQUÍ: asegura que card_id esté correcto 👇 ---
+    card_id = carta.get("card_id")
+    if not card_id:
+        card_id = extraer_card_id_de_id_unico(carta.get("id_unico"))
+        carta["card_id"] = card_id
+    # --------------------------------------------------------------
+
     # Preparar carta para el inventario del usuario
     carta['user_id'] = usuario_id
-    del carta['_id']
-    del carta['vendedor_id']
-    del carta['precio']
-    del carta['fecha']
+    if '_id' in carta: del carta['_id']
+    if 'vendedor_id' in carta: del carta['vendedor_id']
+    if 'precio' in carta: del carta['precio']
+    if 'fecha' in carta: del carta['fecha']
     if 'estrellas' not in carta or not carta['estrellas'] or carta['estrellas'] == '★??':
         estado = carta.get('estado')
         for c in cartas:
@@ -915,6 +957,7 @@ def comando_comprar(update, context):
                 break
         else:
             carta['estrellas'] = '★??'
+
     col_cartas_usuario.insert_one(carta)
 
     update.message.reply_text(
@@ -931,6 +974,7 @@ def comando_comprar(update, context):
         )
     except Exception:
         pass
+
 
 #----------Retirar carta del mercado------------------
 
@@ -1141,7 +1185,7 @@ def comando_ampliar(update, context):
     grupo = grupo_de_carta(nombre, version)
     estrellas = carta.get('estrellas', '★??')
     estado = carta.get('estado', '')
-    precio = precio_carta_karuta(nombre, version, estado)
+    precio = precio_carta_karuta(nombre, version, estado, id_unico=id_unico)
 
     texto = (
         f"<b>{nombre} [{version}] {grupo}</b>\n"
