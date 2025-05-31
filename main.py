@@ -1951,16 +1951,9 @@ def handler_regalo_respuesta(update, context):
 def comando_setsprogreso(update, context):
     mostrar_setsprogreso(update, context, pagina=1)
     
-# --------- HANDLERS ---------
-# === 1. CALLBACKS ESPECÍFICOS ===
-# Handler del botón de vender en ampliar (este primero, siempre antes del general)
+
 dispatcher.add_handler(CallbackQueryHandler(callback_ampliar_vender, pattern="^ampliar_vender_"))
-
-# === 2. CALLBACK GENERAL ===
-# Este SIEMPRE va después, así captura todo lo demás (reclamar cartas, mercado, etc)
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback))
-
-# === 3. HANDLERS DE TEXTO/COMANDOS ===
 dispatcher.add_handler(CommandHandler('idolday', comando_idolday))
 dispatcher.add_handler(CommandHandler('album', comando_album))
 dispatcher.add_handler(CommandHandler('miid', comando_miid))
@@ -1981,7 +1974,6 @@ dispatcher.add_handler(CommandHandler('vender', comando_vender))
 dispatcher.add_handler(CommandHandler('mercado', comando_mercado))
 dispatcher.add_handler(CommandHandler('comprar', comando_comprar))
 dispatcher.add_handler(CommandHandler('retirar', comando_retirar))
-
 
 @app.route(f'/{TOKEN}', methods=['POST'])
 def webhook():
