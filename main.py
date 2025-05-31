@@ -1077,7 +1077,7 @@ def comando_retirar(update, context):
 
 def mostrar_filtros_grupo(chat_id, context, mensaje=None, editar=False, pagina=1, user_id=None):
     grupos = sorted({c.get("grupo", "") for c in col_mercado.find() if c.get("grupo")})
-    por_pagina = 4
+    por_pagina = 2
     total = len(grupos)
     paginas = max(1, (total - 1) // por_pagina + 1)
     if pagina < 1:
@@ -1088,22 +1088,32 @@ def mostrar_filtros_grupo(chat_id, context, mensaje=None, editar=False, pagina=1
     fin = min(inicio + por_pagina, total)
     grupos_pagina = grupos[inicio:fin]
 
-    botones_grupos = [
-        [InlineKeyboardButton(g, callback_data=f"mercado_grupo_{g}_{user_id}")]
-        for g in grupos_pagina
-    ]
-
-    fila_nav = []
+    # Botones de grupo
+    fila_grupos = [InlineKeyboardButton(g, callback_data=f"mercado_grupo_{g}_{user_id}") for g in grupos_pagina]
+    # Botones de navegación
+    fila_flechas = []
     if pagina > 1:
-        fila_nav.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_filtropagegrupo_{pagina-1}_{user_id}"))
+        fila_flechas.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_filtropagegrupo_{pagina-1}_{user_id}"))
     if pagina < paginas:
-        fila_nav.append(InlineKeyboardButton("➡️", callback_data=f"mercado_filtropagegrupo_{pagina+1}_{user_id}"))
-    if fila_nav:
-        botones_grupos.append(fila_nav)
-    botones_grupos.append([InlineKeyboardButton("🔙 Volver", callback_data=f"mercado_filtro_{user_id}")])
+        fila_flechas.append(InlineKeyboardButton("➡️", callback_data=f"mercado_filtropagegrupo_{pagina+1}_{user_id}"))
 
-    teclado = InlineKeyboardMarkup(botones_grupos)
+    matriz = []
+    if fila_grupos:
+        matriz.append(fila_grupos)
+    if fila_flechas:
+        matriz.append(fila_flechas)
+    matriz.append([InlineKeyboardButton("🔙 Volver", callback_data=f"mercado_filtro_{user_id}")])
+    teclado = InlineKeyboardMarkup(matriz)
+
     texto = "Selecciona un grupo para filtrar el mercado:"
+    if editar and mensaje is not None:
+        try:
+            mensaje.edit_text(texto, reply_markup=teclado)
+        except Exception:
+            context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado)
+    else:
+        context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado)
+
 
     # SIEMPRE editar el mensaje, nunca crear nuevo
     if mensaje is not None:
