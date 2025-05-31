@@ -1937,6 +1937,15 @@ def comando_setsprogreso(update, context):
     mostrar_setsprogreso(update, context, pagina=1)
     
 # --------- HANDLERS ---------
+# === 1. CALLBACKS ESPECÍFICOS ===
+# Handler del botón de vender en ampliar (este primero, siempre antes del general)
+dispatcher.add_handler(CallbackQueryHandler(callback_ampliar_vender, pattern="^ampliar_vender_"))
+
+# === 2. CALLBACK GENERAL ===
+# Este SIEMPRE va después, así captura todo lo demás (reclamar cartas, mercado, etc)
+dispatcher.add_handler(CallbackQueryHandler(manejador_callback))
+
+# === 3. HANDLERS DE TEXTO/COMANDOS ===
 dispatcher.add_handler(CommandHandler('idolday', comando_idolday))
 dispatcher.add_handler(CommandHandler('album', comando_album))
 dispatcher.add_handler(CommandHandler('miid', comando_miid))
@@ -1945,8 +1954,6 @@ dispatcher.add_handler(CommandHandler('comandos', comando_comandos))
 dispatcher.add_handler(CommandHandler('giveidol', comando_giveidol))
 dispatcher.add_handler(CommandHandler('setsprogreso', comando_setsprogreso))
 dispatcher.add_handler(CommandHandler('set', comando_set_detalle))
-dispatcher.add_handler(CallbackQueryHandler(callback_ampliar_vender, pattern="^ampliar_vender_"))
-dispatcher.add_handler(CallbackQueryHandler(manejador_callback))
 dispatcher.add_handler(MessageHandler(Filters.text & (~Filters.command), handler_regalo_respuesta))
 dispatcher.add_handler(CommandHandler('ampliar', comando_ampliar))
 dispatcher.add_handler(CommandHandler('inventario', comando_inventario))
