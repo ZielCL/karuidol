@@ -650,16 +650,36 @@ def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, edit
         pagina = paginas
     inicio = (pagina - 1) * por_pagina
     fin = min(inicio + por_pagina, total)
-    texto = f"<b>Álbum de cartas (página {pagina}/{paginas})</b>\n\n"
-    for carta in lista_cartas[inicio:fin]:
-        cid = carta.get('card_id', '')
-        version = carta.get('version', '')
-        nombre = carta.get('nombre', '')
-        grupo = grupo_de_carta(nombre, version)
-        id_unico = carta.get('id_unico', 'xxxx')
-        estrellas = carta.get('estrellas', '★??')
-        texto += f"• <code>{id_unico}</code> · [{estrellas}] · #{cid} · [{version}] · {nombre} · {grupo}\n"
-    texto += "\nUsa <code>/ampliar</code> <b>id_unico</b> para ver una carta en grande."
+    if total == 0:
+        texto = (
+            "📕 <b>Tu álbum está vacío.</b>\n"
+            "Usa <code>/idolday</code> para conseguir tus primeras cartas.\n"
+            "¡Ve coleccionando y construye tu colección!"
+        )
+    else:
+        texto = f"<b>📗 Álbum de cartas (página {pagina}/{paginas})</b>\n\n"
+        for carta in lista_cartas[inicio:fin]:
+            cid = carta.get('card_id', '')
+            version = carta.get('version', '')
+            nombre = carta.get('nombre', '')
+            grupo = grupo_de_carta(nombre, version)
+            id_unico = carta.get('id_unico', 'xxxx')
+            estrellas = carta.get('estrellas', '★??')
+            # Visual según rareza (puedes ajustar los emojis si quieres)
+            if estrellas == "★★★":
+                icon = "🌟"
+            elif estrellas == "★★☆":
+                icon = "⭐"
+            elif estrellas == "★☆☆":
+                icon = "🔸"
+            else:
+                icon = "⚪"
+            texto += (
+                f"{icon} <b>{nombre}</b> [{version}] {grupo}\n"
+                f"   <code>{id_unico}</code> · [{estrellas}] · <b>#{cid}</b>\n"
+            )
+        texto += "\n<i>Usa <code>/ampliar &lt;id_unico&gt;</code> para ver detalles de cualquier carta.</i>"
+
     nav = []
     if pagina > 1:
         nav.append(InlineKeyboardButton("« Anterior", callback_data=f"lista_{pagina-1}_{usuario_id}"))
@@ -673,6 +693,7 @@ def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, edit
             context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode='HTML')
     else:
         context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode='HTML')
+
 
 @cooldown_critico
 def comando_inventario(update, context):
