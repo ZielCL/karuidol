@@ -672,7 +672,7 @@ def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar
     fin = min(inicio + por_pagina, total)
 
     if filtro and valor_filtro:
-        texto = f"<b>🛒 Cartas en el mercado (página {pagina}/{paginas}) — Filtrado por estrellas: {valor_filtro}</b>\n"
+        texto = f"<b>🛒 Cartas en el mercado (página {pagina}/{paginas}) — Filtrado por: {valor_filtro}</b>\n"
     else:
         texto = f"<b>🛒 Cartas en el mercado (página {pagina}/{paginas})</b>\n"
 
