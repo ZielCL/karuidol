@@ -1638,13 +1638,11 @@ def callback_ampliar_vender(update, context):
 #-------------mostrar_menu_filtros------------
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 
-def mostrar_menu_filtros(user_id, query):
+ddef mostrar_menu_filtros(user_id, query):
     botones = [
-        [
-            InlineKeyboardButton("📊 Por Estado", callback_data=f"mercado_filtro_estado_{user_id}"),
-            InlineKeyboardButton("👥 Por Grupo", callback_data=f"mercado_filtro_grupo_{user_id}"),
-            InlineKeyboardButton("🔢 Ordenar por #n", callback_data=f"mercado_ordenar_numero_{user_id}"),
-        ],
+        [InlineKeyboardButton("📊 Por Estado", callback_data=f"mercado_filtro_estado_{user_id}")],
+        [InlineKeyboardButton("👥 Por Grupo", callback_data=f"mercado_filtro_grupo_{user_id}")],
+        [InlineKeyboardButton("🔢 Ordenar por #n", callback_data=f"mercado_ordenar_numero_{user_id}")],
         [InlineKeyboardButton("❌ Quitar filtro", callback_data=f"mercado_1_{user_id}")]
     ]
     teclado = InlineKeyboardMarkup(botones)
@@ -1654,9 +1652,10 @@ def mostrar_menu_filtros(user_id, query):
         try:
             query.message.edit_reply_markup(reply_markup=teclado)
         except Exception:
-            # Nunca uses send_message aquí
-            pass
+            # Si no puede, edita el texto entero
+            query.edit_message_text("Elige un filtro:", reply_markup=teclado)
     query.answer()
+
 
 
 
