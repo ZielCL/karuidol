@@ -715,7 +715,7 @@ def mostrar_mercado_pagina(
     filtro=None, valor_filtro=None, orden=None, user_id=None
 ):
     if user_id is None:
-        return  # Seguridad extra
+        return
 
     query = {}
     if filtro == "estrellas" and valor_filtro:
@@ -725,7 +725,7 @@ def mostrar_mercado_pagina(
 
     cartas = list(col_mercado.find(query))
 
-    # Ordenamiento por #n si aplica
+    # Orden
     if orden == "mayor":
         cartas.sort(key=lambda c: c.get("card_id", 0), reverse=True)
     elif orden == "menor":
@@ -734,10 +734,8 @@ def mostrar_mercado_pagina(
     por_pagina = 10
     total = len(cartas)
     paginas = max(1, (total - 1) // por_pagina + 1)
-    if pagina < 1:
-        pagina = 1
-    if pagina > paginas:
-        pagina = paginas
+    if pagina < 1: pagina = 1
+    if pagina > paginas: pagina = paginas
     inicio = (pagina - 1) * por_pagina
     fin = min(inicio + por_pagina, total)
 
@@ -776,17 +774,10 @@ def mostrar_mercado_pagina(
         if fin < total:
             texto += f"Y {total-fin} más...\n"
 
-    # --- Filtros (una fila) ---
-    fila_filtros = [
-        InlineKeyboardButton("📊 Por Estado", callback_data=f"mercado_filtro_estado_{user_id}"),
-        InlineKeyboardButton("👥 Por Grupo", callback_data=f"mercado_filtro_grupo_{user_id}"),
-        InlineKeyboardButton("🔢 Ordenar por #n", callback_data=f"mercado_ordenar_numero_{user_id}")
-    ]
-    matriz = [fila_filtros]
-
-    # Quitar filtro
-    if filtro:
-        matriz.append([InlineKeyboardButton("❌ Quitar filtro", callback_data=f"mercado_1_{user_id}")])
+    # --------- Teclado ----------
+    matriz = []
+    # Solo un botón para Filtros (al inicio), nunca muestra los 3 juntos aquí
+    matriz.append([InlineKeyboardButton("🔍 Filtrar / Ordenar", callback_data=f"mercado_filtro_{user_id}")])
 
     # Navegación
     nav = []
@@ -796,22 +787,20 @@ def mostrar_mercado_pagina(
         nav.append(InlineKeyboardButton("➡️", callback_data=f"mercado_{pagina+1}_{user_id}" + (f"_{orden}" if orden else "")))
     if nav:
         matriz.append(nav)
-    # Volver SIEMPRE va al final (una fila sola)
-    matriz.append([InlineKeyboardButton("🔙 Volver", callback_data=f"mercado_volver_{user_id}")])
+    # Solo muestra "❌ Quitar filtro" si hay filtro activo
+    if filtro:
+        matriz.append([InlineKeyboardButton("❌ Quitar filtro", callback_data=f"mercado_1_{user_id}")])
+
     teclado = InlineKeyboardMarkup(matriz)
 
-    # Edición o mensaje nuevo
+    # Edita o envía el mensaje
     if editar and mensaje is not None:
         try:
             mensaje.edit_text(texto, reply_markup=teclado, parse_mode="HTML")
         except Exception:
-            # Si falla, manda mensaje nuevo (no debería pasar)
             context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML")
     else:
         context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML")
-
-
-
 
     
 #----------Comando FAV1---------------
@@ -1079,38 +1068,37 @@ def comando_retirar(update, context):
 #---------filtros de mercado "grupo"------------------------------------------------
 
 def mostrar_filtros_grupo(chat_id, context, mensaje=None, editar=False, pagina=1, user_id=None):
-    """
-    Muestra la lista de grupos para filtrar cartas en el mercado.
-    Siempre edita el mensaje original del mercado, nunca envía uno nuevo.
-    """
-    # Trae todos los grupos únicos del mercado
     grupos = sorted({c.get("grupo", "") for c in col_mercado.find() if c.get("grupo")})
-    por_pagina = 5
+    por_pagina = 4
     total = len(grupos)
     paginas = max(1, (total - 1) // por_pagina + 1)
-    if pagina < 1:
-        pagina = 1
-    if pagina > paginas:
-        pagina = paginas
+    if pagina < 1: pagina = 1
+    if pagina > paginas: pagina = paginas
     inicio = (pagina - 1) * por_pagina
     fin = min(inicio + por_pagina, total)
     grupos_pagina = grupos[inicio:fin]
 
-    # Crea botones (un grupo por botón, máximo 5 por página)
-    matriz = []
-    for g in grupos_pagina:
-        matriz.append([InlineKeyboardButton(g, callback_data=f"mercado_grupo_{g}_{user_id}")])
+    # Botones de grupo (máx 2 por fila)
+    fila_grupos = []
+    botones_grupos = []
+    for idx, g in enumerate(grupos_pagina):
+        botones_grupos.append(InlineKeyboardButton(g, callback_data=f"mercado_grupo_{g}_{user_id}"))
+        if (idx + 1) % 2 == 0:
+            fila_grupos.append(botones_grupos)
+            botones_grupos = []
+    if botones_grupos:
+        fila_grupos.append(botones_grupos)
 
-    # Navegación entre páginas de grupos
-    nav = []
+    # Botones de navegación (flechas)
+    fila_flechas = []
     if pagina > 1:
-        nav.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_filtropagegrupo_{pagina-1}_{user_id}"))
+        fila_flechas.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_filtropagegrupo_{pagina-1}_{user_id}"))
     if pagina < paginas:
-        nav.append(InlineKeyboardButton("➡️", callback_data=f"mercado_filtropagegrupo_{pagina+1}_{user_id}"))
-    if nav:
-        matriz.append(nav)
+        fila_flechas.append(InlineKeyboardButton("➡️", callback_data=f"mercado_filtropagegrupo_{pagina+1}_{user_id}"))
 
-    # Volver al menú de filtros principal
+    matriz = fila_grupos
+    if fila_flechas:
+        matriz.append(fila_flechas)
     matriz.append([InlineKeyboardButton("🔙 Volver", callback_data=f"mercado_filtro_{user_id}")])
     teclado = InlineKeyboardMarkup(matriz)
 
@@ -1647,6 +1635,28 @@ def callback_ampliar_vender(update, context):
         parse_mode='HTML'
     )
 
+#-------------mostrar_menu_filtros------------
+from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+
+def mostrar_menu_filtros(user_id, query):
+    botones = [
+        [
+            InlineKeyboardButton("📊 Por Estado", callback_data=f"mercado_filtro_estado_{user_id}"),
+            InlineKeyboardButton("👥 Por Grupo", callback_data=f"mercado_filtro_grupo_{user_id}"),
+            InlineKeyboardButton("🔢 Ordenar por #n", callback_data=f"mercado_ordenar_numero_{user_id}"),
+        ],
+        [InlineKeyboardButton("❌ Quitar filtro", callback_data=f"mercado_1_{user_id}")]
+    ]
+    teclado = InlineKeyboardMarkup(botones)
+    try:
+        query.edit_message_reply_markup(reply_markup=teclado)
+    except Exception:
+        try:
+            query.message.edit_reply_markup(reply_markup=teclado)
+        except Exception:
+            query.message.reply_text("Elige un filtro:", reply_markup=teclado)
+    query.answer()
+
 
 
 def manejador_callback(update, context):
@@ -1660,7 +1670,7 @@ def manejador_callback(update, context):
             return int(partes[-1])
         return None
 
-    # --- CONTROL DE USUARIO EN MERCADO ---
+    # --- CONTROL DE USUARIO EN MENÚ DE MERCADO ---
     if data.startswith("mercado"):
         uid = get_uid(data)
         if uid is not None and query.from_user.id != uid:
@@ -1680,7 +1690,12 @@ def manejador_callback(update, context):
         query.answer("Esta carta ya fue reclamada.", show_alert=True)
         return
 
-    # ====== MERCADO FILTROS / NAVEGACIÓN / ORDEN ======
+    # ====== MENÚ PRINCIPAL DE FILTROS DEL MERCADO ======
+    if data.startswith("mercado_filtro_"):
+        user_id = get_uid(data)
+        mostrar_menu_filtros(user_id, query)
+        return
+
     # Botones de filtro por estado (estrellas visuales)
     if data.startswith("mercado_filtro_estado_"):
         user_id = get_uid(data)
@@ -1689,13 +1704,16 @@ def manejador_callback(update, context):
             [InlineKeyboardButton("★★☆", callback_data=f"mercado_estado_2_{user_id}")],
             [InlineKeyboardButton("★☆☆", callback_data=f"mercado_estado_1_{user_id}")],
             [InlineKeyboardButton("☆☆☆", callback_data=f"mercado_estado_0_{user_id}")],
-            [InlineKeyboardButton("🔙 Volver", callback_data=f"mercado_1_{user_id}")]
+            [InlineKeyboardButton("❌ Quitar filtro", callback_data=f"mercado_1_{user_id}")]
         ]
         teclado = InlineKeyboardMarkup(botones)
         try:
             query.edit_message_reply_markup(reply_markup=teclado)
         except Exception:
-            pass
+            try:
+                query.message.edit_reply_markup(reply_markup=teclado)
+            except Exception:
+                query.message.reply_text("Filtra por calidad:", reply_markup=teclado)
         query.answer()
         return
 
@@ -1706,6 +1724,7 @@ def manejador_callback(update, context):
         query.answer()
         return
 
+    # Navegación en el paginado de grupos (flechas)
     if data.startswith("mercado_filtropagegrupo_"):
         partes = data.split("_")
         pagina = int(partes[-2])
@@ -1714,7 +1733,7 @@ def manejador_callback(update, context):
         query.answer()
         return
 
-    # Selección de grupo
+    # Selección de grupo específico
     if data.startswith("mercado_grupo_"):
         partes = data.split("_")
         grupo = "_".join(partes[2:-1])
@@ -1734,13 +1753,16 @@ def manejador_callback(update, context):
                 InlineKeyboardButton("⬆️ Menor a mayor", callback_data=f"mercado_orden_numero_menor_{user_id}"),
                 InlineKeyboardButton("⬇️ Mayor a menor", callback_data=f"mercado_orden_numero_mayor_{user_id}")
             ],
-            [InlineKeyboardButton("🔙 Volver", callback_data=f"mercado_1_{user_id}")]
+            [InlineKeyboardButton("❌ Quitar filtro", callback_data=f"mercado_1_{user_id}")]
         ]
         teclado = InlineKeyboardMarkup(botones)
         try:
             query.edit_message_reply_markup(reply_markup=teclado)
         except Exception:
-            pass
+            try:
+                query.message.edit_reply_markup(reply_markup=teclado)
+            except Exception:
+                query.message.reply_text("Elige el orden:", reply_markup=teclado)
         query.answer()
         return
 
@@ -1802,7 +1824,7 @@ def manejador_callback(update, context):
         query.answer()
         return
 
-    # Botón volver (elimina el menú del mercado)
+    # Botón para "eliminar menú del mercado"
     if data.startswith("mercado_volver_"):
         try:
             query.message.delete()
@@ -1972,7 +1994,6 @@ def manejador_callback(update, context):
         )
         query.answer()
         return
-
 
 # ====== FIN MANEJADOR CALLBACK ======
 
