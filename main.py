@@ -1673,23 +1673,23 @@ def manejador_callback(update, context):
 
     # LUPA/FILTROS PRINCIPAL
     if data.startswith("mercado_filtro_"):
-       user_id = get_uid(data)
-       botones = [
-           [InlineKeyboardButton("📊 Por Estado", callback_data=f"mercado_filtro_estado_{user_id}")],
-           [InlineKeyboardButton("👥 Por Grupo", callback_data=f"mercado_filtro_grupo_{user_id}")],
-           [InlineKeyboardButton("🔢 Ordenar por #n", callback_data=f"mercado_ordenar_numero_{user_id}")],
-           [InlineKeyboardButton("🔙 Volver", callback_data=f"mercado_1_{user_id}")]
-       ]
-       teclado = InlineKeyboardMarkup(botones)
-       try:
-           query.edit_message_reply_markup(reply_markup=teclado)
-       except Exception:
-           query.message.reply_text("Elige un filtro:", reply_markup=teclado)
-       query.answer()
-       return
+        user_id = get_uid(data)
+        botones = [
+            [InlineKeyboardButton("📊 Por Estado", callback_data=f"mercado_filtro_estado_{user_id}")],
+            [InlineKeyboardButton("👥 Por Grupo", callback_data=f"mercado_filtro_grupo_{user_id}")],
+            [InlineKeyboardButton("🔢 Ordenar por #n", callback_data=f"mercado_ordenar_numero_{user_id}")],
+            [InlineKeyboardButton("🔙 Volver", callback_data=f"mercado_1_{user_id}")]
+        ]
+        teclado = InlineKeyboardMarkup(botones)
+        try:
+            query.edit_message_reply_markup(reply_markup=teclado)
+        except Exception:
+            query.message.edit_reply_markup(reply_markup=teclado)
+        query.answer()
+        return
 
 
-    # FILTRO POR ESTADO
+    # --- FILTRO POR ESTADO (ESTRELLAS) ---
     if data.startswith("mercado_filtro_estado_"):
         user_id = get_uid(data)
         botones = [
@@ -1703,11 +1703,7 @@ def manejador_callback(update, context):
         try:
             query.edit_message_reply_markup(reply_markup=teclado)
         except Exception:
-            context.bot.edit_message_reply_markup(
-                chat_id=query.message.chat_id,
-                message_id=query.message.message_id,
-                reply_markup=teclado
-            )
+            query.message.edit_reply_markup(reply_markup=teclado)
         query.answer()
         return
 
@@ -1727,11 +1723,11 @@ def manejador_callback(update, context):
         query.answer()
         return
 
-    # SELECCIÓN DE GRUPO
+    # --- SELECCIÓN DE GRUPO ---
     if data.startswith("mercado_grupo_"):
         partes = data.split("_")
         grupo = "_".join(partes[2:-1])
-        user_id = int(parts[-1])
+        user_id = int(partes[-1])
         mostrar_mercado_pagina(
             query.message.chat_id,
             pagina=1,
