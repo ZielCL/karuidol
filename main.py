@@ -1179,30 +1179,47 @@ def comando_ampliar(update, context):
     if not carta:
         update.message.reply_text("No encontré esa carta en tu álbum.")
         return
+
+    # Traer datos principales
     imagen_url = carta.get('imagen', imagen_de_carta(carta['nombre'], carta['version']))
     nombre = carta.get('nombre', '')
     version = carta.get('version', '')
     grupo = grupo_de_carta(nombre, version)
     estrellas = carta.get('estrellas', '★??')
-    # SOLO LAS ESTRELLAS (no texto)
-    estado = estrellas
-    precio = precio_carta_karuta(nombre, version, carta.get('estado'), id_unico=id_unico)
-    # Saca el número de carta:
-    card_id = carta.get('card_id')
-    if card_id is None:
-        card_id = extraer_card_id_de_id_unico(id_unico)
+    estado = carta.get('estado', '')
+    card_id = carta.get('card_id', '')
+    precio = precio_carta_karuta(nombre, version, estado, id_unico=id_unico)
     total_copias = col_cartas_usuario.count_documents({"nombre": nombre, "version": version})
 
+    # Saber si es favorita
+    doc_user = col_usuarios.find_one({"user_id": usuario_id}) or {}
+    favoritos = doc_user.get("favoritos", [])
+    es_fav = any(fav.get("nombre") == nombre and fav.get("version") == version for fav in favoritos)
+    estrella_fav = "⭐ " if es_fav else ""
+
+    # Texto bonito
     texto = (
         f"💳 <b>Precio de carta [{id_unico}]</b>\n"
-        f"• Nombre: <b>{nombre}</b>\n"
+        f"• Nombre: {estrella_fav}<b>{nombre}</b>\n"
+        f"• Grupo: <b>{grupo}</b>\n"
         f"• Versión: <b>{version}</b>\n"
         f"• Nº de carta: <b>#{card_id}</b>\n"
-        f"• Estado: <b>{estado}</b>\n"
+        f"• Estado: <b>{estrellas}</b>\n"
         f"• Precio: <code>{precio} Kponey</code>\n"
         f"• Copias globales: <b>{total_copias}</b>"
     )
-    update.message.reply_photo(photo=imagen_url, caption=texto, parse_mode='HTML')
+
+    # Botón de vender
+    teclado = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🛒 Vender", callback_data=f"ampliar_vender_{id_unico}")]
+    ])
+
+    update.message.reply_photo(
+        photo=imagen_url,
+        caption=texto,
+        parse_mode='HTML',
+        reply_markup=teclado
+    )
 
 
 @cooldown_critico
@@ -1496,6 +1513,55 @@ def manejador_callback(update, context):
     query = update.callback_query
     data = query.data
 
+
+def callback_ampliar_vender(update, context):
+    query = update.callback_query
+    data = query.data
+    if not data.startswith("ampliar_vender_"):
+        return
+    id_unico = data.replace("ampliar_vender_", "")
+    usuario_id = query.from_user.id
+    carta = col_cartas_usuario.find_one({"user_id": usuario_id, "id_unico": id_unico})
+    if not carta:
+        query.answer("No tienes esa carta en tu álbum.", show_alert=True)
+        return
+
+    # Realiza venta igual que el comando /vender
+    nombre = carta['nombre']
+    version = carta['version']
+    estado = carta['estado']
+    precio = precio_carta_karuta(nombre, version, estado, id_unico=id_unico)
+    card_id = carta.get("card_id", extraer_card_id_de_id_unico(id_unico))
+
+    # Ya está en mercado?
+    ya = col_mercado.find_one({"id_unico": id_unico})
+    if ya:
+        query.answer("Esta carta ya está en el mercado.", show_alert=True)
+        return
+
+    col_cartas_usuario.delete_one({"user_id": usuario_id, "id_unico": id_unico})
+    estrellas = carta.get('estrellas', '★??')
+    col_mercado.insert_one({
+       "id_unico": id_unico,
+       "vendedor_id": usuario_id,
+       "nombre": nombre,
+       "version": version,
+       "estado": estado,
+       "estrellas": estrellas,
+       "precio": precio,
+       "card_id": card_id,
+       "fecha": datetime.utcnow(),
+       "imagen": carta.get("imagen"),
+       "grupo": carta.get("grupo", "")
+    })
+
+    query.answer("Carta puesta en el mercado.", show_alert=True)
+    query.edit_message_caption(
+        caption="📦 Carta puesta en el mercado.",
+        parse_mode='HTML'
+    )
+
+    
     # ==================== MERCADO Y FILTROS ====================
 
     # Menú principal de filtros
@@ -1892,7 +1958,7 @@ dispatcher.add_handler(CommandHandler('vender', comando_vender))
 dispatcher.add_handler(CommandHandler('mercado', comando_mercado))
 dispatcher.add_handler(CommandHandler('comprar', comando_comprar))
 dispatcher.add_handler(CommandHandler('retirar', comando_retirar))
-
+dispatcher.add_handler(CallbackQueryHandler(callback_ampliar_vender, pattern="^ampliar_vender_"))
 
 @app.route(f'/{TOKEN}', methods=['POST'])
 def webhook():
