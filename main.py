@@ -772,13 +772,12 @@ def mostrar_mercado_pagina(
         if fin < total:
             texto += f"Y {total-fin} más...\n"
 
-    fila_filtros = [
-        InlineKeyboardButton("🔍 Filtrar / Ordenar", callback_data=f"mercado_filtro_{user_id}")
+        fila_filtros = [
+        InlineKeyboardButton("🔍 Filtrar", callback_data=f"mercado_filtro_{user_id}")
     ]
     matriz = [fila_filtros]
 
-    if filtro:
-        matriz.append([InlineKeyboardButton("❌ Quitar filtro", callback_data=f"mercado_1_{user_id}")])
+    # Navegación
     nav = []
     if pagina > 1:
         nav.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_{pagina-1}_{user_id}" + (f"_{orden}" if orden else "")))
@@ -786,8 +785,13 @@ def mostrar_mercado_pagina(
         nav.append(InlineKeyboardButton("➡️", callback_data=f"mercado_{pagina+1}_{user_id}" + (f"_{orden}" if orden else "")))
     if nav:
         matriz.append(nav)
-    matriz.append([InlineKeyboardButton("🔙 Volver", callback_data=f"mercado_volver_{user_id}")])
+
+    # Solo mostrar "Volver" si estamos en algún filtro activo
+    if filtro or orden:
+        matriz.append([InlineKeyboardButton("🔙 Volver", callback_data=f"mercado_1_{user_id}")])
+
     teclado = InlineKeyboardMarkup(matriz)
+
 
     # SIEMPRE EDITA el mensaje, nunca crea nuevo
     if editar and mensaje is not None:
