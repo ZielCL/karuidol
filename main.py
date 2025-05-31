@@ -715,8 +715,9 @@ def mostrar_mercado_pagina(
     filtro=None, valor_filtro=None, orden=None, user_id=None
 ):
     if user_id is None:
-        return
+        return  # Seguridad extra
 
+    # Construir el query base
     query = {}
     if filtro == "estrellas" and valor_filtro:
         query["estrellas"] = valor_filtro
@@ -724,6 +725,8 @@ def mostrar_mercado_pagina(
         query["grupo"] = valor_filtro
 
     cartas = list(col_mercado.find(query))
+
+    # Ordenar si corresponde
     if orden == "mayor":
         cartas.sort(key=lambda c: c.get("card_id", 0), reverse=True)
     elif orden == "menor":
@@ -739,14 +742,17 @@ def mostrar_mercado_pagina(
     inicio = (pagina - 1) * por_pagina
     fin = min(inicio + por_pagina, total)
 
+    # Encabezado
     if filtro and valor_filtro:
         texto = f"<b>🛒 Cartas en el mercado (página {pagina}/{paginas}) — Filtrado por: {valor_filtro}</b>\n"
     else:
         texto = f"<b>🛒 Cartas en el mercado (página {pagina}/{paginas})</b>\n"
     texto += "━━━━━━━━━━━━━━━━━\n"
 
+    # Lista de cartas
     if total == 0:
-        texto += "⚠️ <b>No hay cartas a la venta en el mercado.</b>\nUsa <code>/vender &lt;id_unico&gt;</code> para poner la tuya."
+        texto += "⚠️ <b>No hay cartas a la venta en el mercado.</b>\n"
+        texto += "Usa <code>/vender &lt;id_unico&gt;</code> para poner la tuya."
     else:
         for c in cartas[inicio:fin]:
             estrellas = c.get('estrellas', '★??')
@@ -755,6 +761,7 @@ def mostrar_mercado_pagina(
             version = c.get('version', '')
             card_id = c.get('card_id', '')
             precio = c.get('precio', precio_carta_karuta(nombre, version, c.get('estado', ''), id_unico=id_unico))
+            # Emoji por rareza
             if estrellas == "★★★":
                 icon = "🌟"
             elif estrellas == "★★☆":
@@ -772,41 +779,35 @@ def mostrar_mercado_pagina(
         if fin < total:
             texto += f"Y {total-fin} más...\n"
 
-        fila_filtros = [
-        InlineKeyboardButton("🔍 Filtrar", callback_data=f"mercado_filtro_{user_id}")
+    # --- Teclado de botones ---
+    matriz = [
+        [InlineKeyboardButton("🔍 Filtrar", callback_data=f"mercado_filtro_{user_id}")]
     ]
-    matriz = [fila_filtros]
 
-    # Navegación
+    # Paginación (sólo si hay varias páginas)
     nav = []
-    if pagina > 1:
+    if paginas > 1 and pagina > 1:
         nav.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_{pagina-1}_{user_id}" + (f"_{orden}" if orden else "")))
-    if pagina < paginas:
+    if paginas > 1 and pagina < paginas:
         nav.append(InlineKeyboardButton("➡️", callback_data=f"mercado_{pagina+1}_{user_id}" + (f"_{orden}" if orden else "")))
     if nav:
         matriz.append(nav)
 
-    # Solo mostrar "Volver" si estamos en algún filtro activo
+    # Solo muestra "Volver" si tienes filtro u orden activo
     if filtro or orden:
         matriz.append([InlineKeyboardButton("🔙 Volver", callback_data=f"mercado_1_{user_id}")])
 
     teclado = InlineKeyboardMarkup(matriz)
 
-
-    # SIEMPRE EDITA el mensaje, nunca crea nuevo
+    # --- Envío o edición del mensaje ---
     if editar and mensaje is not None:
         try:
             mensaje.edit_text(texto, reply_markup=teclado, parse_mode="HTML")
         except Exception:
-            context.bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=mensaje.message_id,
-                text=texto,
-                reply_markup=teclado,
-                parse_mode="HTML"
-            )
+            context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML")
     else:
         context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML")
+
 
 
     
@@ -1662,24 +1663,21 @@ def manejador_callback(update, context):
 
     # LUPA/FILTROS PRINCIPAL
     if data.startswith("mercado_filtro_"):
-        user_id = get_uid(data)
-        botones = [
-            [InlineKeyboardButton("📊 Por Estado", callback_data=f"mercado_filtro_estado_{user_id}")],
-            [InlineKeyboardButton("👥 Por Grupo", callback_data=f"mercado_filtro_grupo_{user_id}")],
-            [InlineKeyboardButton("🔢 Ordenar por #n", callback_data=f"mercado_ordenar_numero_{user_id}")],
-            [InlineKeyboardButton("🔙 Volver", callback_data=f"mercado_1_{user_id}")]
-        ]
-        teclado = InlineKeyboardMarkup(botones)
-        try:
-            query.edit_message_reply_markup(reply_markup=teclado)
-        except Exception:
-            context.bot.edit_message_reply_markup(
-                chat_id=query.message.chat_id,
-                message_id=query.message.message_id,
-                reply_markup=teclado
-            )
-        query.answer()
-        return
+       user_id = get_uid(data)
+       botones = [
+           [InlineKeyboardButton("📊 Por Estado", callback_data=f"mercado_filtro_estado_{user_id}")],
+           [InlineKeyboardButton("👥 Por Grupo", callback_data=f"mercado_filtro_grupo_{user_id}")],
+           [InlineKeyboardButton("🔢 Ordenar por #n", callback_data=f"mercado_ordenar_numero_{user_id}")],
+           [InlineKeyboardButton("🔙 Volver", callback_data=f"mercado_1_{user_id}")]
+       ]
+       teclado = InlineKeyboardMarkup(botones)
+       try:
+           query.edit_message_reply_markup(reply_markup=teclado)
+       except Exception:
+           query.message.reply_text("Elige un filtro:", reply_markup=teclado)
+       query.answer()
+       return
+
 
     # FILTRO POR ESTADO
     if data.startswith("mercado_filtro_estado_"):
