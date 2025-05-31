@@ -136,7 +136,7 @@ def agregar_numero_a_imagen(imagen_url, numero):
 
     # Elige una fuente grande y legible
     font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"  # Puedes usar otra si quieres
-    font_size = int(img.height * 0.15)  # Tamaño relativo a la altura de la imagen, por ejemplo 15%
+    font_size = int(img.height * 0.05)  # Tamaño relativo a la altura de la imagen, por ejemplo 15%
     font = ImageFont.truetype(font_path, size=font_size)
     texto = f"#{numero}"
     text_width, text_height = draw.textbbox((0,0), texto, font=font)[2:]
