@@ -142,7 +142,7 @@ def agregar_numero_a_imagen(imagen_url, numero):
     text_width, text_height = draw.textbbox((0,0), texto, font=font)[2:]
     # Centra horizontal y colócalo un poco arriba de la parte baja
     x = (img.width - text_width) // 2
-    y = int(img.height * 0.20)  # 78% hacia abajo de la imagen (ajusta esto a tu gusto)
+    y = int(img.height * 0.99)  # 78% hacia abajo de la imagen (ajusta esto a tu gusto)
 
     # Puedes poner sombra para que se vea sobre cualquier fondo
     sombra_offset = 3
