@@ -713,7 +713,7 @@ def comando_inventario(update, context):
 def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar=False, filtro=None, valor_filtro=None):
     query = {}
     if filtro == "estrellas" and valor_filtro:
-        query["estrellas"] = valor_filtro  # Solo los símbolos de estrella, tal cual
+        query["estrellas"] = valor_filtro
     if filtro == "grupo" and valor_filtro:
         query["grupo"] = valor_filtro
 
@@ -732,10 +732,11 @@ def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar
         texto = f"<b>🛒 Cartas en el mercado (página {pagina}/{paginas}) — Filtrado por: {valor_filtro}</b>\n"
     else:
         texto = f"<b>🛒 Cartas en el mercado (página {pagina}/{paginas})</b>\n"
-    texto += "-----------------------------------------------------\n"
+    texto += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
 
     if total == 0:
-        texto += "No hay cartas a la venta en el mercado."
+        texto += "⚠️ <b>No hay cartas a la venta en el mercado.</b>\n"
+        texto += "Usa <code>/vender &lt;id_unico&gt;</code> para poner la tuya."
     else:
         for c in cartas[inicio:fin]:
             estrellas = c.get('estrellas', '★??')
@@ -745,14 +746,26 @@ def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar
             estado = c.get('estado', '')
             card_id = c.get('card_id', '')
             precio = c.get('precio', precio_carta_karuta(nombre, version, estado, id_unico=id_unico))
-            # Formato solicitado:
+            # Emoji por rareza
+            if estrellas == "★★★":
+                icon = "🌟"
+            elif estrellas == "★★☆":
+                icon = "⭐"
+            elif estrellas == "★☆☆":
+                icon = "🔸"
+            else:
+                icon = "⚪"
             texto += (
-                f"• <code>{id_unico}</code> · [{estrellas}] · [{version}] · {nombre} · #{card_id} — 💲<b>{precio}</b>\n"
-                f"  <code>/comprar {id_unico}</code>\n"
+                f"{icon} <b>{nombre}</b> [{version}] · <b>#{card_id}</b> · [{estrellas}]\n"
+                f"   <b>💲{precio}</b>   <i>Estado:</i> <b>{estado}</b>\n"
+                f"   <code>/comprar {id_unico}</code>\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
             )
         if fin < total:
             texto += f"Y {total-fin} más...\n"
 
+    # (Botones de filtro/paginación igual que tu versión actual)
+    # ...
     botones = []
     fila_filtros = [
         InlineKeyboardButton("🔎 Filtrar", callback_data="mercado_filtro")
