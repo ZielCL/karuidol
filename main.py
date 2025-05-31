@@ -408,8 +408,8 @@ def comando_idolday(update, context):
     )
     # AHORA sí: actualizamos los callback_data con el message_id correcto (el del mensaje de botones)
     botones_reclamar = [
-        InlineKeyboardButton("1️⃣", callback_data=f"reclamar_{main_msg.chat_id}_{main_msg.message_id}_0"),
-        InlineKeyboardButton("2️⃣", callback_data=f"reclamar_{main_msg.chat_id}_{main_msg.message_id}_1"),
+        InlineKeyboardButton("1️⃣", callback_data=f"reclamar_{chat_id}_{msg_botones.message_id}_0"),
+        InlineKeyboardButton("2️⃣", callback_data=f"reclamar_{chat_id}_{msg_botones.message_id}_1"),
     ]
     context.bot.edit_message_reply_markup(
         chat_id=chat_id,
