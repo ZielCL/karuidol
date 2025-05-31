@@ -1184,16 +1184,26 @@ def comando_ampliar(update, context):
     version = carta.get('version', '')
     grupo = grupo_de_carta(nombre, version)
     estrellas = carta.get('estrellas', '★??')
-    estado = carta.get('estado', '')
-    precio = precio_carta_karuta(nombre, version, estado, id_unico=id_unico)
+    # SOLO LAS ESTRELLAS (no texto)
+    estado = estrellas
+    precio = precio_carta_karuta(nombre, version, carta.get('estado'), id_unico=id_unico)
+    # Saca el número de carta:
+    card_id = carta.get('card_id')
+    if card_id is None:
+        card_id = extraer_card_id_de_id_unico(id_unico)
+    total_copias = col_cartas_usuario.count_documents({"nombre": nombre, "version": version})
 
     texto = (
-        f"<b>{nombre} [{version}] {grupo}</b>\n"
-        f"ID: <code>{id_unico}</code>\n"
-        f"{estado} [{estrellas}]\n"
-        f"💰 <b>Precio actual:</b> <code>{precio} Kponey</code>"
+        f"💳 <b>Precio de carta [{id_unico}]</b>\n"
+        f"• Nombre: <b>{nombre}</b>\n"
+        f"• Versión: <b>{version}</b>\n"
+        f"• Nº de carta: <b>#{card_id}</b>\n"
+        f"• Estado: <b>{estado}</b>\n"
+        f"• Precio: <code>{precio} Kponey</code>\n"
+        f"• Copias globales: <b>{total_copias}</b>"
     )
     update.message.reply_photo(photo=imagen_url, caption=texto, parse_mode='HTML')
+
 
 @cooldown_critico
 def comando_comandos(update, context):
