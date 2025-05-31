@@ -136,7 +136,7 @@ def agregar_numero_a_imagen(imagen_url, numero):
 
 # Elige una fuente pequeña y legible
     font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-    font_size = int(img.height * 0.03)   # 5% de la altura de la carta (ajusta si lo quieres más pequeño)
+    font_size = int(img.height * 0.02)   # 5% de la altura de la carta (ajusta si lo quieres más pequeño)
     font = ImageFont.truetype(font_path, size=font_size)
 
     texto = f"#{numero}"
@@ -153,7 +153,9 @@ def agregar_numero_a_imagen(imagen_url, numero):
     sombra_offset = 2
     draw.text((x + sombra_offset, y + sombra_offset), texto, font=font, fill="black")
     draw.text((x, y), texto, font=font, fill="white")
-
+# Fondo negro semitransparente para que se vea en cualquier imagen
+    draw.rectangle([x-6, y-4, x-6+text_width+14, y-4+text_height+8], fill=(0,0,0,170))
+    draw.text((x, y), texto, font=font, fill=(255,255,255,255))
 # Guarda el resultado temporalmente
     output = BytesIO()
     img.save(output, format="PNG")
