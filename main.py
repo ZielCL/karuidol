@@ -126,34 +126,35 @@ def cooldown_critico(func):
     return wrapper
 
 def agregar_numero_a_imagen(imagen_url, numero):
+    import requests
+    from PIL import Image, ImageDraw, ImageFont
+    from io import BytesIO
+    # Descargar imagen original
     response = requests.get(imagen_url)
     img = Image.open(BytesIO(response.content)).convert("RGBA")
     draw = ImageDraw.Draw(img)
 
-    ancho, alto = img.size
-    font_size = int(alto * 0.10)
-    try:
-        font = ImageFont.truetype("arial.ttf", font_size)
-    except:
-        font = ImageFont.load_default()
-    texto = f"#{str(numero).zfill(2)}"
+    # Elige una fuente grande y legible
+    font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"  # Puedes usar otra si quieres
+    font_size = int(img.height * 0.15)  # Tamaño relativo a la altura de la imagen, por ejemplo 15%
+    font = ImageFont.truetype(font_path, size=font_size)
+    texto = f"#{numero}"
+    text_width, text_height = draw.textbbox((0,0), texto, font=font)[2:]
+    # Centra horizontal y colócalo un poco arriba de la parte baja
+    x = (img.width - text_width) // 2
+    y = int(img.height * 0.78)  # 78% hacia abajo de la imagen (ajusta esto a tu gusto)
 
-    # Usa textbbox en vez de textsize
-    bbox = draw.textbbox((0, 0), texto, font=font)
-    text_width = bbox[2] - bbox[0]
-    text_height = bbox[3] - bbox[1]
+    # Puedes poner sombra para que se vea sobre cualquier fondo
+    sombra_offset = 3
+    draw.text((x+sombra_offset, y+sombra_offset), texto, font=font, fill="black")
+    draw.text((x, y), texto, font=font, fill="white")
 
-    x = 10
-    y = alto - text_height - 10
+    # Guarda el resultado temporalmente
+    output = BytesIO()
+    img.save(output, format="PNG")
+    output.seek(0)
+    return output
 
-    # Fondo negro semitransparente para que se vea en cualquier imagen
-    draw.rectangle([x-6, y-4, x-6+text_width+14, y-4+text_height+8], fill=(0,0,0,170))
-    draw.text((x, y), texto, font=font, fill=(255,255,255,255))
-
-    temp_io = BytesIO()
-    img.save(temp_io, format="PNG")
-    temp_io.seek(0)
-    return temp_io
 
 
 
