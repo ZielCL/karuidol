@@ -392,21 +392,32 @@ def comando_idolday(update, context):
         })
 
     msgs = context.bot.send_media_group(chat_id=chat_id, media=media_group)
-    main_msg = msgs[0]
+    # main_msg = msgs[0]  # ← Ya no se usa el mensaje de imagen para el ID
 
     texto_drop = f"@{update.effective_user.username or update.effective_user.first_name} está dropeando 2 cartas!"
+    # Primero manda el mensaje de los botones, lo guardamos en variable para usar su message_id
     msg_botones = context.bot.send_message(
         chat_id=chat_id,
         text=texto_drop,
         reply_markup=InlineKeyboardMarkup([
             [
-                InlineKeyboardButton("1️⃣", callback_data=f"reclamar_{main_msg.chat_id}_{main_msg.message_id}_0"),
-                InlineKeyboardButton("2️⃣", callback_data=f"reclamar_{main_msg.chat_id}_{main_msg.message_id}_1"),
+                InlineKeyboardButton("1️⃣", callback_data=f"reclamar_{chat_id}_{0}_0"),  # temporal, se corregirá abajo
+                InlineKeyboardButton("2️⃣", callback_data=f"reclamar_{chat_id}_{0}_1"),
             ]
         ])
     )
+    # AHORA sí: actualizamos los callback_data con el message_id correcto (el del mensaje de botones)
+    botones_reclamar = [
+        InlineKeyboardButton("1️⃣", callback_data=f"reclamar_{chat_id}_{msg_botones.message_id}_0"),
+        InlineKeyboardButton("2️⃣", callback_data=f"reclamar_{chat_id}_{msg_botones.message_id}_1"),
+    ]
+    context.bot.edit_message_reply_markup(
+        chat_id=chat_id,
+        message_id=msg_botones.message_id,
+        reply_markup=InlineKeyboardMarkup([botones_reclamar])
+    )
 
-    drop_id = crear_drop_id(chat_id, main_msg.message_id)
+    drop_id = crear_drop_id(chat_id, msg_botones.message_id)
     DROPS_ACTIVOS[drop_id] = {
         "cartas": cartas_info,
         "dueño": usuario_id,
