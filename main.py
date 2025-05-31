@@ -732,7 +732,7 @@ def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar
         texto = f"<b>🛒 Cartas en el mercado (página {pagina}/{paginas}) — Filtrado por: {valor_filtro}</b>\n"
     else:
         texto = f"<b>🛒 Cartas en el mercado (página {pagina}/{paginas})</b>\n"
-    texto += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    texto += "━━━━━━━━━━━━━━━━━\n"
 
     if total == 0:
         texto += "⚠️ <b>No hay cartas a la venta en el mercado.</b>\n"
@@ -759,7 +759,7 @@ def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar
                 f"{icon} <b>{nombre}</b> [{version}] · <b>#{card_id}</b> · [{estrellas}]\n"
                 f"   <b>💲{precio}</b>   <i>Estado:</i> <b>{estado}</b>\n"
                 f"   <code>/comprar {id_unico}</code>\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "━━━━━━━━━━━━━━━━━━\n"
             )
         if fin < total:
             texto += f"Y {total-fin} más...\n"
