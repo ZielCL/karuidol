@@ -136,7 +136,7 @@ def agregar_numero_a_imagen(imagen_url, numero):
 
 # Elige una fuente pequeña y legible
     font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-    font_size = int(img.height * 0.05)   # 5% de la altura de la carta (ajusta si lo quieres más pequeño)
+    font_size = int(img.height * 0.03)   # 5% de la altura de la carta (ajusta si lo quieres más pequeño)
     font = ImageFont.truetype(font_path, size=font_size)
 
     texto = f"#{numero}"
