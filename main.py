@@ -715,8 +715,9 @@ def mostrar_mercado_pagina(
     filtro=None, valor_filtro=None, orden=None, user_id=None
 ):
     if user_id is None:
-        return  # Seguridad extra
+        return
 
+    # Construir la query según filtros
     query = {}
     if filtro == "estrellas" and valor_filtro:
         query["estrellas"] = valor_filtro
@@ -748,8 +749,7 @@ def mostrar_mercado_pagina(
     texto += "━━━━━━━━━━━━━━━━━\n"
 
     if total == 0:
-        texto += "⚠️ <b>No hay cartas a la venta en el mercado.</b>\n"
-        texto += "Usa <code>/vender &lt;id_unico&gt;</code> para poner la tuya."
+        texto += "⚠️ <b>No hay cartas a la venta en el mercado.</b>\nUsa <code>/vender &lt;id_unico&gt;</code> para poner la tuya."
     else:
         for c in cartas[inicio:fin]:
             estrellas = c.get('estrellas', '★??')
@@ -776,15 +776,13 @@ def mostrar_mercado_pagina(
         if fin < total:
             texto += f"Y {total-fin} más...\n"
 
-    # --- Filtros y navegación, todos con user_id ---
+    # --- Botón de FILTROS (lupa) + navegación ---
     fila_filtros = [
-        InlineKeyboardButton("📊 Por Estado", callback_data=f"mercado_filtro_estado_{user_id}"),
-        InlineKeyboardButton("👥 Por Grupo", callback_data=f"mercado_filtro_grupo_{user_id}"),
-        InlineKeyboardButton("🔢 Ordenar por #n", callback_data=f"mercado_ordenar_numero_{user_id}")
+        InlineKeyboardButton("🔍 Filtrar / Ordenar", callback_data=f"mercado_filtro_{user_id}")
     ]
     matriz = [fila_filtros]
 
-    # Quitar filtro
+    # Quitar filtro si hay alguno
     if filtro:
         matriz.append([InlineKeyboardButton("❌ Quitar filtro", callback_data=f"mercado_1_{user_id}")])
 
@@ -800,7 +798,7 @@ def mostrar_mercado_pagina(
     matriz.append([InlineKeyboardButton("🔙 Volver", callback_data=f"mercado_volver_{user_id}")])
     teclado = InlineKeyboardMarkup(matriz)
 
-    # Envío/edición
+    # Edición o envío del mensaje
     if editar and mensaje is not None:
         try:
             mensaje.edit_text(texto, reply_markup=teclado, parse_mode="HTML")
@@ -808,6 +806,7 @@ def mostrar_mercado_pagina(
             context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML")
     else:
         context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML")
+
 
     
 #----------Comando FAV1---------------
@@ -1074,9 +1073,9 @@ def comando_retirar(update, context):
     
 #---------filtros de mercado "grupo"------------------------------------------------
 
-def mostrar_filtros_grupo(chat_id, context, mensaje=None, editar=False, pagina=1):
+def mostrar_filtros_grupo(chat_id, context, mensaje=None, editar=False, pagina=1, user_id=None):
     grupos = sorted({c.get("grupo", "") for c in col_mercado.find() if c.get("grupo")})
-    por_pagina = 2
+    por_pagina = 4
     total = len(grupos)
     paginas = max(1, (total - 1) // por_pagina + 1)
     if pagina < 1:
@@ -1087,24 +1086,27 @@ def mostrar_filtros_grupo(chat_id, context, mensaje=None, editar=False, pagina=1
     fin = min(inicio + por_pagina, total)
     grupos_pagina = grupos[inicio:fin]
 
-    # Botones de grupo (máx 2 por fila)
-    fila_grupos = [InlineKeyboardButton(g, callback_data=f"mercado_grupo_{g}") for g in grupos_pagina]
-    # Botones de navegación (flechas) en una fila aparte
-    fila_flechas = []
+    botones_grupos = [
+        [InlineKeyboardButton(g, callback_data=f"mercado_grupo_{g}_{user_id}")]
+        for g in grupos_pagina
+    ]
+
+    # Botones de navegación entre páginas de grupos
+    fila_nav = []
     if pagina > 1:
-        fila_flechas.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_filtropagegrupo_{pagina-1}"))
+        fila_nav.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_filtropagegrupo_{pagina-1}_{user_id}"))
     if pagina < paginas:
-        fila_flechas.append(InlineKeyboardButton("➡️", callback_data=f"mercado_filtropagegrupo_{pagina+1}"))
+        fila_nav.append(InlineKeyboardButton("➡️", callback_data=f"mercado_filtropagegrupo_{pagina+1}_{user_id}"))
+    if fila_nav:
+        botones_grupos.append(fila_nav)
 
-    matriz = []
-    if fila_grupos:
-        matriz.append(fila_grupos)
-    if fila_flechas:
-        matriz.append(fila_flechas)
-    matriz.append([InlineKeyboardButton("🔙 Volver", callback_data="mercado_filtro")])
-    teclado = InlineKeyboardMarkup(matriz)
+    # Botón volver
+    botones_grupos.append([InlineKeyboardButton("🔙 Volver", callback_data=f"mercado_filtro_{user_id}")])
 
+    teclado = InlineKeyboardMarkup(botones_grupos)
     texto = "Selecciona un grupo para filtrar el mercado:"
+
+    # Editar o enviar mensaje
     if editar and mensaje is not None:
         try:
             mensaje.edit_text(texto, reply_markup=teclado)
@@ -1112,6 +1114,7 @@ def mostrar_filtros_grupo(chat_id, context, mensaje=None, editar=False, pagina=1
             context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado)
     else:
         context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado)
+
 
 #--------------------------------------------------------------------------------
 
@@ -1998,6 +2001,7 @@ def manejador_callback(update, context):
         )
         query.answer()
         return
+
 
 
 #------------------------------------------------------------
