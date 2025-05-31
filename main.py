@@ -1099,7 +1099,8 @@ def mostrar_filtros_grupo(chat_id, context, mensaje=None, editar=False, pagina=1
     matriz = fila_grupos
     if fila_flechas:
         matriz.append(fila_flechas)
-    matriz.append([InlineKeyboardButton("🔙 Volver", callback_data=f"mercado_filtro_{user_id}")])
+    # SOLO el botón de quitar filtro (no volver)
+    matriz.append([InlineKeyboardButton("❌ Quitar filtro", callback_data=f"mercado_1_{user_id}")])
     teclado = InlineKeyboardMarkup(matriz)
 
     texto = "Selecciona un grupo para filtrar el mercado:"
@@ -1107,11 +1108,10 @@ def mostrar_filtros_grupo(chat_id, context, mensaje=None, editar=False, pagina=1
         try:
             mensaje.edit_text(texto, reply_markup=teclado)
         except Exception:
-            context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado)
+            pass
     else:
-        context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado)
-
-
+        # Nunca uses send_message aquí, para evitar mensajes nuevos
+        pass
 
 #--------------------------------------------------------------------------------
 
@@ -1654,8 +1654,10 @@ def mostrar_menu_filtros(user_id, query):
         try:
             query.message.edit_reply_markup(reply_markup=teclado)
         except Exception:
-            query.message.reply_text("Elige un filtro:", reply_markup=teclado)
+            # Nunca uses send_message aquí
+            pass
     query.answer()
+
 
 
 
