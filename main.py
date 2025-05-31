@@ -711,6 +711,7 @@ def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar
         texto = f"<b>🛒 Cartas en el mercado (página {pagina}/{paginas}) — Filtrado por: {valor_filtro}</b>\n"
     else:
         texto = f"<b>🛒 Cartas en el mercado (página {pagina}/{paginas})</b>\n"
+    texto += "-----------------------------------------------------\n"
 
     if total == 0:
         texto += "No hay cartas a la venta en el mercado."
@@ -721,13 +722,13 @@ def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar
             nombre = c.get('nombre', '')
             version = c.get('version', '')
             estado = c.get('estado', '')
-            precio = precio_carta_karuta(nombre, version, estado, id_unico=id_unico)
+            card_id = c.get('card_id', '')
+            precio = c.get('precio', precio_carta_karuta(nombre, version, estado, id_unico=id_unico))
+            # Formato solicitado:
             texto += (
-                f"• <code>{id_unico}</code> · [{estrellas}] "
-                f"{nombre} [{version}] — <b>{precio} Kponey</b>\n"
-                f"  /comprar {id_unico}\n"
+                f"• <code>{id_unico}</code> · [{estrellas}] · [{version}] · {nombre} · #{card_id} — 💲<b>{precio}</b>\n"
+                f"  <code>/comprar {id_unico}</code>\n"
             )
-
         if fin < total:
             texto += f"Y {total-fin} más...\n"
 
@@ -757,6 +758,7 @@ def mostrar_mercado_pagina(chat_id, pagina=1, context=None, mensaje=None, editar
             context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML")
     else:
         context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML")
+
 
 
     
