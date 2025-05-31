@@ -1079,8 +1079,13 @@ def comando_retirar(update, context):
 #---------filtros de mercado "grupo"------------------------------------------------
 
 def mostrar_filtros_grupo(chat_id, context, mensaje=None, editar=False, pagina=1, user_id=None):
+    """
+    Muestra la lista de grupos para filtrar cartas en el mercado.
+    Siempre edita el mensaje original del mercado, nunca envía uno nuevo.
+    """
+    # Trae todos los grupos únicos del mercado
     grupos = sorted({c.get("grupo", "") for c in col_mercado.find() if c.get("grupo")})
-    por_pagina = 2
+    por_pagina = 5
     total = len(grupos)
     paginas = max(1, (total - 1) // por_pagina + 1)
     if pagina < 1:
@@ -1091,11 +1096,12 @@ def mostrar_filtros_grupo(chat_id, context, mensaje=None, editar=False, pagina=1
     fin = min(inicio + por_pagina, total)
     grupos_pagina = grupos[inicio:fin]
 
-    # Botones de grupo
+    # Crea botones (un grupo por botón, máximo 5 por página)
     matriz = []
     for g in grupos_pagina:
         matriz.append([InlineKeyboardButton(g, callback_data=f"mercado_grupo_{g}_{user_id}")])
-    # Navegación
+
+    # Navegación entre páginas de grupos
     nav = []
     if pagina > 1:
         nav.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_filtropagegrupo_{pagina-1}_{user_id}"))
@@ -1103,7 +1109,8 @@ def mostrar_filtros_grupo(chat_id, context, mensaje=None, editar=False, pagina=1
         nav.append(InlineKeyboardButton("➡️", callback_data=f"mercado_filtropagegrupo_{pagina+1}_{user_id}"))
     if nav:
         matriz.append(nav)
-    # Volver
+
+    # Volver al menú de filtros principal
     matriz.append([InlineKeyboardButton("🔙 Volver", callback_data=f"mercado_filtro_{user_id}")])
     teclado = InlineKeyboardMarkup(matriz)
 
@@ -1115,6 +1122,7 @@ def mostrar_filtros_grupo(chat_id, context, mensaje=None, editar=False, pagina=1
             context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado)
     else:
         context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado)
+
 
 
 #--------------------------------------------------------------------------------
