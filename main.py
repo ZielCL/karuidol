@@ -711,7 +711,7 @@ def comando_inventario(update, context):
 #----------------------------------------------------
 
 def mostrar_mercado_pagina(
-    chat_id, pagina=1, context=None, mensaje=None, editar=False, 
+    chat_id, pagina=1, context=None, mensaje=None, editar=False,
     filtro=None, valor_filtro=None, orden=None
 ):
     query = {}
@@ -721,15 +721,11 @@ def mostrar_mercado_pagina(
         query["grupo"] = valor_filtro
 
     cartas = list(col_mercado.find(query))
-
-    # Ordena según corresponda
-    if orden == "mayor":
-        cartas.sort(key=lambda x: int(x.get('card_id', 0)), reverse=True)
-    elif orden == "menor":
-        cartas.sort(key=lambda x: int(x.get('card_id', 0)))
-    else:
-        # Por defecto, no ordenar o puedes poner por fecha si quieres
-        pass
+    # Ordenar si corresponde
+    if orden == "menor":
+        cartas.sort(key=lambda c: c.get("card_id", 0))
+    elif orden == "mayor":
+        cartas.sort(key=lambda c: c.get("card_id", 0), reverse=True)
 
     por_pagina = 10
     total = len(cartas)
@@ -776,31 +772,30 @@ def mostrar_mercado_pagina(
         if fin < total:
             texto += f"Y {total-fin} más...\n"
 
-    # Botones de filtros y orden
+    # --- TECLADO ---
+    botones = []
+    # SOLO mostrar la lupa/filtros aquí
     fila_filtros = [
-        InlineKeyboardButton("📊 Por Estado", callback_data="mercado_filtro_estado"),
-        InlineKeyboardButton("👥 Por Grupo", callback_data="mercado_filtro_grupo"),
-        InlineKeyboardButton("🔢 Ordenar por #n", callback_data=f"mercado_ordenar_numero" +
-                             (f"_{filtro}_{valor_filtro}" if filtro and valor_filtro else ""))
+        InlineKeyboardButton("🔎 Filtrar", callback_data="mercado_filtro")
     ]
-    matriz = [fila_filtros]
-
-    # Navegación
     nav = []
-    # Agregar orden a los callback_data de paginación si está aplicado
     if pagina > 1:
-        nav.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_{pagina-1}" +
-                                        (f"_{orden}" if orden else "")))
+        # Al paginar, si hay orden activo, pásalo por callback
+        if orden:
+            nav.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_{pagina-1}_{orden}"))
+        else:
+            nav.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_{pagina-1}"))
     if pagina < paginas:
-        nav.append(InlineKeyboardButton("➡️", callback_data=f"mercado_{pagina+1}" +
-                                        (f"_{orden}" if orden else "")))
+        if orden:
+            nav.append(InlineKeyboardButton("➡️", callback_data=f"mercado_{pagina+1}_{orden}"))
+        else:
+            nav.append(InlineKeyboardButton("➡️", callback_data=f"mercado_{pagina+1}"))
+    matriz = []
+    if fila_filtros:
+        matriz.append(fila_filtros)
     if nav:
         matriz.append(nav)
-
-    # Botón volver
-    matriz.append([InlineKeyboardButton("🔙 Volver", callback_data="mercado_1")])
-
-    teclado = InlineKeyboardMarkup(matriz)
+    teclado = InlineKeyboardMarkup(matriz) if matriz else None
 
     if editar and mensaje is not None:
         try:
@@ -809,7 +804,6 @@ def mostrar_mercado_pagina(
             context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML")
     else:
         context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML")
-
 
     
 #----------Comando FAV1---------------
@@ -1700,21 +1694,20 @@ def manejador_callback(update, context):
 
     # --- MERCADO Y FILTROS ---
     if data == "mercado_filtro":
-        botones = [
-            [
-                InlineKeyboardButton("📊 Por Estado", callback_data="mercado_filtro_estado"),
-                InlineKeyboardButton("👥 Por Grupo", callback_data="mercado_filtro_grupo"),
-                InlineKeyboardButton("🔢 Ordenar por #n", callback_data="mercado_ordenar_numero")
-            ],
-            [InlineKeyboardButton("🔙 Volver", callback_data="mercado_1")]
-        ]
-        teclado = InlineKeyboardMarkup(botones)
-        try:
-            query.edit_message_reply_markup(reply_markup=teclado)
-        except Exception:
-            query.message.reply_text("Elige un filtro:", reply_markup=teclado)
-        query.answer()
-        return
+       botones = [
+           [InlineKeyboardButton("📊 Por Estado", callback_data="mercado_filtro_estado")],
+           [InlineKeyboardButton("👥 Por Grupo", callback_data="mercado_filtro_grupo")],
+           [InlineKeyboardButton("🔢 Ordenar por #n", callback_data="mercado_ordenar_numero")],
+           [InlineKeyboardButton("🔙 Volver", callback_data="mercado_1")]
+       ]
+       teclado = InlineKeyboardMarkup(botones)
+       try:
+           query.edit_message_reply_markup(reply_markup=teclado)
+       except Exception:
+           query.message.reply_text("Elige un filtro:", reply_markup=teclado)
+    query.answer()
+    return
+
 
     # Filtro por ESTRELLAS (calidad visual)
     if data == "mercado_filtro_estado":
