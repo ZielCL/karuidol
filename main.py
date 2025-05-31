@@ -1187,9 +1187,16 @@ def comando_ampliar(update, context):
         return
     usuario_id = update.message.from_user.id
     id_unico = context.args[0].strip()
+
+    # 1. Busca en inventario
     carta = col_cartas_usuario.find_one({"user_id": usuario_id, "id_unico": id_unico})
+    fuente = "album"
     if not carta:
-        update.message.reply_text("No encontré esa carta en tu álbum.")
+        # 2. Si no está, busca en mercado
+        carta = col_mercado.find_one({"id_unico": id_unico})
+        fuente = "mercado"
+    if not carta:
+        update.message.reply_text("No encontré esa carta en tu álbum ni en el mercado.")
         return
 
     # Traer datos principales
@@ -1200,14 +1207,19 @@ def comando_ampliar(update, context):
     estrellas = carta.get('estrellas', '★??')
     estado = carta.get('estado', '')
     card_id = carta.get('card_id', '')
-    precio = precio_carta_karuta(nombre, version, estado, id_unico=id_unico)
     total_copias = col_cartas_usuario.count_documents({"nombre": nombre, "version": version})
 
-    # Saber si es favorita
+    # Saber si es favorita (solo si está en el álbum)
     doc_user = col_usuarios.find_one({"user_id": usuario_id}) or {}
     favoritos = doc_user.get("favoritos", [])
     es_fav = any(fav.get("nombre") == nombre and fav.get("version") == version for fav in favoritos)
     estrella_fav = "⭐ " if es_fav else ""
+
+    # --- Corrige aquí: usa el precio guardado si está en mercado ---
+    if fuente == "mercado" and "precio" in carta:
+        precio = carta["precio"]
+    else:
+        precio = precio_carta_karuta(nombre, version, estado, id_unico=id_unico)
 
     # Texto bonito
     texto = (
@@ -1221,10 +1233,13 @@ def comando_ampliar(update, context):
         f"• Copias globales: <b>{total_copias}</b>"
     )
 
-    # Botón de vender
-    teclado = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🛒 Vender", callback_data=f"ampliar_vender_{id_unico}")]
-    ])
+    # Botón de vender (solo si está en álbum)
+    if fuente == "album":
+        teclado = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🛒 Vender", callback_data=f"ampliar_vender_{id_unico}")]
+        ])
+    else:
+        teclado = None
 
     update.message.reply_photo(
         photo=imagen_url,
