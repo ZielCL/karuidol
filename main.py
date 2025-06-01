@@ -1683,40 +1683,40 @@ def manejador_callback(update, context):
 
     # Botones de filtro por estado (estrellas visuales)
 # ---- Filtro por estado (vertical, con texto) ----
-if data.startswith("mercado_filtro_estado_"):
-    user_id = get_uid(data)
-    botones = [
-        [InlineKeyboardButton("★★★", callback_data=f"mercado_estado_3_{user_id}")],
-        [InlineKeyboardButton("★★☆", callback_data=f"mercado_estado_2_{user_id}")],
-        [InlineKeyboardButton("★☆☆", callback_data=f"mercado_estado_1_{user_id}")],
-        [InlineKeyboardButton("☆☆☆", callback_data=f"mercado_estado_0_{user_id}")],
-        [InlineKeyboardButton("❌ Quitar filtro", callback_data=f"mercado_1_{user_id}")]
-    ]
-    teclado = InlineKeyboardMarkup(botones)
-    try:
-        query.edit_message_text(
-            "Selecciona el estado para filtrar el mercado:",
-            reply_markup=teclado
-        )
-    except Exception as e:
-        print("Error edit_message_text en filtro_estado:", e)
-    query.answer()
-    return
+    if data.startswith("mercado_filtro_estado_"):
+        user_id = get_uid(data)
+        botones = [
+            [InlineKeyboardButton("★★★", callback_data=f"mercado_estado_3_{user_id}")],
+            [InlineKeyboardButton("★★☆", callback_data=f"mercado_estado_2_{user_id}")],
+            [InlineKeyboardButton("★☆☆", callback_data=f"mercado_estado_1_{user_id}")],
+            [InlineKeyboardButton("☆☆☆", callback_data=f"mercado_estado_0_{user_id}")],
+            [InlineKeyboardButton("❌ Quitar filtro", callback_data=f"mercado_1_{user_id}")]
+        ]
+        teclado = InlineKeyboardMarkup(botones)
+        try:
+            query.edit_message_text(
+               "Selecciona el estado para filtrar el mercado:",
+               reply_markup=teclado
+            )
+        except Exception as e:
+            print("Error edit_message_text en filtro_estado:", e)
+        query.answer()
+        return
 
 
 # ---- Filtro por grupo (abre submenú paginado) ----
-if data.startswith("mercado_filtro_grupo_"):
-    user_id = get_uid(data)
-    mostrar_filtros_grupo(
-        query.message.chat_id,
-        context,
-        mensaje=query.message,
-        editar=True,
-        pagina=1,
-        user_id=user_id
-    )
-    query.answer()
-    return
+    if data.startswith("mercado_filtro_grupo_"):
+        user_id = get_uid(data)
+        mostrar_filtros_grupo(
+            query.message.chat_id,
+            context,
+            mensaje=query.message,
+            editar=True,
+            pagina=1,
+            user_id=user_id
+        )
+        query.answer()
+        return
 
 
 
