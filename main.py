@@ -1068,15 +1068,20 @@ def comando_retirar(update, context):
 #---------filtros de mercado "grupo"------------------------------------------------
 
 def mostrar_filtros_grupo(chat_id, context, mensaje=None, editar=False, pagina=1, user_id=None):
-    grupos = sorted({c.get("grupo", "") for c in col_mercado.find() if c.get("grupo")})
-    por_pagina = 4
-    total = len(grupos)
-    paginas = max(1, (total - 1) // por_pagina + 1)
-    if pagina < 1: pagina = 1
-    if pagina > paginas: pagina = paginas
-    inicio = (pagina - 1) * por_pagina
-    fin = min(inicio + por_pagina, total)
-    grupos_pagina = grupos[inicio:fin]
+    # ... todo igual ...
+    texto = "Selecciona un grupo para filtrar el mercado:"
+    teclado = InlineKeyboardMarkup(matriz)
+    if editar and mensaje is not None:
+        try:
+            mensaje.edit_text(texto, reply_markup=teclado)
+        except Exception:
+            try:
+                mensaje.edit_reply_markup(reply_markup=teclado)
+            except Exception:
+                pass
+    else:
+        context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado)
+
 
     # Botones de grupo (máx 2 por fila)
     fila_grupos = []
@@ -1636,9 +1641,7 @@ def callback_ampliar_vender(update, context):
     )
 
 #-------------mostrar_menu_filtros------------
-from telegram import InlineKeyboardMarkup, InlineKeyboardButton
-
-ddef mostrar_menu_filtros(user_id, query):
+def mostrar_menu_filtros(user_id, query):
     botones = [
         [InlineKeyboardButton("📊 Por Estado", callback_data=f"mercado_filtro_estado_{user_id}")],
         [InlineKeyboardButton("👥 Por Grupo", callback_data=f"mercado_filtro_grupo_{user_id}")],
@@ -1647,13 +1650,13 @@ ddef mostrar_menu_filtros(user_id, query):
     ]
     teclado = InlineKeyboardMarkup(botones)
     try:
-        query.edit_message_reply_markup(reply_markup=teclado)
+        # Para asegurar que siempre se refresca, actualiza el texto
+        query.edit_message_text("Selecciona un filtro:", reply_markup=teclado)
     except Exception:
         try:
-            query.message.edit_reply_markup(reply_markup=teclado)
+            query.edit_message_reply_markup(reply_markup=teclado)
         except Exception:
-            # Si no puede, edita el texto entero
-            query.edit_message_text("Elige un filtro:", reply_markup=teclado)
+            pass
     query.answer()
 
 
@@ -1709,14 +1712,15 @@ def manejador_callback(update, context):
         ]
         teclado = InlineKeyboardMarkup(botones)
         try:
-            query.edit_message_reply_markup(reply_markup=teclado)
+            query.edit_message_text("Selecciona un estado para filtrar:", reply_markup=teclado)
         except Exception:
             try:
-                query.message.edit_reply_markup(reply_markup=teclado)
+                query.edit_message_reply_markup(reply_markup=teclado)
             except Exception:
-                query.message.reply_text("Filtra por calidad:", reply_markup=teclado)
+                pass
         query.answer()
         return
+
 
     # Botones de filtro por grupo (listado paginado)
     if data.startswith("mercado_filtro_grupo_"):
