@@ -1067,56 +1067,45 @@ def comando_retirar(update, context):
     
 #---------filtros de mercado "grupo"------------------------------------------------
 
-def mostrar_filtros_grupo(chat_id, context, mensaje=None, editar=False, pagina=1, user_id=None):
-    # ... todo igual ...
-    texto = "Selecciona un grupo para filtrar el mercado:"
-    teclado = InlineKeyboardMarkup(matriz)
-    if editar and mensaje is not None:
-        try:
-            mensaje.edit_text(texto, reply_markup=teclado)
-        except Exception:
-            try:
-                mensaje.edit_reply_markup(reply_markup=teclado)
-            except Exception:
-                pass
-    else:
-        context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado)
+def mostrar_filtros_grupo(
+    chat_id, context, mensaje=None, editar=False, pagina=1, user_id=None
+):
+    grupos = sorted({c.get("grupo", "") for c in col_mercado.find() if c.get("grupo")})
+    por_pagina = 4
+    total = len(grupos)
+    paginas = max(1, (total - 1) // por_pagina + 1)
+    if pagina < 1: pagina = 1
+    if pagina > paginas: pagina = paginas
+    inicio = (pagina - 1) * por_pagina
+    fin = min(inicio + por_pagina, total)
+    grupos_pagina = grupos[inicio:fin]
 
+    # Botones de grupo, vertical
+    matriz = []
+    for g in grupos_pagina:
+        matriz.append([InlineKeyboardButton(g, callback_data=f"mercado_grupo_{g}_{user_id}")])
 
-    # Botones de grupo (máx 2 por fila)
-    fila_grupos = []
-    botones_grupos = []
-    for idx, g in enumerate(grupos_pagina):
-        botones_grupos.append(InlineKeyboardButton(g, callback_data=f"mercado_grupo_{g}_{user_id}"))
-        if (idx + 1) % 2 == 0:
-            fila_grupos.append(botones_grupos)
-            botones_grupos = []
-    if botones_grupos:
-        fila_grupos.append(botones_grupos)
-
-    # Botones de navegación (flechas)
-    fila_flechas = []
+    # Navegación
+    nav = []
     if pagina > 1:
-        fila_flechas.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_filtropagegrupo_{pagina-1}_{user_id}"))
+        nav.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_filtropagegrupo_{pagina-1}_{user_id}"))
     if pagina < paginas:
-        fila_flechas.append(InlineKeyboardButton("➡️", callback_data=f"mercado_filtropagegrupo_{pagina+1}_{user_id}"))
-
-    matriz = fila_grupos
-    if fila_flechas:
-        matriz.append(fila_flechas)
-    # SOLO el botón de quitar filtro (no volver)
+        nav.append(InlineKeyboardButton("➡️", callback_data=f"mercado_filtropagegrupo_{pagina+1}_{user_id}"))
+    if nav:
+        matriz.append(nav)
     matriz.append([InlineKeyboardButton("❌ Quitar filtro", callback_data=f"mercado_1_{user_id}")])
-    teclado = InlineKeyboardMarkup(matriz)
 
+    teclado = InlineKeyboardMarkup(matriz)
     texto = "Selecciona un grupo para filtrar el mercado:"
+
     if editar and mensaje is not None:
         try:
             mensaje.edit_text(texto, reply_markup=teclado)
         except Exception:
             pass
     else:
-        # Nunca uses send_message aquí, para evitar mensajes nuevos
-        pass
+        pass  # nunca uses send_message aquí
+
 
 #--------------------------------------------------------------------------------
 
@@ -1650,14 +1639,20 @@ def mostrar_menu_filtros(user_id, query):
     ]
     teclado = InlineKeyboardMarkup(botones)
     try:
-        # Para asegurar que siempre se refresca, actualiza el texto
-        query.edit_message_text("Selecciona un filtro:", reply_markup=teclado)
+        query.edit_message_text(
+            "Selecciona un filtro:",
+            reply_markup=teclado
+        )
     except Exception:
         try:
-            query.edit_message_reply_markup(reply_markup=teclado)
+            query.message.edit_text(
+                "Selecciona un filtro:",
+                reply_markup=teclado
+            )
         except Exception:
             pass
     query.answer()
+
 
 
 
@@ -1701,6 +1696,7 @@ def manejador_callback(update, context):
         return
 
     # Botones de filtro por estado (estrellas visuales)
+# ---- Filtro por estado (vertical, con texto) ----
     if data.startswith("mercado_filtro_estado_"):
         user_id = get_uid(data)
         botones = [
@@ -1712,22 +1708,30 @@ def manejador_callback(update, context):
         ]
         teclado = InlineKeyboardMarkup(botones)
         try:
-            query.edit_message_text("Selecciona un estado para filtrar:", reply_markup=teclado)
+            query.edit_message_text(
+                "Selecciona el estado para filtrar el mercado:",
+                reply_markup=teclado
+            )
         except Exception:
-            try:
-                query.edit_message_reply_markup(reply_markup=teclado)
-            except Exception:
-                pass
+            pass
         query.answer()
         return
 
-
-    # Botones de filtro por grupo (listado paginado)
+# ---- Filtro por grupo (abre submenú paginado) ----
     if data.startswith("mercado_filtro_grupo_"):
         user_id = get_uid(data)
-        mostrar_filtros_grupo(query.message.chat_id, context, mensaje=query.message, editar=True, pagina=1, user_id=user_id)
+        mostrar_filtros_grupo(
+            query.message.chat_id,
+            context,
+            mensaje=query.message,
+            editar=True,
+            pagina=1,
+            user_id=user_id
+        )
         query.answer()
         return
+
+
 
     # Navegación en el paginado de grupos (flechas)
     if data.startswith("mercado_filtropagegrupo_"):
