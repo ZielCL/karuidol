@@ -177,24 +177,43 @@ def extraer_card_id_de_id_unico(id_unico):
 
 
 def precio_carta_karuta(nombre, version, estado, id_unico=None, card_id=None):
-    total_copias = col_cartas_usuario.count_documents({"nombre": nombre, "version": version})
-    if total_copias == 0:
-        total_copias = 1
-    base = BASE_PRICE + RAREZA / math.sqrt(total_copias)
-    mult = ESTADO_MULTIPLICADORES.get(estado, 1.0)
-    precio = int(base * mult)
-
+    """
+    Calcula el precio de una carta al estilo Karuta (Discord):
+    Solo depende del número de carta (print), no importa el estado ni el total de copias.
+    Si en el futuro agregas rarezas (versiones), aquí puedes multiplicar el precio base.
+    """
+    # Determina card_id
     if card_id is None and id_unico:
         card_id = extraer_card_id_de_id_unico(id_unico)
-    if card_id is not None:
-        if card_id == 1:
-            precio *= 5
-        elif 2 <= card_id <= 10:
-            precio *= 3
-        elif 11 <= card_id <= 99:
-            precio *= 2
-        # desde #100 no cambia
-    return precio
+
+    # SOLO versión común (V1)
+    precio_base = 0
+    if card_id == 1:
+        precio_base = 12000
+    elif card_id == 2:
+        precio_base = 7000
+    elif card_id == 3:
+        precio_base = 4500
+    elif card_id == 4:
+        precio_base = 3000
+    elif card_id == 5:
+        precio_base = 2250
+    elif 6 <= card_id <= 10:
+        precio_base = 1500
+    elif 11 <= card_id <= 100:
+        precio_base = 600
+    else:
+        precio_base = 500
+
+    # Si más adelante agregas versiones raras, aplica aquí:
+    # if version == "V2":
+    #     precio_base *= 2
+    # elif version == "V3":
+    #     precio_base *= 4
+    # ... (etc)
+
+    return precio_base
+
 
 
 def random_id_unico(card_id):
@@ -448,6 +467,66 @@ FRASES_ESTADO = {
     "Mal estado": "Podría estar mejor...",
     "Muy mal estado": "¡Oh no!"
 }
+
+
+def actualizar_precios_mercado():
+    from pymongo import MongoClient
+    import os
+    MONGO_URI = os.getenv('MONGO_URI')
+    client = MongoClient(MONGO_URI)
+    db = client['karuta_bot']
+    col_mercado = db['mercado_cartas']
+
+    # Función local (usa la nueva lógica de precios)
+    def extraer_card_id_de_id_unico(id_unico):
+        if id_unico and len(id_unico) > 4:
+            try:
+                return int(id_unico[4:])
+            except:
+                return None
+        return None
+
+    def precio_carta_karuta(nombre, version, estado, id_unico=None, card_id=None):
+        if card_id is None and id_unico:
+            card_id = extraer_card_id_de_id_unico(id_unico)
+        if card_id == 1:
+            return 12000
+        elif card_id == 2:
+            return 7000
+        elif card_id == 3:
+            return 4500
+        elif card_id == 4:
+            return 3000
+        elif card_id == 5:
+            return 2250
+        elif 6 <= card_id <= 10:
+            return 1500
+        elif 11 <= card_id <= 100:
+            return 600
+        else:
+            return 500
+
+    # Recorre todas las cartas y actualiza
+    cartas_mercado = list(col_mercado.find({}))
+    cambios = 0
+    for carta in cartas_mercado:
+        nombre = carta.get('nombre')
+        version = carta.get('version')
+        estado = carta.get('estado')
+        id_unico = carta.get('id_unico')
+        card_id = carta.get('card_id')
+        precio = precio_carta_karuta(nombre, version, estado, id_unico=id_unico, card_id=card_id)
+        res = col_mercado.update_one({'_id': carta['_id']}, {'$set': {'precio': precio}})
+        if res.modified_count:
+            cambios += 1
+    print(f"Precios actualizados en {cambios} cartas del mercado.")
+
+# Ejecuta esta función **una sola vez** en tu entorno para dejar todo el mercado con los valores correctos.
+
+
+
+
+
 
 def manejador_reclamar(update, context):
     print("Entrando a manejador_reclamar...")
@@ -755,7 +834,7 @@ def mostrar_mercado_pagina(
             nombre = c.get('nombre', '')
             version = c.get('version', '')
             card_id = c.get('card_id', '')
-            precio = c.get('precio', precio_carta_karuta(nombre, version, c.get('estado', ''), id_unico=id_unico))
+            precio = precio_carta_karuta(nombre, version, c.get('estado', ''), id_unico=id_unico)
             # Emoji por rareza
             if estrellas == "★★★":
                 icon = "🌟"
@@ -1258,10 +1337,7 @@ def comando_ampliar(update, context):
     estrella_fav = "⭐ " if es_fav else ""
 
     # --- Corrige aquí: usa el precio guardado si está en mercado ---
-    if fuente == "mercado" and "precio" in carta:
-        precio = carta["precio"]
-    else:
-        precio = precio_carta_karuta(nombre, version, estado, id_unico=id_unico)
+    precio = precio_carta_karuta(nombre, version, estado, id_unico=id_unico)
 
     # Texto bonito
     texto = (
