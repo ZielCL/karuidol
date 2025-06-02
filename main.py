@@ -469,65 +469,6 @@ FRASES_ESTADO = {
 }
 
 
-def actualizar_precios_mercado():
-    from pymongo import MongoClient
-    import os
-    MONGO_URI = os.getenv('MONGO_URI')
-    client = MongoClient(MONGO_URI)
-    db = client['karuta_bot']
-    col_mercado = db['mercado_cartas']
-
-    # Función local (usa la nueva lógica de precios)
-    def extraer_card_id_de_id_unico(id_unico):
-        if id_unico and len(id_unico) > 4:
-            try:
-                return int(id_unico[4:])
-            except:
-                return None
-        return None
-
-    def precio_carta_karuta(nombre, version, estado, id_unico=None, card_id=None):
-        if card_id is None and id_unico:
-            card_id = extraer_card_id_de_id_unico(id_unico)
-        if card_id == 1:
-            return 12000
-        elif card_id == 2:
-            return 7000
-        elif card_id == 3:
-            return 4500
-        elif card_id == 4:
-            return 3000
-        elif card_id == 5:
-            return 2250
-        elif 6 <= card_id <= 10:
-            return 1500
-        elif 11 <= card_id <= 100:
-            return 600
-        else:
-            return 500
-
-    # Recorre todas las cartas y actualiza
-    cartas_mercado = list(col_mercado.find({}))
-    cambios = 0
-    for carta in cartas_mercado:
-        nombre = carta.get('nombre')
-        version = carta.get('version')
-        estado = carta.get('estado')
-        id_unico = carta.get('id_unico')
-        card_id = carta.get('card_id')
-        precio = precio_carta_karuta(nombre, version, estado, id_unico=id_unico, card_id=card_id)
-        res = col_mercado.update_one({'_id': carta['_id']}, {'$set': {'precio': precio}})
-        if res.modified_count:
-            cambios += 1
-    print(f"Precios actualizados en {cambios} cartas del mercado.")
-
-# Ejecuta esta función **una sola vez** en tu entorno para dejar todo el mercado con los valores correctos.
-
-
-
-
-
-
 def manejador_reclamar(update, context):
     print("Entrando a manejador_reclamar...")
     query = update.callback_query
