@@ -1711,14 +1711,14 @@ def manejador_callback(update, context):
         ]
         teclado = InlineKeyboardMarkup(botones)
         try:
-            query.edit_message_text(
-               "Selecciona el estado para filtrar el mercado:",
-               reply_markup=teclado
-            )
+            query.edit_message_text("Selecciona el estado para filtrar el mercado:", reply_markup=teclado)
         except Exception as e:
-            print("Error edit_message_text en filtro_estado:", e)
+            from telegram.error import BadRequest
+            if "Message is not modified" not in str(e):
+                print("Error edit_message_text en filtro_estado:", e)
         query.answer()
         return
+
 
 
 # ---- Filtro por grupo (abre submenú paginado) ----
