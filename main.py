@@ -568,7 +568,7 @@ def manejador_reclamar(update, context):
             puede_reclamar = True
             col_usuarios.update_one({"user_id": usuario_click}, {"$inc": {"bono": -1}}, upsert=True)
     # NO DUEÑO DEL DROP
-    if not solo_dueño and carta["usuario"] is None:
+if not solo_dueño and carta["usuario"] is None:
     cooldown_listo, bono_listo = puede_usar_idolday(usuario_click)
     ahora = datetime.utcnow()
     if cooldown_listo:
