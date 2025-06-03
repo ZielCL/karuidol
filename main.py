@@ -163,6 +163,30 @@ def agregar_numero_a_imagen(imagen_url, numero):
     return output
 
 
+   CATALOGO_OBJETOS = {
+    "bono_idolday": {
+        "nombre": "Bono Idolday",
+        "emoji": "🎟️",
+        "desc": "Permite tirar un /idolday adicional.",
+        "precio": 1200
+    },
+    "ticket_intercambio": {
+        "nombre": "Ticket Intercambio",
+        "emoji": "🔁",
+        "desc": "Permite intercambiar cartas con otro usuario.",
+        "precio": 1500
+    },
+    "cofre_misterioso": {
+        "nombre": "Cofre Misterioso",
+        "emoji": "🎁",
+        "desc": "¡Contiene una recompensa aleatoria!",
+        "precio": 1800
+    },
+    # Puedes seguir agregando objetos aquí...
+}
+
+#--------------------------------------------------------------
+
 def extraer_card_id_de_id_unico(id_unico):
     """
     Extrae el número de carta (card_id) del id_unico que termina con el número después de los 4 primeros caracteres.
@@ -795,14 +819,86 @@ def comando_inventario(update, context):
     usuario_id = update.message.from_user.id
     chat_id = update.effective_chat.id
 
-    # Catálogo de objetos con descripciones
-    catalogo = {
-        "bono_idolday": "🎟️ Bono Idolday\nPermite tirar un /idolday adicional.",
-        "ticket_intercambio": "🔁 Ticket de intercambio\nPermite intercambiar cartas con otro usuario.",
-        "cofre_misterioso": "🎁 Cofre Misterioso\n¡Usa /abrir para obtener una recompensa sorpresa!",
-        "lightstick": "💡 Lightstick\nMejora el estado de una carta:\n• ☆☆☆ → ★☆☆ (100%)\n• ★☆☆ → ★★☆ (70%)\n• ★★☆ → ★★★ (40%)",
-        # Agrega más objetos aquí si lo deseas
-    }
+    doc = col_usuarios.find_one({"user_id": usuario_id}) or {}
+    objetos = doc.get("objetos", {})
+    kponey = doc.get("kponey", 0)
+
+    texto = f"🎒 <b>Tu inventario</b>\n\n"
+    tiene_objetos = False
+    for obj_id, info in CATALOGO_OBJETOS.items():
+        cantidad = objetos.get(obj_id, 0)
+        if cantidad > 0:
+            tiene_objetos = True
+            texto += f"{info['emoji']} <b>{info['nombre']}</b>: <b>{cantidad}</b>\n{info['desc']}\n\n"
+    if not tiene_objetos:
+        texto += "No tienes objetos todavía.\n"
+    texto += f"\n💸 <b>Kponey:</b> <code>{kponey}</code>"
+    texto += "\n\nUsa <code>/tienda</code> para comprar objetos."
+    update.message.reply_text(texto, parse_mode="HTML")
+
+
+
+@cooldown_critico
+def comando_tienda(update, context):
+    usuario_id = update.message.from_user.id
+    chat_id = update.effective_chat.id
+    doc = col_usuarios.find_one({"user_id": usuario_id}) or {}
+    kponey = doc.get("kponey", 0)
+
+    texto = "🛒 <b>Tienda de objetos</b>\n\n"
+    botones = []
+    for obj_id, info in CATALOGO_OBJETOS.items():
+        texto += (
+            f"{info['emoji']} <b>{info['nombre']}</b> — <code>{info['precio']} Kponey</code>\n"
+            f"{info['desc']}\n\n"
+        )
+        botones.append([InlineKeyboardButton(f"{info['emoji']} Comprar {info['nombre']}", callback_data=f"comprarobj_{obj_id}")])
+    texto += f"💸 <b>Tu saldo:</b> <code>{kponey}</code>"
+
+    teclado = InlineKeyboardMarkup(botones)
+    update.message.reply_text(texto, parse_mode="HTML", reply_markup=teclado)
+
+
+def comprar_objeto(usuario_id, obj_id, context, chat_id, reply_func):
+    info = CATALOGO_OBJETOS.get(obj_id)
+    if not info:
+        reply_func("Ese objeto no existe.")
+        return
+
+    doc = col_usuarios.find_one({"user_id": usuario_id}) or {}
+    kponey = doc.get("kponey", 0)
+    precio = info['precio']
+    if kponey < precio:
+        reply_func("No tienes suficiente Kponey para este objeto.")
+        return
+
+    col_usuarios.update_one(
+        {"user_id": usuario_id},
+        {"$inc": {f"objetos.{obj_id}": 1, "kponey": -precio}},
+        upsert=True
+    )
+    reply_func(
+        f"¡Compraste {info['emoji']} <b>{info['nombre']}</b> por <b>{precio} Kponey</b>!",
+        parse_mode="HTML"
+    )
+
+
+@cooldown_critico
+def comando_comprarobjeto(update, context):
+    usuario_id = update.message.from_user.id
+    chat_id = update.effective_chat.id
+    if not context.args:
+        update.message.reply_text("Usa: /comprarobjeto <objeto_id>\nEjemplo: /comprarobjeto bono_idolday")
+        return
+    obj_id = context.args[0].strip()
+    comprar_objeto(
+        usuario_id, obj_id, context, chat_id,
+        lambda text, **kwargs: update.message.reply_text(text, **kwargs)
+    )
+
+
+
+
 #----------------------------------------------------
 
 def mostrar_mercado_pagina(
@@ -1926,9 +2022,29 @@ def manejador_callback(update, context):
             pass
         query.answer()
         return
+        
 
-    # ====== RESTO DE CALLBACKS DEL SISTEMA ======
+def callback_comprarobj(update, context):
+    query = update.callback_query
+    data = query.data
+    if not data.startswith("comprarobj_"):
+        return
+    obj_id = data.replace("comprarobj_", "")
+    usuario_id = query.from_user.id
+    chat_id = query.message.chat_id
 
+    def reply_func(text, **kwargs):
+        query.answer(text="¡Compra procesada!", show_alert=False)
+        context.bot.send_message(chat_id=chat_id, text=text, **kwargs)
+
+    comprar_objeto(usuario_id, obj_id, context, chat_id, reply_func)
+
+
+
+
+
+
+    
     # --- VER CARTA INDIVIDUAL ---
     if data.startswith("vercarta"):
         partes = data.split("_")
@@ -2181,6 +2297,9 @@ def comando_setsprogreso(update, context):
 
 dispatcher.add_handler(CallbackQueryHandler(callback_ampliar_vender, pattern="^ampliar_vender_"))
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback))
+dispatcher.add_handler(CommandHandler('inventario', comando_inventario))
+dispatcher.add_handler(CommandHandler('tienda', comando_tienda))
+dispatcher.add_handler(CommandHandler('comprarobjeto', comando_comprarobjeto))
 dispatcher.add_handler(CommandHandler('idolday', comando_idolday))
 dispatcher.add_handler(CommandHandler('album', comando_album))
 dispatcher.add_handler(CommandHandler('miid', comando_miid))
@@ -2191,7 +2310,6 @@ dispatcher.add_handler(CommandHandler('setsprogreso', comando_setsprogreso))
 dispatcher.add_handler(CommandHandler('set', comando_set_detalle))
 dispatcher.add_handler(MessageHandler(Filters.text & (~Filters.command), handler_regalo_respuesta))
 dispatcher.add_handler(CommandHandler('ampliar', comando_ampliar))
-dispatcher.add_handler(CommandHandler('inventario', comando_inventario))
 dispatcher.add_handler(CommandHandler('kponey', comando_saldo))
 dispatcher.add_handler(CommandHandler('darKponey', comando_darKponey))
 dispatcher.add_handler(CommandHandler('fav', comando_fav))
