@@ -176,6 +176,51 @@ def extraer_card_id_de_id_unico(id_unico):
     return None
 
 
+def revisar_sets_completados(usuario_id, context):
+    """
+    Revisa si el usuario completó algún set y entrega premios proporcionales,
+    enviando la alerta SOLO por privado.
+    """
+    sets = obtener_sets_disponibles()
+    cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
+    cartas_usuario_unicas = set((c["nombre"], c["version"]) for c in cartas_usuario)
+
+    doc_usuario = col_usuarios.find_one({"user_id": usuario_id}) or {}
+    sets_premiados = set(doc_usuario.get("sets_premiados", []))
+
+    premios = []
+    for s in sets:
+        cartas_set_unicas = set((c["nombre"], c["version"]) for c in cartas if (c.get("set") == s or c.get("grupo") == s))
+        if cartas_set_unicas and cartas_set_unicas.issubset(cartas_usuario_unicas) and s not in sets_premiados:
+            monto = 500 * len(cartas_set_unicas)  # Puedes ajustar este factor
+            premios.append((s, monto))
+            sets_premiados.add(s)
+            col_usuarios.update_one(
+                {"user_id": usuario_id},
+                {
+                    "$inc": {"kponey": monto},
+                    "$set": {"sets_premiados": list(sets_premiados)}
+                },
+                upsert=True
+            )
+            # ALERTA PRIVADA:
+            try:
+                context.bot.send_message(
+                    chat_id=usuario_id,
+                    text=f"🎉 ¡Completaste el set <b>{s}</b>!\nPremio: <b>+{monto} Kponey 🪙</b>",
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass  # usuario bloqueó el bot, etc.
+    return premios
+
+
+
+
+
+
+
+
 def precio_carta_karuta(nombre, version, estado, id_unico=None, card_id=None):
     """
     Calcula el precio de una carta al estilo Karuta (Discord):
@@ -589,7 +634,7 @@ def manejador_reclamar(update, context):
                 "estado_estrella": estrellas.count("★"),
             }
         )
-
+    revisar_sets_completados(usuario_click, context)
     carta["reclamada"] = True
     carta["usuario"] = usuario_click
     carta["hora_reclamada"] = ahora
@@ -1035,7 +1080,8 @@ def comando_comprar(update, context):
             carta['estrellas'] = '★??'
 
     col_cartas_usuario.insert_one(carta)
-
+    revisar_sets_completados(usuario_id, context)
+    
     update.message.reply_text(
         f"✅ Compraste la carta <b>{carta['nombre']} [{carta['version']}]</b> por <b>{precio} Kponey</b>.",
         parse_mode="HTML"
@@ -1593,6 +1639,12 @@ def mostrar_detalle_set(update, context, set_name, pagina=1, mensaje=None, edita
 
 
 # ... Igualmente aquí puedes agregar las funciones de setsprogreso, set, etc. como hablamos ...
+
+
+
+
+
+
 
 # --------- CALLBACKS ---------
 
