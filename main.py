@@ -573,18 +573,18 @@ def manejador_reclamar(update, context):
     elif not solo_dueño and carta["usuario"] is None:
         tiempo_faltante = 15 - tiempo_desde_drop
         if tiempo_faltante > 0:
-            segundos_faltantes = int(round(tiempo_faltante))
-            query.answer(
-                f"Aún no puedes reclamar esta carta, te quedan {segundos_faltantes} segundos para poder reclamar.",
-                show_alert=True
-            )
-            return
+           segundos_faltantes = int(round(tiempo_faltante))
+           query.answer(
+               f"Aún no puedes reclamar esta carta, te quedan {segundos_faltantes} segundos para poder reclamar.",
+               show_alert=True
+           )
+           return
 
     # Ahora sí, verifica si tiene /idolday o bono
         cooldown_listo, bono_listo = puede_usar_idolday(usuario_click)
         if cooldown_listo:
            puede_reclamar = True
-            col_usuarios.update_one(
+           col_usuarios.update_one(
                 {"user_id": usuario_click},
                 {"$set": {"last_idolday": datetime.utcnow()}},
                 upsert=True
