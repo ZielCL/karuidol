@@ -541,13 +541,12 @@ def manejador_reclamar(update, context):
         return
 
     tiempo_desde_drop = ahora - drop["inicio"]
-    solo_dueño = tiempo_desde_drop < 15
     puede_reclamar = False
 
     user_doc = col_usuarios.find_one({"user_id": usuario_click}) or {}
     bono = user_doc.get('bono', 0)
 
-    # DUEÑO DEL DROP
+    # Dueño del drop
     if usuario_click == drop["dueño"]:
         primer_reclamo = drop.get("primer_reclamo_dueño")
         if primer_reclamo is None:
@@ -568,18 +567,16 @@ def manejador_reclamar(update, context):
             puede_reclamar = True
             col_usuarios.update_one({"user_id": usuario_click}, {"$inc": {"bono": -1}}, upsert=True)
 
-    # NO DUEÑO DEL DROP
-    elif not solo_dueño and carta["usuario"] is None:
-        tiempo_faltante = 15 - tiempo_desde_drop
-        if tiempo_faltante > 0:
-            segundos_faltantes = int(round(tiempo_faltante))
+    # No dueño del drop
+    else:
+        if tiempo_desde_drop < 15:
+            segundos_faltantes = int(round(15 - tiempo_desde_drop))
             query.answer(
-                f"Aún no puedes reclamar esta carta, te quedan {segundos_faltantes} segundos para poder reclamar.",
+                f"⏳ Espera {segundos_faltantes} segundos para reclamar esta carta.",
                 show_alert=True
             )
             return
 
-        # Ahora sí, verifica si tiene /idolday o bono
         cooldown_listo, bono_listo = puede_usar_idolday(usuario_click)
         if cooldown_listo:
             puede_reclamar = True
@@ -599,7 +596,6 @@ def manejador_reclamar(update, context):
             query.answer("Solo puedes reclamar cartas si tienes disponible tu /idolday o tienes un bono disponible.", show_alert=True)
             return
 
-    # Si no tiene permiso, no continúa.
     if not puede_reclamar:
         return
 
@@ -695,6 +691,7 @@ def manejador_reclamar(update, context):
         )
 
     query.answer("¡Carta reclamada!", show_alert=True)
+
 
 
 # ----------------- Resto de funciones: album, paginación, etc. -----------------
