@@ -163,7 +163,7 @@ def agregar_numero_a_imagen(imagen_url, numero):
     return output
 
 
-   CATALOGO_OBJETOS = {
+CATALOGO_OBJETOS = {
     "bono_idolday": {
         "nombre": "Bono Idolday",
         "emoji": "🎟️",
