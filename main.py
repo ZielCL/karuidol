@@ -568,26 +568,26 @@ def manejador_reclamar(update, context):
             puede_reclamar = True
             col_usuarios.update_one({"user_id": usuario_click}, {"$inc": {"bono": -1}}, upsert=True)
     # NO DUEÑO DEL DROP
-if not solo_dueño and carta["usuario"] is None:
-    cooldown_listo, bono_listo = puede_usar_idolday(usuario_click)
-    ahora = datetime.utcnow()
-    if cooldown_listo:
-        puede_reclamar = True
+    if not solo_dueño and carta["usuario"] is None:
+        cooldown_listo, bono_listo = puede_usar_idolday(usuario_click)
+        ahora = datetime.utcnow()
+        if cooldown_listo:
+            puede_reclamar = True
         # Ahora al reclamar carta ajena usando su idolday diario, ponemos cooldown igual que si usara /idolday
-        col_usuarios.update_one(
-            {"user_id": usuario_click},
-            {"$set": {"last_idolday": ahora}},
-            upsert=True
-        )
-    elif bono_listo:
-        puede_reclamar = True
-        col_usuarios.update_one({"user_id": usuario_click}, {"$inc": {"bono": -1}}, upsert=True)
-    else:
-        segundos_faltantes = int(15 - tiempo_desde_drop)
-        if segundos_faltantes < 0:
-            segundos_faltantes = 0
-        query.answer("Solo puedes reclamar cartas si tienes disponible tu /idolday o tienes un bono disponible.", show_alert=True)
-        return
+            col_usuarios.update_one(
+                {"user_id": usuario_click},
+                {"$set": {"last_idolday": ahora}},
+                upsert=True
+            )
+        elif bono_listo:
+            puede_reclamar = True
+            col_usuarios.update_one({"user_id": usuario_click}, {"$inc": {"bono": -1}}, upsert=True)
+        else:
+            segundos_faltantes = int(15 - tiempo_desde_drop)
+            if segundos_faltantes < 0:
+               segundos_faltantes = 0
+            query.answer("Solo puedes reclamar cartas si tienes disponible tu /idolday o tienes un bono disponible.", show_alert=True)
+            return
 
     # --- Aquí SÍ generamos id_unico, estado y estrellas ---
     nombre = carta['nombre']
