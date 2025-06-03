@@ -541,11 +541,8 @@ def manejador_reclamar(update, context):
         return
 
     tiempo_desde_drop = ahora - drop["inicio"]
-    solo_dueño = tiempo_desde_drop < 15
-    puede_reclamar = False
 
-    # --- CONTADOR DE INTENTOS EN MEMORIA SOLO EN EL DROP ---
-    # Creamos el contador de intentos en la carta SOLO si no existe y no es el dueño
+    # --- CONTADOR DE INTENTOS ---
     if "intentos" not in carta:
         carta["intentos"] = 0
     if usuario_click != drop["dueño"]:
@@ -554,7 +551,7 @@ def manejador_reclamar(update, context):
     user_doc = col_usuarios.find_one({"user_id": usuario_click}) or {}
     bono = user_doc.get('bono', 0)
 
-    # DUEÑO DEL DROP
+    # === SI ES EL DUEÑO DEL DROP ===
     if usuario_click == drop["dueño"]:
         primer_reclamo = drop.get("primer_reclamo_dueño")
         if primer_reclamo is None:
@@ -574,19 +571,17 @@ def manejador_reclamar(update, context):
                 return
             puede_reclamar = True
             col_usuarios.update_one({"user_id": usuario_click}, {"$inc": {"bono": -1}}, upsert=True)
-
-    # NO DUEÑO DEL DROP
-    elif not solo_dueño and carta["usuario"] is None:
-        tiempo_faltante = 15 - tiempo_desde_drop
-        if tiempo_faltante > 0:
-            segundos_faltantes = int(round(tiempo_faltante))
+    # === NO ES EL DUEÑO DEL DROP ===
+    else:
+        # Si es antes de los 15 segundos, ALERTA y return.
+        if tiempo_desde_drop < 15:
+            segundos_faltantes = int(round(15 - tiempo_desde_drop))
             query.answer(
                 f"Aún no puedes reclamar esta carta, te quedan {segundos_faltantes} segundos para poder reclamar.",
                 show_alert=True
             )
             return
-
-        # Ahora sí, verifica si tiene /idolday o bono
+        # Si ya pasó el tiempo, ahora sí verifica si puede reclamar por /idolday o bono.
         cooldown_listo, bono_listo = puede_usar_idolday(usuario_click)
         if cooldown_listo:
             puede_reclamar = True
