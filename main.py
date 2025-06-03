@@ -1114,13 +1114,13 @@ def mostrar_filtros_grupo(
     matriz.append([InlineKeyboardButton("❌ Quitar filtro", callback_data=f"mercado_1_{user_id}")])
 
     teclado = InlineKeyboardMarkup(matriz)
-    texto = "Selecciona un grupo para filtrar el mercado:"
+    # --- Aquí NO cambias el texto, solo los botones ---
     if editar and mensaje is not None:
         try:
-            mensaje.edit_message_text(texto, reply_markup=teclado)
+            mensaje.edit_reply_markup(reply_markup=teclado)
         except Exception as e:
-            print("Error edit_message_text en mostrar_filtros_grupo:", e)
-    query = context.bot
+            print("Error edit_reply_markup en mostrar_filtros_grupo:", e)
+
 
 
 
@@ -1653,11 +1653,10 @@ def mostrar_menu_filtros(user_id, query):
     ]
     teclado = InlineKeyboardMarkup(botones)
     try:
-        query.edit_message_text("Selecciona un filtro:", reply_markup=teclado)
+        query.edit_message_reply_markup(reply_markup=teclado)
     except Exception as e:
-        print("Error edit_message_text en mostrar_menu_filtros:", e)
+        print("Error edit_message_reply_markup en mostrar_menu_filtros:", e)
     query.answer()
-
 
 
 
@@ -1711,13 +1710,12 @@ def manejador_callback(update, context):
         ]
         teclado = InlineKeyboardMarkup(botones)
         try:
-            query.edit_message_text("Selecciona el estado para filtrar el mercado:", reply_markup=teclado)
+            query.edit_message_reply_markup(reply_markup=teclado)
         except Exception as e:
-            from telegram.error import BadRequest
-            if "Message is not modified" not in str(e):
-                print("Error edit_message_text en filtro_estado:", e)
+            print("Error edit_message_reply_markup en filtro_estado:", e)
         query.answer()
         return
+
 
 
 
