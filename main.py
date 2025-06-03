@@ -568,23 +568,22 @@ def manejador_reclamar(update, context):
             puede_reclamar = True
             col_usuarios.update_one({"user_id": usuario_click}, {"$inc": {"bono": -1}}, upsert=True)
 
-    
-        # NO DUEÑO DEL DROP
+    # NO DUEÑO DEL DROP
     elif not solo_dueño and carta["usuario"] is None:
         tiempo_faltante = 15 - tiempo_desde_drop
         if tiempo_faltante > 0:
-           segundos_faltantes = int(round(tiempo_faltante))
-           query.answer(
-               f"Aún no puedes reclamar esta carta, te quedan {segundos_faltantes} segundos para poder reclamar.",
-               show_alert=True
-           )
-           return
+            segundos_faltantes = int(round(tiempo_faltante))
+            query.answer(
+                f"Aún no puedes reclamar esta carta, te quedan {segundos_faltantes} segundos para poder reclamar.",
+                show_alert=True
+            )
+            return
 
-    # Ahora sí, verifica si tiene /idolday o bono
+        # Ahora sí, verifica si tiene /idolday o bono
         cooldown_listo, bono_listo = puede_usar_idolday(usuario_click)
         if cooldown_listo:
-           puede_reclamar = True
-           col_usuarios.update_one(
+            puede_reclamar = True
+            col_usuarios.update_one(
                 {"user_id": usuario_click},
                 {"$set": {"last_idolday": datetime.utcnow()}},
                 upsert=True
@@ -600,9 +599,9 @@ def manejador_reclamar(update, context):
             query.answer("Solo puedes reclamar cartas si tienes disponible tu /idolday o tienes un bono disponible.", show_alert=True)
             return
 
-
-
-
+    # Si no tiene permiso, no continúa.
+    if not puede_reclamar:
+        return
 
     # --- Aquí SÍ generamos id_unico, estado y estrellas ---
     nombre = carta['nombre']
@@ -611,7 +610,6 @@ def manejador_reclamar(update, context):
 
     nuevo_id = carta.get("card_id", 1)
     id_unico = random_id_unico(nuevo_id)
-
 
     posibles_estados = estados_disponibles_para_carta(nombre, version)
     carta_entregada = random.choice(posibles_estados)
@@ -697,6 +695,7 @@ def manejador_reclamar(update, context):
         )
 
     query.answer("¡Carta reclamada!", show_alert=True)
+
 
 # ----------------- Resto de funciones: album, paginación, etc. -----------------
 # Aquí pego la versión adaptada de /album para usar id_unico, estrellas y letra pegada a la izquierda:
