@@ -167,23 +167,16 @@ CATALOGO_OBJETOS = {
     "bono_idolday": {
         "nombre": "Bono Idolday",
         "emoji": "🎟️",
-        "desc": "Permite tirar un /idolday adicional.",
+        "desc": (
+            "Permite hacer un <b>/idolday</b> adicional sin esperar el cooldown.<br>"
+            "<i>(No afecta al tiempo restante de cooldown.)</i><br>"
+            "<b>Uso:</b> /idolday si tienes bonos."
+        ),
         "precio": 1200
     },
-    "ticket_intercambio": {
-        "nombre": "Ticket Intercambio",
-        "emoji": "🔁",
-        "desc": "Permite intercambiar cartas con otro usuario.",
-        "precio": 1500
-    },
-    "cofre_misterioso": {
-        "nombre": "Cofre Misterioso",
-        "emoji": "🎁",
-        "desc": "¡Contiene una recompensa aleatoria!",
-        "precio": 1800
-    },
-    # Puedes seguir agregando objetos aquí...
+    # Puedes agregar más objetos aquí...
 }
+
 
 #--------------------------------------------------------------
 
