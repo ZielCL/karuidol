@@ -170,6 +170,18 @@ CATALOGO_OBJETOS = {
         ),
         "precio": 1200
     },
+    "lightstick": {
+        "nombre": "Lightstick",
+        "emoji": "💡",
+        "desc": (
+            "Mejora el estado de una carta:\n"
+            "• <b>☆☆☆</b> → <b>★☆☆</b>: 100% de posibilidad\n"
+            "• <b>★☆☆</b> → <b>★★☆</b>: 70% de posibilidad\n"
+            "• <b>★★☆</b> → <b>★★★</b>: 40% de posibilidad\n"
+            "• <b>★★★</b>: No se puede mejorar más"
+        ),
+        "precio": 4000  # Puedes ajustar este valor
+    },
     # Puedes agregar más objetos aquí...
 }
 
@@ -801,6 +813,52 @@ def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, edit
             context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode='HTML')
     else:
         context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode='HTML')
+
+
+
+
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+@cooldown_critico
+def comando_mejorar(update, context):
+    usuario_id = update.message.from_user.id
+    chat_id = update.effective_chat.id
+
+    # Verificar si el usuario tiene al menos un lightstick
+    user = col_usuarios.find_one({"user_id": usuario_id}) or {}
+    lightsticks = user.get("lightstick", 0)
+    if lightsticks < 1:
+        update.message.reply_text("No tienes ningún 💡 Lightstick para usar. Cómpralos en /tienda.")
+        return
+
+    # Mostrar cartas mejorables (no ★★★)
+    cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
+    cartas_mejorables = [
+        c for c in cartas_usuario
+        if c.get("estrellas", "") != "★★★"
+    ]
+    if not cartas_mejorables:
+        update.message.reply_text("No tienes cartas que se puedan mejorar (todas son ★★★).")
+        return
+
+    # Mostrar primeras 5, luego puedes agregar paginación
+    texto = "<b>Elige la carta que quieres mejorar:</b>\n"
+    botones = []
+    for c in cartas_mejorables[:5]:
+        nombre = c.get("nombre", "")
+        version = c.get("version", "")
+        estrellas = c.get("estrellas", "")
+        id_unico = c.get("id_unico", "")
+        texto += f"{estrellas} <b>{nombre}</b> [{version}] (<code>{id_unico}</code>)\n"
+        botones.append([InlineKeyboardButton(
+            f"{estrellas} {nombre} [{version}]", callback_data=f"mejorar_{id_unico}"
+        )])
+
+    teclado = InlineKeyboardMarkup(botones)
+    update.message.reply_text(texto, parse_mode='HTML', reply_markup=teclado)
+
+
+
 
 
 @cooldown_critico
@@ -2030,11 +2088,7 @@ def callback_comprarobj(update, context):
     comprar_objeto(usuario_id, obj_id, context, chat_id, reply_func)
 
 
-
-
-
-
-    
+   
     # --- VER CARTA INDIVIDUAL ---
     if data.startswith("vercarta"):
         partes = data.split("_")
@@ -2195,6 +2249,109 @@ def callback_comprarobj(update, context):
         query.answer()
         return
 
+def callback_mejorar_carta(update, context):
+    query = update.callback_query
+    usuario_id = query.from_user.id
+    data = query.data
+
+    if not data.startswith("mejorar_"):
+        return
+    id_unico = data.split("_", 1)[1]
+
+    carta = col_cartas_usuario.find_one({"user_id": usuario_id, "id_unico": id_unico})
+    if not carta:
+        query.answer("No tienes esa carta.", show_alert=True)
+        return
+
+    user = col_usuarios.find_one({"user_id": usuario_id}) or {}
+    lightsticks = user.get("lightstick", 0)
+    if lightsticks < 1:
+        query.answer("No tienes ningún Lightstick.", show_alert=True)
+        return
+
+    # Mejora según estado actual
+    estrellas_actual = carta.get("estrellas", "")
+    mejoras = {
+        "☆☆☆": ("★☆☆", 1.00),
+        "★☆☆": ("★★☆", 0.70),
+        "★★☆": ("★★★", 0.40),
+        "★★★": (None, 0.00)
+    }
+    if estrellas_actual not in mejoras or mejoras[estrellas_actual][0] is None:
+        query.answer("Esta carta no se puede mejorar más.", show_alert=True)
+        return
+
+    estrellas_nuevo, prob = mejoras[estrellas_actual]
+    prob_percent = int(prob * 100)
+    # Pregunta de confirmación
+    texto = (
+        f"Vas a usar 1 💡 Lightstick para intentar mejorar esta carta:\n"
+        f"<b>{carta.get('nombre','')} [{carta.get('version','')}]</b>\n"
+        f"Estado actual: <b>{estrellas_actual}</b>\n"
+        f"Posibilidad de mejora: <b>{prob_percent}%</b>\n\n"
+        f"¿Deseas continuar?"
+    )
+    botones = [
+        [
+            InlineKeyboardButton("✅ Mejorar", callback_data=f"confirmamejora_{id_unico}"),
+            InlineKeyboardButton("❌ Cancelar", callback_data="cancelarmejora")
+        ]
+    ]
+    query.edit_message_text(texto, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(botones))
+    query.answer()
+
+
+def callback_confirmar_mejora(update, context):
+    query = update.callback_query
+    usuario_id = query.from_user.id
+    data = query.data
+
+    if data.startswith("confirmamejora_"):
+        id_unico = data.split("_", 1)[1]
+        carta = col_cartas_usuario.find_one({"user_id": usuario_id, "id_unico": id_unico})
+        if not carta:
+            query.answer("No tienes esa carta.", show_alert=True)
+            return
+        user = col_usuarios.find_one({"user_id": usuario_id}) or {}
+        lightsticks = user.get("lightstick", 0)
+        if lightsticks < 1:
+            query.answer("No tienes ningún Lightstick.", show_alert=True)
+            return
+
+        mejoras = {
+            "☆☆☆": ("★☆☆", 1.00),
+            "★☆☆": ("★★☆", 0.70),
+            "★★☆": ("★★★", 0.40),
+        }
+        estrellas_actual = carta.get("estrellas", "")
+        if estrellas_actual not in mejoras:
+            query.answer("Esta carta no puede mejorar.", show_alert=True)
+            return
+
+        estrellas_nuevo, prob = mejoras[estrellas_actual]
+        import random
+        mejora_exitosa = random.random() < prob
+
+        if mejora_exitosa:
+            col_cartas_usuario.update_one(
+                {"user_id": usuario_id, "id_unico": id_unico},
+                {"$set": {"estrellas": estrellas_nuevo}}
+            )
+            resultado = f"¡Éxito! Tu carta ahora es <b>{estrellas_nuevo}</b>."
+        else:
+            resultado = "Fallaste el intento de mejora. La carta se mantiene igual."
+
+        # Gasta lightstick
+        col_usuarios.update_one({"user_id": usuario_id}, {"$inc": {"lightstick": -1}})
+        query.edit_message_text(resultado, parse_mode="HTML")
+        query.answer("¡Listo!")
+
+    elif data == "cancelarmejora":
+        query.edit_message_text("Operación cancelada.")
+        query.answer("Cancelado.")
+
+
+
 # ====== FIN MANEJADOR CALLBACK ======
 
 
@@ -2309,6 +2466,9 @@ dispatcher.add_handler(CommandHandler('vender', comando_vender))
 dispatcher.add_handler(CommandHandler('mercado', comando_mercado))
 dispatcher.add_handler(CommandHandler('comprar', comando_comprar))
 dispatcher.add_handler(CommandHandler('retirar', comando_retirar))
+dispatcher.add_handler(CommandHandler('mejorar', comando_mejorar))
+dispatcher.add_handler(CallbackQueryHandler(callback_mejorar_carta, pattern="^mejorar_"))
+dispatcher.add_handler(CallbackQueryHandler(callback_confirmar_mejora, pattern="^(confirmamejora_|cancelarmejora)"))
 
 @app.route(f'/{TOKEN}', methods=['POST'])
 def webhook():
