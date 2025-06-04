@@ -167,22 +167,33 @@ CATALOGO_OBJETOS = {
     "bono_idolday": {
         "nombre": "Bono Idolday",
         "emoji": "🎟️",
+        "desc": (
+            "Permite hacer un /idolday adicional sin esperar el cooldown.\n"
+            "Uso: /idolday si tienes bonos."
         ),
         "precio": 1200
+    },
+    "ticket_intercambio": {
+        "nombre": "Ticket de Intercambio",
+        "emoji": "🎫",
+        "desc": (
+            "Requerido para hacer un trade/intercambio de cartas.\n"
+            "Se consume al usar /trade."
+        ),
+        "precio": 15000
     },
     "lightstick": {
         "nombre": "Lightstick",
         "emoji": "💡",
         "desc": (
             "Mejora el estado de una carta:\n"
-            "• <b>☆☆☆</b> → <b>★☆☆</b>: 100% de posibilidad\n"
-            "• <b>★☆☆</b> → <b>★★☆</b>: 70% de posibilidad\n"
-            "• <b>★★☆</b> → <b>★★★</b>: 40% de posibilidad\n"
-            "• <b>★★★</b>: No se puede mejorar más"
+            "• ☆☆☆ → ★☆☆: 100% de posibilidad\n"
+            "• ★☆☆ → ★★☆: 70% de posibilidad\n"
+            "• ★★☆ → ★★★: 40% de posibilidad\n"
+            "• ★★★: No se puede mejorar más"
         ),
-        "precio": 4000  # Puedes ajustar este valor
-    },
-    # Puedes agregar más objetos aquí...
+        "precio": 4000
+    }
 }
 
 
