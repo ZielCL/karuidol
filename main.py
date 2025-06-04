@@ -168,8 +168,8 @@ CATALOGO_OBJETOS = {
         "nombre": "Bono Idolday",
         "emoji": "🎟️",
         "desc": (
-            "Permite hacer un <b>/idolday</b> adicional sin esperar el cooldown.<br>"
-            "<i>(No afecta al tiempo restante de cooldown.)</i><br>"
+            "Permite hacer un <b>/idolday</b> adicional sin esperar el cooldown.\n"
+            "<i>(No afecta al tiempo restante de cooldown.)</i>\n"
             "<b>Uso:</b> /idolday si tienes bonos."
         ),
         "precio": 1200
@@ -815,6 +815,7 @@ def comando_inventario(update, context):
     doc = col_usuarios.find_one({"user_id": usuario_id}) or {}
     objetos = doc.get("objetos", {})
     kponey = doc.get("kponey", 0)
+    bono = doc.get("bono", 0)
 
     texto = f"🎒 <b>Tu inventario</b>\n\n"
     tiene_objetos = False
