@@ -167,10 +167,6 @@ CATALOGO_OBJETOS = {
     "bono_idolday": {
         "nombre": "Bono Idolday",
         "emoji": "🎟️",
-        "desc": (
-            "Permite hacer un <b>/idolday</b> adicional sin esperar el cooldown.\n"
-            "<i>(No afecta al tiempo restante de cooldown.)</i>\n"
-            "<b>Uso:</b> /idolday si tienes bonos."
         ),
         "precio": 1200
     },
