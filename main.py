@@ -2452,7 +2452,7 @@ def handler_regalo_respuesta(update, context):
 def comando_setsprogreso(update, context):
     mostrar_setsprogreso(update, context, pagina=1)
     
-
+dispatcher.add_handler(CallbackQueryHandler(callback_comprarobj, pattern="^comprarobj_"))
 dispatcher.add_handler(CallbackQueryHandler(callback_ampliar_vender, pattern="^ampliar_vender_"))
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback))
 dispatcher.add_handler(CommandHandler('inventario', comando_inventario))
