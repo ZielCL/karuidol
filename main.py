@@ -835,14 +835,12 @@ def comando_mejorar(update, context):
     usuario_id = update.message.from_user.id
     chat_id = update.effective_chat.id
 
-    # Verificar si el usuario tiene al menos un lightstick
     user = col_usuarios.find_one({"user_id": usuario_id}) or {}
-    lightsticks = user.get("lightstick", 0)
+    lightsticks = user.get("objetos", {}).get("lightstick", 0)
     if lightsticks < 1:
         update.message.reply_text("No tienes ningún 💡 Lightstick para usar. Cómpralos en /tienda.")
         return
 
-    # Mostrar cartas mejorables (no ★★★)
     cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
     cartas_mejorables = [
         c for c in cartas_usuario
@@ -852,7 +850,6 @@ def comando_mejorar(update, context):
         update.message.reply_text("No tienes cartas que se puedan mejorar (todas son ★★★).")
         return
 
-    # Mostrar primeras 5, luego puedes agregar paginación
     texto = "<b>Elige la carta que quieres mejorar:</b>\n"
     botones = []
     for c in cartas_mejorables[:5]:
@@ -867,8 +864,6 @@ def comando_mejorar(update, context):
 
     teclado = InlineKeyboardMarkup(botones)
     update.message.reply_text(texto, parse_mode='HTML', reply_markup=teclado)
-
-
 
 
 
@@ -2353,7 +2348,7 @@ def callback_confirmar_mejora(update, context):
             resultado = "Fallaste el intento de mejora. La carta se mantiene igual."
 
         # Gasta lightstick
-        col_usuarios.update_one({"user_id": usuario_id}, {"$inc": {"lightstick": -1}})
+        col_usuarios.update_one({"user_id": usuario_id}, {"$inc": {"objetos.lightstick": -1}})
         query.edit_message_text(resultado, parse_mode="HTML")
         query.answer("¡Listo!")
 
@@ -2479,7 +2474,7 @@ dispatcher.add_handler(CommandHandler('comprar', comando_comprar))
 dispatcher.add_handler(CommandHandler('retirar', comando_retirar))
 dispatcher.add_handler(CommandHandler('mejorar', comando_mejorar))
 dispatcher.add_handler(CallbackQueryHandler(callback_mejorar_carta, pattern="^mejorar_"))
-dispatcher.add_handler(CallbackQueryHandler(callback_confirmar_mejora, pattern="^(confirmamejora_|cancelarmejora)"))
+col_usuarios.update_one({"user_id": usuario_id}, {"$inc": {"objetos.lightstick": -1}})
 
 @app.route(f'/{TOKEN}', methods=['POST'])
 def webhook():
