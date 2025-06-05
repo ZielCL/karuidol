@@ -881,7 +881,6 @@ def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, edit
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 @cooldown_critico
-@cooldown_critico
 def comando_mejorar(update, context):
     usuario_id = update.message.from_user.id
 
