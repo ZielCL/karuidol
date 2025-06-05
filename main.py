@@ -2595,6 +2595,8 @@ def comando_setsprogreso(update, context):
     
 dispatcher.add_handler(CallbackQueryHandler(callback_comprarobj, pattern="^comprarobj_"))
 dispatcher.add_handler(CallbackQueryHandler(callback_ampliar_vender, pattern="^ampliar_vender_"))
+dispatcher.add_handler(CallbackQueryHandler(callback_mejorar_carta, pattern="^mejorar_"))
+dispatcher.add_handler(CallbackQueryHandler(callback_confirmar_mejora, pattern="^(confirmamejora_|cancelarmejora)"))
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback))
 dispatcher.add_handler(CommandHandler('inventario', comando_inventario))
 dispatcher.add_handler(CommandHandler('tienda', comando_tienda))
@@ -2619,8 +2621,8 @@ dispatcher.add_handler(CommandHandler('mercado', comando_mercado))
 dispatcher.add_handler(CommandHandler('comprar', comando_comprar))
 dispatcher.add_handler(CommandHandler('retirar', comando_retirar))
 dispatcher.add_handler(CommandHandler('mejorar', comando_mejorar))
-dispatcher.add_handler(CallbackQueryHandler(callback_mejorar_carta, pattern="^mejorar_"))
-dispatcher.add_handler(CallbackQueryHandler(callback_confirmar_mejora, pattern="^(confirmamejora_|cancelarmejora)"))
+
+
 
 @app.route(f'/{TOKEN}', methods=['POST'])
 def webhook():
