@@ -2557,7 +2557,7 @@ else:
     query.edit_message_text(resultado, parse_mode="HTML")
     query.answer("¡Listo!")
 
-    elif data == "cancelarmejora":
+elif data == "cancelarmejora":
     query.edit_message_text("Operación cancelada.")
     query.answer("Cancelado.")
 
