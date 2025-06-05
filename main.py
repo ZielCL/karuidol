@@ -936,10 +936,10 @@ def comando_inventario(update, context):
     texto = f"🎒 <b>Tu inventario</b>\n\n"
     tiene_objetos = False
     for obj_id, info in CATALOGO_OBJETOS.items():
-    cantidad = objetos.get(obj_id, 0)
-    if cantidad > 0:
-        tiene_objetos = True
-        texto += f"{info['emoji']} <b>{info['nombre']}</b>: <b>{cantidad}</b>\n"
+        cantidad = objetos.get(obj_id, 0)
+        if cantidad > 0:
+            tiene_objetos = True
+            texto += f"{info['emoji']} <b>{info['nombre']}</b>: <b>{cantidad}</b>\n"
     if not tiene_objetos:
         texto += "No tienes objetos todavía.\n"
     texto += f"\n💸 <b>Kponey:</b> <code>{kponey}</code>"
