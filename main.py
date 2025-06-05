@@ -751,6 +751,56 @@ def manejador_reclamar(update, context):
 
 
 # ----------------- Resto de funciones: album, paginación, etc. -----------------
+
+def mostrar_lista_mejorables(update, context, usuario_id, cartas_mejorables, pagina, mensaje=None, editar=False):
+    por_pagina = 8
+    total = len(cartas_mejorables)
+    paginas = max(1, (total - 1) // por_pagina + 1)
+    if pagina < 1: pagina = 1
+    if pagina > paginas: pagina = paginas
+    inicio = (pagina - 1) * por_pagina
+    fin = min(inicio + por_pagina, total)
+    cartas_pag = cartas_mejorables[inicio:fin]
+
+    texto = "<b>Elige la carta que quieres mejorar:</b>\n"
+    botones = []
+    for c in cartas_pag:
+        nombre = c.get("nombre", "")
+        version = c.get("version", "")
+        estrellas = c.get("estrellas", "")
+        id_unico = c.get("id_unico", "")
+        texto += f"{estrellas} <b>{nombre}</b> [{version}] (<code>{id_unico}</code>)\n"
+        botones.append([InlineKeyboardButton(
+            f"{estrellas} {nombre} [{version}]", callback_data=f"mejorar_{id_unico}"
+        )])
+
+    # Botones de navegación
+    nav = []
+    if pagina > 1:
+        nav.append(InlineKeyboardButton("⬅️", callback_data=f"mejorarpag_{pagina-1}_{usuario_id}"))
+    if pagina < paginas:
+        nav.append(InlineKeyboardButton("➡️", callback_data=f"mejorarpag_{pagina+1}_{usuario_id}"))
+    if nav:
+        botones.append(nav)
+
+    teclado = InlineKeyboardMarkup(botones)
+
+    if editar and mensaje:
+        try:
+            mensaje.edit_text(texto, parse_mode='HTML', reply_markup=teclado)
+        except Exception:
+            context.bot.send_message(chat_id=mensaje.chat_id, text=texto, parse_mode='HTML', reply_markup=teclado)
+    else:
+        update.message.reply_text(texto, parse_mode='HTML', reply_markup=teclado)
+
+
+
+
+
+
+
+
+
 # Aquí pego la versión adaptada de /album para usar id_unico, estrellas y letra pegada a la izquierda:
 @cooldown_critico
 def comando_album(update, context):
@@ -831,16 +881,11 @@ def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, edit
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 @cooldown_critico
+@cooldown_critico
 def comando_mejorar(update, context):
     usuario_id = update.message.from_user.id
-    chat_id = update.effective_chat.id
 
-    user = col_usuarios.find_one({"user_id": usuario_id}) or {}
-    lightsticks = user.get("objetos", {}).get("lightstick", 0)
-    if lightsticks < 1:
-        update.message.reply_text("No tienes ningún 💡 Lightstick para usar. Cómpralos en /tienda.")
-        return
-
+    # Traer cartas mejorables
     cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
     cartas_mejorables = [
         c for c in cartas_usuario
@@ -850,20 +895,9 @@ def comando_mejorar(update, context):
         update.message.reply_text("No tienes cartas que se puedan mejorar (todas son ★★★).")
         return
 
-    texto = "<b>Elige la carta que quieres mejorar:</b>\n"
-    botones = []
-    for c in cartas_mejorables[:5]:
-        nombre = c.get("nombre", "")
-        version = c.get("version", "")
-        estrellas = c.get("estrellas", "")
-        id_unico = c.get("id_unico", "")
-        texto += f"{estrellas} <b>{nombre}</b> [{version}] (<code>{id_unico}</code>)\n"
-        botones.append([InlineKeyboardButton(
-            f"{estrellas} {nombre} [{version}]", callback_data=f"mejorar_{id_unico}"
-        )])
+    pagina = 1
+    mostrar_lista_mejorables(update, context, usuario_id, cartas_mejorables, pagina)
 
-    teclado = InlineKeyboardMarkup(botones)
-    update.message.reply_text(texto, parse_mode='HTML', reply_markup=teclado)
 
 
 
@@ -1930,39 +1964,7 @@ def manejador_callback(update, context):
         return
 
     # Botones de filtro por estado (estrellas visuales)
-    # --- PAGINACIÓN ÁLBUM ---
-    if data.startswith("album_"):
-        partes = data.split("_")
-        if len(partes) != 3:
-            return
-        pagina = int(partes[1])
-        usuario_id = int(partes[2])
-        if query.from_user.id != usuario_id:
-            query.answer(text="Solo puedes ver tu propio álbum.", show_alert=True)
-            return
-        cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
-        def sort_key(x):
-            grupo = grupo_de_carta(x.get('nombre', ''), x.get('version', '')) or ""
-            return (
-                grupo.lower(),
-                x.get('nombre', '').lower(),
-                x.get('card_id', 0)
-            )
-        cartas_usuario.sort(key=sort_key)
-        enviar_lista_pagina(
-            query.message.chat_id,
-            usuario_id,
-            cartas_usuario,
-            pagina,
-            context,
-            editar=True,
-            mensaje=query.message
-        )
-        query.answer()
-        return
-
-    
-# ---- Filtro por estado (vertical, con texto) ----
+    # ---- Filtro por estado (vertical, con texto) ----
     if data.startswith("mercado_filtro_estado_"):
         user_id = get_uid(data)
         botones = [
@@ -1980,10 +1982,7 @@ def manejador_callback(update, context):
         query.answer()
         return
 
-
-
-
-# ---- Filtro por grupo (abre submenú paginado) ----
+    # ---- Filtro por grupo (abre submenú paginado) ----
     if data.startswith("mercado_filtro_grupo_"):
         user_id = get_uid(data)
         mostrar_filtros_grupo(
@@ -1996,9 +1995,6 @@ def manejador_callback(update, context):
         )
         query.answer()
         return
-
-
-
 
     # Navegación en el paginado de grupos (flechas)
     if data.startswith("mercado_filtropagegrupo_"):
@@ -2108,6 +2104,187 @@ def manejador_callback(update, context):
             pass
         query.answer()
         return
+
+    # --- VER CARTA INDIVIDUAL ---
+    if data.startswith("vercarta"):
+        partes = data.split("_")
+        if len(partes) != 3:
+            query.answer()
+            return
+        usuario_id = int(partes[1])
+        id_unico = partes[2]
+        if query.from_user.id != usuario_id:
+            query.answer(text="Solo puedes ver tus propias cartas.", show_alert=True)
+            return
+        carta = col_cartas_usuario.find_one({"user_id": usuario_id, "id_unico": id_unico})
+        if not carta:
+            query.answer(text="Esa carta no existe.", show_alert=True)
+            return
+        mostrar_carta_individual(
+            query.message.chat_id,
+            usuario_id,
+            [carta],
+            0,
+            context,
+            query=query
+        )
+        query.answer()
+        return
+
+    # --- PAGINACIÓN ÁLBUM ---
+    if data.startswith("albumlista_"):
+        partes = data.split("_")
+        if len(partes) != 2:
+            return
+        usuario_id = int(partes[1])
+        if query.from_user.id != usuario_id:
+            query.answer(text="Solo puedes ver tu propio álbum.", show_alert=True)
+            return
+        cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
+        def sort_key(x):
+            grupo = grupo_de_carta(x.get('nombre', ''), x.get('version', '')) or ""
+            return (
+                grupo.lower(),
+                x.get('nombre', '').lower(),
+                x.get('card_id', 0)
+            )
+        cartas_usuario.sort(key=sort_key)
+        pagina = 1
+        enviar_lista_pagina(
+            query.message.chat_id,
+            usuario_id,
+            cartas_usuario,
+            pagina,
+            context,
+            editar=True,
+            mensaje=query.message
+        )
+        query.answer()
+        return
+
+    # --- REGALAR CARTA ---
+    if data.startswith("regalar_"):
+        partes = data.split("_")
+        if len(partes) != 3:
+            query.answer()
+            return
+        usuario_id = int(partes[1])
+        idx = int(partes[2])
+        if query.from_user.id != usuario_id:
+            query.answer(text="Solo puedes regalar tus propias cartas.", show_alert=True)
+            return
+        cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
+        def sort_key(x):
+            grupo = grupo_de_carta(x.get('nombre', ''), x.get('version', '')) or ""
+            return (
+                grupo.lower(),
+                x.get('nombre', '').lower(),
+                x.get('card_id', 0)
+            )
+        cartas_usuario.sort(key=sort_key)
+        if idx < 0 or idx >= len(cartas_usuario):
+            query.answer(text="Esa carta no existe.", show_alert=True)
+            return
+        carta = cartas_usuario[idx]
+        SESIONES_REGALO[usuario_id] = {
+            "carta": carta,
+            "msg_id": query.message.message_id,
+            "chat_id": query.message.chat_id,
+            "tiempo": time.time()
+        }
+        query.edit_message_reply_markup(reply_markup=None)
+        context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text=f"¿A quién quieres regalar esta carta?\n\n"
+                 f"<b>{carta['nombre']}</b> [{carta['version']}] - {carta['estado']}\n"
+                 f"ID: <code>{carta['id_unico']}</code>\n\n"
+                 f"Escribe el @usuario, el ID numérico, o <b>cancelar</b> para abortar.",
+            parse_mode="HTML"
+        )
+        query.answer()
+        return
+
+    # --- PAGINACIÓN PROGRESO SETS ---
+    if data.startswith("setsprogreso_"):
+        pagina = int(data.split("_")[1])
+        mostrar_setsprogreso(update, context, pagina=pagina, mensaje=query.message, editar=True)
+        query.answer()
+        return
+
+    # --- PAGINACIÓN LISTA SETS ---
+    if data.startswith("setlist_"):
+        pagina = int(data.split("_")[1])
+        mostrar_lista_set(update, context, pagina=pagina, mensaje=query.message, editar=True)
+        query.answer()
+        return
+
+    # --- PAGINACIÓN DETALLE SET ---
+    if data.startswith("setdet_"):
+        partes = data.split("_")
+        set_name = "_".join(partes[1:-1])
+        pagina = int(partes[-1])
+        mostrar_detalle_set(update, context, set_name, pagina=pagina, mensaje=query.message, editar=True)
+        query.answer()
+        return
+
+    # --- PAGINACIÓN ÁLBUM CON FILTRO ---
+    partes = data.split("_", 3)
+    if len(partes) >= 3 and partes[0] == "lista":
+        pagina = int(partes[1])
+        usuario_id = int(partes[2])
+        filtro = partes[3].strip().lower() if len(partes) > 3 and partes[3] else None
+        if query.from_user.id != usuario_id:
+            query.answer(text="Este álbum no es tuyo.", show_alert=True)
+            return
+        cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
+        if filtro:
+            cartas_usuario = [
+                carta for carta in cartas_usuario if
+                filtro in carta.get('nombre', '').lower() or
+                filtro in carta.get('grupo', '').lower() or
+                filtro in carta.get('version', '').lower()
+            ]
+        def sort_key(x):
+            grupo = grupo_de_carta(x.get('nombre', ''), x.get('version', '')) or ""
+            return (
+                grupo.lower(),
+                x.get('nombre', '').lower(),
+                x.get('card_id', 0)
+            )
+        cartas_usuario.sort(key=sort_key)
+        enviar_lista_pagina(
+            query.message.chat_id,
+            usuario_id,
+            cartas_usuario,
+            pagina,
+            context,
+            editar=True,
+            mensaje=query.message,
+            filtro=filtro
+        )
+        query.answer()
+        return
+
+    # --- PAGINACIÓN DE MEJORAR ---
+    if data.startswith("mejorarpag_"):
+        partes = data.split("_")
+        pagina = int(partes[1])
+        usuario_id = int(partes[2])
+        if query.from_user.id != usuario_id:
+            query.answer(text="Solo puedes ver tu propio menú de mejora.", show_alert=True)
+            return
+        cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
+        cartas_mejorables = [
+            c for c in cartas_usuario
+            if c.get("estrellas", "") != "★★★"
+        ]
+        mostrar_lista_mejorables(
+            update, context, usuario_id, cartas_mejorables, pagina,
+            mensaje=query.message, editar=True
+        )
+        query.answer()
+        return
+
         
 
 def callback_comprarobj(update, context):
