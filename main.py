@@ -2553,13 +2553,13 @@ else:
 
 
         # Gasta lightstick
-        col_usuarios.update_one({"user_id": usuario_id}, {"$inc": {"objetos.lightstick": -1}})
-        query.edit_message_text(resultado, parse_mode="HTML")
-        query.answer("¡Listo!")
+    col_usuarios.update_one({"user_id": usuario_id}, {"$inc": {"objetos.lightstick": -1}})
+    query.edit_message_text(resultado, parse_mode="HTML")
+    query.answer("¡Listo!")
 
     elif data == "cancelarmejora":
-        query.edit_message_text("Operación cancelada.")
-        query.answer("Cancelado.")
+    query.edit_message_text("Operación cancelada.")
+    query.answer("Cancelado.")
 
 
 
