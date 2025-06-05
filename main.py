@@ -878,6 +878,7 @@ def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, edit
     if pagina < paginas:
         nav.append(InlineKeyboardButton("Siguiente »", callback_data=f"album_{pagina+1}_{usuario_id}"))
     teclado = InlineKeyboardMarkup([nav]) if nav else None
+
     if editar and mensaje:
         try:
             mensaje.edit_text(texto, reply_markup=teclado, parse_mode='HTML')
@@ -886,20 +887,6 @@ def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, edit
     else:
         context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode='HTML')
 
-    
-    nav = []
-    if pagina > 1:
-        nav.append(InlineKeyboardButton("« Anterior", callback_data=f"album_{pagina-1}_{usuario_id}"))
-    if pagina < paginas:
-        nav.append(InlineKeyboardButton("Siguiente »", callback_data=f"album_{pagina+1}_{usuario_id}"))
-    teclado = InlineKeyboardMarkup([nav]) if nav else None
-    if editar and mensaje:
-        try:
-            mensaje.edit_text(texto, reply_markup=teclado, parse_mode='HTML')
-        except Exception as e:
-            context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode='HTML')
-    else:
-        context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode='HTML')
 
 
 
