@@ -198,7 +198,7 @@ CATALOGO_OBJETOS = {
         "nombre": "Ticket Agregar Apodo",
         "emoji": "🏷️",
         "desc": (
-            'Permite agregar un apodo personalizado a una carta usando /apodo <id_unico> "apodo"\n'
+            'Permite agregar un apodo personalizado a una carta usando /apodo <code>id_unico</code> "apodo"\n'
             'Máx 8 caracteres. Ejemplo: /apodo fghj7 "Mi bebe"'
         ),
         "precio": 1800
