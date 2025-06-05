@@ -2324,19 +2324,27 @@ def manejador_callback(update, context):
         pagina = int(partes[1])
         usuario_id = int(partes[2])
         if query.from_user.id != usuario_id:
-            query.answer(text="Solo puedes ver tu propio menú de mejora.", show_alert=True)
+            query.answer("Solo puedes ver tu propio menú de mejora.", show_alert=True)
             return
         cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
         cartas_mejorables = [
             c for c in cartas_usuario
             if c.get("estrellas", "") != "★★★"
         ]
+        # ORDENAR SIEMPRE antes de mostrar
+        cartas_mejorables.sort(
+            key=lambda x: (
+                x.get("nombre", "").lower(),
+                x.get("version", "").lower()
+            )
+        )
         mostrar_lista_mejorables(
             update, context, usuario_id, cartas_mejorables, pagina,
             mensaje=query.message, editar=True
         )
         query.answer()
         return
+
 
 
         
