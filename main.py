@@ -813,9 +813,9 @@ def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, edit
 
     nav = []
     if pagina > 1:
-        nav.append(InlineKeyboardButton("« Anterior", callback_data=f"lista_{pagina-1}_{usuario_id}"))
+        nav.append(InlineKeyboardButton("« Anterior", callback_data=f"album_{pagina-1}_{usuario_id}"))
     if pagina < paginas:
-        nav.append(InlineKeyboardButton("Siguiente »", callback_data=f"lista_{pagina+1}_{usuario_id}"))
+        nav.append(InlineKeyboardButton("Siguiente »", callback_data=f"album_{pagina+1}_{usuario_id}"))
     teclado = InlineKeyboardMarkup([nav]) if nav else None
     if editar and mensaje:
         try:
@@ -2122,11 +2122,12 @@ def callback_comprarobj(update, context):
         return
 
     # --- PAGINACIÓN ÁLBUM ---
-    if data.startswith("albumlista_"):
+    if data.startswith("album_"):
         partes = data.split("_")
-        if len(partes) != 2:
+        if len(partes) != 3:
             return
-        usuario_id = int(partes[1])
+        pagina = int(partes[1])
+        usuario_id = int(partes[2])
         if query.from_user.id != usuario_id:
             query.answer(text="Solo puedes ver tu propio álbum.", show_alert=True)
             return
@@ -2139,7 +2140,6 @@ def callback_comprarobj(update, context):
                 x.get('card_id', 0)
             )
         cartas_usuario.sort(key=sort_key)
-        pagina = 1
         enviar_lista_pagina(
             query.message.chat_id,
             usuario_id,
@@ -2151,6 +2151,7 @@ def callback_comprarobj(update, context):
         )
         query.answer()
         return
+
 
     # --- REGALAR CARTA ---
     if data.startswith("regalar_"):
@@ -2217,43 +2218,6 @@ def callback_comprarobj(update, context):
         query.answer()
         return
 
-    # --- PAGINACIÓN ÁLBUM CON FILTRO ---
-    partes = data.split("_", 3)
-    if len(partes) >= 3 and partes[0] == "lista":
-        pagina = int(partes[1])
-        usuario_id = int(partes[2])
-        filtro = partes[3].strip().lower() if len(partes) > 3 and partes[3] else None
-        if query.from_user.id != usuario_id:
-            query.answer(text="Este álbum no es tuyo.", show_alert=True)
-            return
-        cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
-        if filtro:
-            cartas_usuario = [
-                carta for carta in cartas_usuario if
-                filtro in carta.get('nombre', '').lower() or
-                filtro in carta.get('grupo', '').lower() or
-                filtro in carta.get('version', '').lower()
-            ]
-        def sort_key(x):
-            grupo = grupo_de_carta(x.get('nombre', ''), x.get('version', '')) or ""
-            return (
-                grupo.lower(),
-                x.get('nombre', '').lower(),
-                x.get('card_id', 0)
-            )
-        cartas_usuario.sort(key=sort_key)
-        enviar_lista_pagina(
-            query.message.chat_id,
-            usuario_id,
-            cartas_usuario,
-            pagina,
-            context,
-            editar=True,
-            mensaje=query.message,
-            filtro=filtro
-        )
-        query.answer()
-        return
 
 def callback_mejorar_carta(update, context):
     query = update.callback_query
