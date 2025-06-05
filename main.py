@@ -2515,51 +2515,51 @@ def callback_confirmar_mejora(update, context):
         import random
         mejora_exitosa = random.random() < prob
 
-if mejora_exitosa:
-    nombre = carta["nombre"]
-    version = carta["version"]
+        if mejora_exitosa:
+            # 1. Buscar en el catálogo la carta con el nuevo estado (estrellas)
+            nombre = carta.get("nombre")
+            version = carta.get("version")
+            # Busca el objeto carta correspondiente al nuevo estado
+            carta_nueva = None
+            for c in cartas:
+                if (
+                    c["nombre"] == nombre and
+                    c["version"] == version and
+                    c.get("estado_estrella", "") == estrellas_nuevo
+                ):
+                    carta_nueva = c
+                    break
+            if carta_nueva:
+                nuevo_estado = carta_nueva.get("estado", carta.get("estado"))
+                nueva_imagen = carta_nueva.get("imagen", carta.get("imagen"))
+            else:
+                # Si no la encuentra, solo cambia las estrellas
+                nuevo_estado = carta.get("estado")
+                nueva_imagen = carta.get("imagen")
 
-    # Buscar la carta en tu catálogo para encontrar la imagen y el estado correctos
-    nueva_carta_catalogo = None
-    for c in cartas:
-        # c.get('estado_estrella') puede ser un número (1, 2, 3...) o una string (★☆☆)
-        if (
-            c["nombre"] == nombre and
-            c["version"] == version and
-            c.get("estrellas", "") == estrellas_nuevo
-        ):
-            nueva_carta_catalogo = c
-            break
+            # 2. Actualizar todos los campos sincronizados en Mongo
+            col_cartas_usuario.update_one(
+                {"user_id": usuario_id, "id_unico": id_unico},
+                {
+                    "$set": {
+                        "estrellas": estrellas_nuevo,
+                        "estado": nuevo_estado,
+                        "imagen": nueva_imagen
+                    }
+                }
+            )
+            resultado = f"¡Éxito! Tu carta ahora es <b>{estrellas_nuevo}</b> y ha mejorado a <b>{nuevo_estado}</b>."
+        else:
+            resultado = "Fallaste el intento de mejora. La carta se mantiene igual."
 
-    if nueva_carta_catalogo:
-        nueva_imagen = nueva_carta_catalogo["imagen"]
-        nuevo_estado = nueva_carta_catalogo["estado"]
-    else:
-        # Fallback: si no encuentra, deja los antiguos
-        nueva_imagen = carta.get("imagen", "")
-        nuevo_estado = carta.get("estado", "")
+        # Gasta lightstick (SIEMPRE, falles o aciertes)
+        col_usuarios.update_one({"user_id": usuario_id}, {"$inc": {"objetos.lightstick": -1}})
+        query.edit_message_text(resultado, parse_mode="HTML")
+        query.answer("¡Listo!")
 
-    col_cartas_usuario.update_one(
-        {"user_id": usuario_id, "id_unico": id_unico},
-        {"$set": {
-            "estrellas": estrellas_nuevo,
-            "imagen": nueva_imagen,
-            "estado": nuevo_estado
-        }}
-    )
-    resultado = f"¡Éxito! Tu carta ahora es <b>{estrellas_nuevo}</b> y estado <b>{nuevo_estado}</b>."
-else:
-    resultado = "Fallaste el intento de mejora. La carta se mantiene igual."
-
-
-        # Gasta lightstick
-    col_usuarios.update_one({"user_id": usuario_id}, {"$inc": {"objetos.lightstick": -1}})
-    query.edit_message_text(resultado, parse_mode="HTML")
-    query.answer("¡Listo!")
-
-elif data == "cancelarmejora":
-    query.edit_message_text("Operación cancelada.")
-    query.answer("Cancelado.")
+    elif data == "cancelarmejora":
+        query.edit_message_text("Operación cancelada.")
+        query.answer("Cancelado.")
 
 
 
