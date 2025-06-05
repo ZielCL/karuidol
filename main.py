@@ -1179,7 +1179,7 @@ def comando_precio(update, context):
     precio = precio_carta_karuta(nombre, version, estado, id_unico=id_unico)
     total_copias = col_cartas_usuario.count_documents({"nombre": nombre, "version": version})
     texto = (
-        f"💳 <b>Precio de carta [{id_unico}]</b>\n"
+        f"🖼️ <b>Información de carta [{id_unico}]</b>\n"
         f"• Nombre: <b>{nombre}</b>\n"
         f"• Versión: <b>{version}</b>\n"
         f"• Estado: <b>{estado}</b>\n"
