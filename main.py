@@ -2515,14 +2515,42 @@ def callback_confirmar_mejora(update, context):
         import random
         mejora_exitosa = random.random() < prob
 
-        if mejora_exitosa:
-            col_cartas_usuario.update_one(
-                {"user_id": usuario_id, "id_unico": id_unico},
-                {"$set": {"estrellas": estrellas_nuevo}}
-            )
-            resultado = f"¡Éxito! Tu carta ahora es <b>{estrellas_nuevo}</b>."
-        else:
-            resultado = "Fallaste el intento de mejora. La carta se mantiene igual."
+if mejora_exitosa:
+    nombre = carta["nombre"]
+    version = carta["version"]
+
+    # Buscar la carta en tu catálogo para encontrar la imagen y el estado correctos
+    nueva_carta_catalogo = None
+    for c in cartas:
+        # c.get('estado_estrella') puede ser un número (1, 2, 3...) o una string (★☆☆)
+        if (
+            c["nombre"] == nombre and
+            c["version"] == version and
+            c.get("estrellas", "") == estrellas_nuevo
+        ):
+            nueva_carta_catalogo = c
+            break
+
+    if nueva_carta_catalogo:
+        nueva_imagen = nueva_carta_catalogo["imagen"]
+        nuevo_estado = nueva_carta_catalogo["estado"]
+    else:
+        # Fallback: si no encuentra, deja los antiguos
+        nueva_imagen = carta.get("imagen", "")
+        nuevo_estado = carta.get("estado", "")
+
+    col_cartas_usuario.update_one(
+        {"user_id": usuario_id, "id_unico": id_unico},
+        {"$set": {
+            "estrellas": estrellas_nuevo,
+            "imagen": nueva_imagen,
+            "estado": nuevo_estado
+        }}
+    )
+    resultado = f"¡Éxito! Tu carta ahora es <b>{estrellas_nuevo}</b> y estado <b>{nuevo_estado}</b>."
+else:
+    resultado = "Fallaste el intento de mejora. La carta se mantiene igual."
+
 
         # Gasta lightstick
         col_usuarios.update_one({"user_id": usuario_id}, {"$inc": {"objetos.lightstick": -1}})
