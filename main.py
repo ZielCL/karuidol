@@ -1930,6 +1930,38 @@ def manejador_callback(update, context):
         return
 
     # Botones de filtro por estado (estrellas visuales)
+    # --- PAGINACIÓN ÁLBUM ---
+    if data.startswith("album_"):
+        partes = data.split("_")
+        if len(partes) != 3:
+            return
+        pagina = int(partes[1])
+        usuario_id = int(partes[2])
+        if query.from_user.id != usuario_id:
+            query.answer(text="Solo puedes ver tu propio álbum.", show_alert=True)
+            return
+        cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
+        def sort_key(x):
+            grupo = grupo_de_carta(x.get('nombre', ''), x.get('version', '')) or ""
+            return (
+                grupo.lower(),
+                x.get('nombre', '').lower(),
+                x.get('card_id', 0)
+            )
+        cartas_usuario.sort(key=sort_key)
+        enviar_lista_pagina(
+            query.message.chat_id,
+            usuario_id,
+            cartas_usuario,
+            pagina,
+            context,
+            editar=True,
+            mensaje=query.message
+        )
+        query.answer()
+        return
+
+    
 # ---- Filtro por estado (vertical, con texto) ----
     if data.startswith("mercado_filtro_estado_"):
         user_id = get_uid(data)
@@ -2121,36 +2153,7 @@ def callback_comprarobj(update, context):
         query.answer()
         return
 
-    # --- PAGINACIÓN ÁLBUM ---
-    if data.startswith("album_"):
-        partes = data.split("_")
-        if len(partes) != 3:
-            return
-        pagina = int(partes[1])
-        usuario_id = int(partes[2])
-        if query.from_user.id != usuario_id:
-            query.answer(text="Solo puedes ver tu propio álbum.", show_alert=True)
-            return
-        cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
-        def sort_key(x):
-            grupo = grupo_de_carta(x.get('nombre', ''), x.get('version', '')) or ""
-            return (
-                grupo.lower(),
-                x.get('nombre', '').lower(),
-                x.get('card_id', 0)
-            )
-        cartas_usuario.sort(key=sort_key)
-        enviar_lista_pagina(
-            query.message.chat_id,
-            usuario_id,
-            cartas_usuario,
-            pagina,
-            context,
-            editar=True,
-            mensaje=query.message
-        )
-        query.answer()
-        return
+
 
 
     # --- REGALAR CARTA ---
