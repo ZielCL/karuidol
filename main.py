@@ -193,8 +193,16 @@ CATALOGO_OBJETOS = {
             "• ★★★: No se puede mejorar más"
         ),
         "precio": 4000
+    },
+    "ticket_agregar_apodo": {
+        "nombre": "Ticket Agregar Apodo",
+        "emoji": "🏷️",
+        "desc": (
+            'Permite agregar un apodo personalizado a una carta usando /apodo <id_unico> "apodo"\n'
+            'Máx 8 caracteres. Ejemplo: /apodo fghj7 "Mi bebe"'
+        ),
+        "precio": 1800
     }
-}
 
 
 #--------------------------------------------------------------
@@ -846,6 +854,7 @@ def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, edit
             grupo = grupo_de_carta(nombre, version)
             id_unico = carta.get('id_unico', 'xxxx')
             estrellas = carta.get('estrellas', '★??')
+            apodo = carta.get('apodo', '')
             # Visual según rareza (puedes ajustar los emojis si quieres)
             if estrellas == "★★★":
                 icon = "🌟"
@@ -855,12 +864,27 @@ def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, edit
                 icon = "🔸"
             else:
                 icon = "⚪"
+            apodo_txt = f'· "{apodo}" ' if apodo else ''
             texto += (
-                f"{icon} <b>{nombre}</b> [{version}] {grupo}\n"
-                f"   <code>{id_unico}</code> · [{estrellas}] · <b>#{cid}</b>\n"
+                f"• <code>{id_unico}</code> · [{estrellas}] · #{cid} · [{version}] {apodo_txt}· {nombre} · {grupo}\n"
             )
         texto += "\n<i>Usa <code>/ampliar &lt;id_unico&gt;</code> para ver detalles de cualquier carta.</i>"
 
+    nav = []
+    if pagina > 1:
+        nav.append(InlineKeyboardButton("« Anterior", callback_data=f"album_{pagina-1}_{usuario_id}"))
+    if pagina < paginas:
+        nav.append(InlineKeyboardButton("Siguiente »", callback_data=f"album_{pagina+1}_{usuario_id}"))
+    teclado = InlineKeyboardMarkup([nav]) if nav else None
+    if editar and mensaje:
+        try:
+            mensaje.edit_text(texto, reply_markup=teclado, parse_mode='HTML')
+        except Exception as e:
+            context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode='HTML')
+    else:
+        context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode='HTML')
+
+    
     nav = []
     if pagina > 1:
         nav.append(InlineKeyboardButton("« Anterior", callback_data=f"album_{pagina-1}_{usuario_id}"))
@@ -1546,6 +1570,8 @@ def comando_ampliar(update, context):
     # Traer datos principales
     imagen_url = carta.get('imagen', imagen_de_carta(carta['nombre'], carta['version']))
     nombre = carta.get('nombre', '')
+    apodo = carta.get('apodo', '')
+    nombre_mostrar = f'({apodo}) {nombre}' if apodo else nombre
     version = carta.get('version', '')
     grupo = grupo_de_carta(nombre, version)
     estrellas = carta.get('estrellas', '★??')
@@ -1565,7 +1591,7 @@ def comando_ampliar(update, context):
     # Texto bonito
     texto = (
         f"💳 <b>Precio de carta [{id_unico}]</b>\n"
-        f"• Nombre: {estrella_fav}<b>{nombre}</b>\n"
+        f"• Nombre: {estrella_fav}<b>{nombre_mostrar}</b>\n"
         f"• Grupo: <b>{grupo}</b>\n"
         f"• Versión: <b>{version}</b>\n"
         f"• Nº de carta: <b>#{card_id}</b>\n"
@@ -2683,12 +2709,64 @@ def handler_regalo_respuesta(update, context):
 
 def comando_setsprogreso(update, context):
     mostrar_setsprogreso(update, context, pagina=1)
-    
+
+
+@cooldown_critico
+def comando_apodo(update, context):
+    usuario_id = update.message.from_user.id
+
+    if len(context.args) < 2:
+        update.message.reply_text(
+            'Uso: /apodo <id_unico> "apodo con comillas"\nEjemplo: /apodo fghj7 "Mi bebe"'
+        )
+        return
+
+    id_unico = context.args[0].strip()
+    # Apodo puede contener espacios y comillas, así que une el resto y limpia las comillas
+    apodo = " ".join(context.args[1:])
+    apodo = apodo.strip('"').strip()
+
+    if not (1 <= len(apodo) <= 8):
+        update.message.reply_text("El apodo debe tener entre 1 y 8 caracteres.")
+        return
+
+    # Buscar la carta
+    carta = col_cartas_usuario.find_one({"user_id": usuario_id, "id_unico": id_unico})
+    if not carta:
+        update.message.reply_text("No encontré esa carta en tu álbum.")
+        return
+
+    # Verificar que el usuario tenga el ticket
+    doc_usuario = col_usuarios.find_one({"user_id": usuario_id}) or {}
+    objetos = doc_usuario.get("objetos", {})
+    ticket_apodo = objetos.get("ticket_agregar_apodo", 0)
+    if ticket_apodo < 1:
+        update.message.reply_text("No tienes tickets para agregar apodos. Cómpralo en /tienda.")
+        return
+
+    # Consumir ticket
+    col_usuarios.update_one(
+        {"user_id": usuario_id},
+        {"$inc": {"objetos.ticket_agregar_apodo": -1}}
+    )
+    # Actualizar carta con apodo
+    col_cartas_usuario.update_one(
+        {"user_id": usuario_id, "id_unico": id_unico},
+        {"$set": {"apodo": apodo}}
+    )
+    update.message.reply_text(
+        f'✅ Apodo <b>"{apodo}"</b> asignado correctamente a tu carta <code>{id_unico}</code>.',
+        parse_mode="HTML"
+    )
+
+
+
 dispatcher.add_handler(CallbackQueryHandler(callback_comprarobj, pattern="^comprarobj_"))
 dispatcher.add_handler(CallbackQueryHandler(callback_ampliar_vender, pattern="^ampliar_vender_"))
 dispatcher.add_handler(CallbackQueryHandler(callback_mejorar_carta, pattern="^mejorar_"))
 dispatcher.add_handler(CallbackQueryHandler(callback_confirmar_mejora, pattern="^(confirmamejora_|cancelarmejora)"))
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback))
+dispatcher.add_handler(CommandHandler('apodo', comando_apodo))
 dispatcher.add_handler(CommandHandler('inventario', comando_inventario))
 dispatcher.add_handler(CommandHandler('tienda', comando_tienda))
 dispatcher.add_handler(CommandHandler('comprarobjeto', comando_comprarobjeto))
