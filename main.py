@@ -2413,7 +2413,8 @@ def callback_mejorar_carta(update, context):
         return
 
     user = col_usuarios.find_one({"user_id": usuario_id}) or {}
-    lightsticks = user.get("lightstick", 0)
+    objetos = user.get("objetos", {})
+    lightsticks = objetos.get("lightstick", 0)
     if lightsticks < 1:
         query.answer("No tienes ningún Lightstick.", show_alert=True)
         return
@@ -2432,7 +2433,6 @@ def callback_mejorar_carta(update, context):
 
     estrellas_nuevo, prob = mejoras[estrellas_actual]
     prob_percent = int(prob * 100)
-    # Pregunta de confirmación
     texto = (
         f"Vas a usar 1 💡 Lightstick para intentar mejorar esta carta:\n"
         f"<b>{carta.get('nombre','')} [{carta.get('version','')}]</b>\n"
@@ -2450,6 +2450,7 @@ def callback_mejorar_carta(update, context):
     query.answer()
 
 
+
 def callback_confirmar_mejora(update, context):
     query = update.callback_query
     usuario_id = query.from_user.id
@@ -2462,7 +2463,8 @@ def callback_confirmar_mejora(update, context):
             query.answer("No tienes esa carta.", show_alert=True)
             return
         user = col_usuarios.find_one({"user_id": usuario_id}) or {}
-        lightsticks = user.get("lightstick", 0)
+        objetos = user.get("objetos", {})
+        lightsticks = objetos.get("lightstick", 0)
         if lightsticks < 1:
             query.answer("No tienes ningún Lightstick.", show_alert=True)
             return
@@ -2498,6 +2500,7 @@ def callback_confirmar_mejora(update, context):
     elif data == "cancelarmejora":
         query.edit_message_text("Operación cancelada.")
         query.answer("Cancelado.")
+
 
 
 
