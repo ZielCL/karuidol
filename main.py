@@ -715,12 +715,12 @@ def manejador_reclamar(update, context):
     }
     frase_estado = FRASES_ESTADO.get(estado, "")
 
-    # Construir el mensaje, solo si hubo intentos reales de otros jugadores
+    # Construir el mensaje, solo si hubo intentos reales de otros usuarios
     mensaje_extra = ""
     # intentos incluye todos los clicks de no dueños, pero el último es el click de quien reclamó
     intentos_otros = max(0, intentos - 1)
     if intentos_otros > 0:
-        mensaje_extra = f"\n💸 Esta carta fue disputada con <b>{intentos_otros}</b> intentos de otros jugadores."
+        mensaje_extra = f"\n💸 Esta carta fue disputada con <b>{intentos_otros}</b> intentos de otros usuarios."
 
     context.bot.send_message(
         chat_id=drop["chat_id"],
