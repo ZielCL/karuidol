@@ -884,18 +884,41 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 def comando_mejorar(update, context):
     usuario_id = update.message.from_user.id
 
-    # Traer cartas mejorables
+    # Si se pasa un argumento, buscar esa carta y lanzar el menú de mejora SOLO para esa carta
+    if context.args:
+        id_unico = context.args[0].strip()
+        carta = col_cartas_usuario.find_one({"user_id": usuario_id, "id_unico": id_unico})
+        if not carta:
+            update.message.reply_text("No tienes esa carta (o el id_unico no es válido).")
+            return
+        if carta.get("estrellas", "") == "★★★":
+            update.message.reply_text("Esta carta ya tiene el máximo de estrellas.")
+            return
+        # Llama directo a mostrar_lista_mejorables con SOLO esa carta
+        mostrar_lista_mejorables(update, context, usuario_id, [carta], pagina=1)
+        return
+
+    # Caso tradicional: mostrar todas las mejorables
     cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
     cartas_mejorables = [
         c for c in cartas_usuario
         if c.get("estrellas", "") != "★★★"
     ]
+    # Ordenar por nombre y versión
+    cartas_mejorables.sort(
+        key=lambda x: (
+            x.get("nombre", "").lower(),
+            x.get("version", "").lower()
+        )
+    )
     if not cartas_mejorables:
         update.message.reply_text("No tienes cartas que se puedan mejorar (todas son ★★★).")
         return
 
     pagina = 1
     mostrar_lista_mejorables(update, context, usuario_id, cartas_mejorables, pagina)
+
+
 
 
 
