@@ -271,49 +271,61 @@ def revisar_sets_completados(usuario_id, context):
 
 
 
-GEM_PACKS = [
+# Packs de gemas y links base
+GEMS_PACKS = [
     {
-        "label": "x50 Gems",
-        "store": "50 Gemas",
-        "url": "https://www.paypal.com/ncp/payment/V3W8K77LGJ82S"
+        "label": "💎 x50 Gems",
+        "desc": "x50 Gems",
+        "paypal_url": "https://www.paypal.com/ncp/payment/V3W8K77LGJ82S"
     },
     {
-        "label": "x100 Gems",
-        "store": "100 Gemas",
-        "url": "https://www.paypal.com/ncp/payment/RN6F4LFZEBLNN"
+        "label": "💎 x100 Gems",
+        "desc": "x100 Gems",
+        "paypal_url": "https://www.paypal.com/ncp/payment/RN6F4LFZEBLNN"
     },
     {
-        "label": "x500 Gems (400 + 100 bonus)",
-        "store": "500 Gemas (400 + 100 bonus)",
-        "url": "https://www.paypal.com/ncp/payment/DQLNJS3UJTUA6"
+        "label": "💎 x500 Gems (400 + 100 bonus)",
+        "desc": "x500 Gems (400 + 100 bonus)",
+        "paypal_url": "https://www.paypal.com/ncp/payment/DQLNJS3UJTUA6"
     },
     {
-        "label": "x1000 Gems (850 + 150 bonus)",
-        "store": "1000 Gemas (850 + 150 bonus)",
-        "url": "https://www.paypal.com/ncp/payment/SYUFSJPJUJVWJ"
+        "label": "💎 x1000 Gems (850 + 150 bonus)",
+        "desc": "x1000 Gems (850 + 150 bonus)",
+        "paypal_url": "https://www.paypal.com/ncp/payment/SYUFSJPJUJVWJ"
     },
     {
-        "label": "x5000 Gems (4000 + 1000 bonus)",
-        "store": "5000 Gemas (4000 + 1000 bonus)",
-        "url": "https://www.paypal.com/ncp/payment/ZNZ4VFYNBM83E"
+        "label": "💎 x5000 Gems (4000 + 1000 bonus)",
+        "desc": "x5000 Gems (4000 + 1000 bonus)",
+        "paypal_url": "https://www.paypal.com/ncp/payment/ZNZ4VFYNBM83E"
     },
     {
-        "label": "x10000 Gems (8000 + 2000 bonus)",
-        "store": "10000 Gemas (8000 + 2000 bonus)",
-        "url": "https://www.paypal.com/ncp/payment/A8JTU9PPTTL4S"
+        "label": "💎 x10000 Gems (8000 + 2000 bonus)",
+        "desc": "x10000 Gems (8000 + 2000 bonus)",
+        "paypal_url": "https://www.paypal.com/ncp/payment/A8JTU9PPTTL4S"
     },
 ]
 
+@cooldown_critico
 def tienda_gemas(update, context):
-    user_id = update.effective_user.id
-    buttons = []
-    for pack in GEM_PACKS:
-        # Le agregamos el user_id como parámetro "custom"
-        url = f"{pack['url']}?custom={user_id}"
-        buttons.append([InlineKeyboardButton(pack['label'], url=url)])
-    reply_markup = InlineKeyboardMarkup(buttons)
-    text = "💎 *Tienda de Gemas*\n\nSelecciona un pack para comprar gemas. Recibirás las gemas automáticamente después del pago."
-    update.message.reply_text(text, reply_markup=reply_markup, parse_mode="Markdown")
+    user_id = update.message.from_user.id
+
+    texto = (
+        "💎 <b>Tienda de Gemas KaruKpop</b>\n\n"
+        "Compra gemas de forma segura con PayPal. Las gemas se agregarán automáticamente a tu cuenta tras el pago.\n\n"
+    )
+    botones = []
+    for pack in GEMS_PACKS:
+        # Genera URL personalizada con ?custom=<user_id>
+        enlace = f"{pack['paypal_url']}?custom={user_id}"
+        texto += f"{pack['label']}: <a href=\"{enlace}\">{pack['desc']}</a>\n"
+        botones.append([InlineKeyboardButton(pack['label'], url=enlace)])
+
+    texto += "\n<b>Recuerda:</b> Las gemas se acreditan automáticamente tras el pago.\nSi tienes dudas, contáctanos."
+
+    reply_markup = InlineKeyboardMarkup(botones)
+    update.message.reply_text(
+        texto, parse_mode="HTML", disable_web_page_preview=True, reply_markup=reply_markup
+    )
 
 
 ADMIN_USER_ID = 1111798714  # <--- Reemplaza por tu propio ID
@@ -3144,22 +3156,30 @@ def verify_paypal_ipn(data):
 def paypal_ipn():
     data = request.form.to_dict()
     print("IPN recibido:", data)
+
+    # 1. Validación anti-fraude de PayPal
     if not verify_paypal_ipn(data):
         return "Invalid IPN", 400
 
-    # Solo procesar pagos completados
+    # 2. Solo pagos completados
     if data.get("payment_status") != "Completed":
         return "Ignored", 200
 
-    # Aseguramos que 'custom' tenga el user_id de Telegram
+    # 3. Previene doble entrega (por si PayPal reintenta)
+    pago_id = data.get("txn_id")
+    if not pago_id:
+        return "Sin txn_id", 400
+    if db.historial_compras_gemas.find_one({"pago_id": pago_id}):
+        return "Ya entregado", 200
+
+    # 4. Obtén el user_id de Telegram
     user_id = data.get("custom")
-    if not user_id:
+    if not user_id or not user_id.isdigit():
         return "No user", 400
     user_id = int(user_id)
 
-    # Detecta cuál pack compró
+    # 5. Identifica el pack
     item_name = data.get("item_name", "")
-    # Hazlo flexible por si cambia el item_name
     gems_map = {
         "x50 Gems": 50,
         "x100 Gems": 100,
@@ -3176,18 +3196,33 @@ def paypal_ipn():
     if not cantidad_gemas:
         return "No pack", 400
 
-    # Aquí suma las gemas a la DB (MongoDB, ejemplo)
-    db.usuarios.update_one(
+    # 6. Busca username (si existe)
+    usuario = col_usuarios.find_one({"user_id": user_id}) or {}
+    username = usuario.get("username", "")
+
+    # 7. Suma gemas y deja historial
+    col_usuarios.update_one(
         {"user_id": user_id},
         {"$inc": {"gemas": cantidad_gemas}},
         upsert=True
     )
+    db.historial_compras_gemas.insert_one({
+        "pago_id": pago_id,
+        "user_id": user_id,
+        "username": username.lower() if username else "",
+        "cantidad_gemas": cantidad_gemas,
+        "item_name": item_name,
+        "fecha": datetime.utcnow()
+    })
 
-    # Envía alerta al usuario por Telegram (solo alerta, no mensaje de chat)
-    bot.send_message(
-        chat_id=user_id,
-        text=f"🎉 ¡Compra exitosa! Recibiste {cantidad_gemas} gemas en KaruKpop. ¡Gracias por tu apoyo!"
-    )
+    # 8. Envía alerta solo si el usuario existe en Telegram
+    try:
+        bot.send_message(
+            chat_id=user_id,
+            text=f"🎉 ¡Compra exitosa! Recibiste {cantidad_gemas} gemas en KaruKpop. ¡Gracias por tu apoyo!",
+        )
+    except Exception as e:
+        print("No se pudo notificar por Telegram:", e)
 
     return "OK", 200
     
