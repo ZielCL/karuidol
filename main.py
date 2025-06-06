@@ -575,7 +575,6 @@ FRASES_ESTADO = {
 
 
 def manejador_reclamar(update, context):
-    print("Entrando a manejador_reclamar...")
     query = update.callback_query
     usuario_click = query.from_user.id
     data = query.data
@@ -609,59 +608,128 @@ def manejador_reclamar(update, context):
         carta["intentos"] += 1
 
     user_doc = col_usuarios.find_one({"user_id": usuario_click}) or {}
-    bono = user_doc.get('bono', 0)
+    objetos = user_doc.get("objetos", {})
+    bonos_inventario = objetos.get('bono_idolday', 0)
+    bono_legacy = user_doc.get('bono', 0)
+    last = user_doc.get('last_idolday')
+    ahora_dt = datetime.utcnow()
+    cooldown_listo = False
+    bono_listo = False
 
-    # === SI ES EL DUEÑO DEL DROP ===
+    if last:
+        diferencia = ahora_dt - last
+        cooldown_listo = diferencia.total_seconds() >= 6 * 3600
+    else:
+        cooldown_listo = True
+
+    if (bonos_inventario and bonos_inventario > 0) or (bono_legacy and bono_legacy > 0):
+        bono_listo = True
+
+    puede_reclamar = False
+
+    # --- PRIMERA RECLAMO DEL DUEÑO ---
     if usuario_click == drop["dueño"]:
         primer_reclamo = drop.get("primer_reclamo_dueño")
         if primer_reclamo is None:
             puede_reclamar = True
             drop["primer_reclamo_dueño"] = ahora
         else:
+            # Reclama la segunda carta (o más)
             tiempo_faltante = 15 - (ahora - drop["primer_reclamo_dueño"])
             if tiempo_faltante > 0:
                 segundos_faltantes = int(round(tiempo_faltante))
                 query.answer(
-                    f"Te quedan {segundos_faltantes} segundos para poder reclamar la otra (si tienes bono).",
+                    f"Te quedan {segundos_faltantes} segundos para poder reclamar la otra.",
                     show_alert=True
                 )
                 return
-            if bono < 1:
-                query.answer("Necesitas al menos 1 bono para reclamar la segunda carta.", show_alert=True)
+            # --- chequea cooldown o bono (igual que para cualquier usuario) ---
+            if cooldown_listo:
+                puede_reclamar = True
+                col_usuarios.update_one(
+                    {"user_id": usuario_click},
+                    {"$set": {"last_idolday": ahora_dt}},
+                    upsert=True
+                )
+            elif bono_listo:
+                puede_reclamar = True
+                # Gasta primero del inventario, luego legacy
+                if bonos_inventario and bonos_inventario > 0:
+                    col_usuarios.update_one(
+                        {"user_id": usuario_click},
+                        {"$inc": {"objetos.bono_idolday": -1}},
+                        upsert=True
+                    )
+                else:
+                    col_usuarios.update_one(
+                        {"user_id": usuario_click},
+                        {"$inc": {"bono": -1}},
+                        upsert=True
+                    )
+            else:
+                # No puede reclamar
+                if last:
+                    faltante = 6*3600 - (ahora_dt - last).total_seconds()
+                    horas = int(faltante // 3600)
+                    minutos = int((faltante % 3600) // 60)
+                    segundos = int(faltante % 60)
+                    query.answer(
+                        f"No puedes reclamar: espera cooldown ({horas}h {minutos}m {segundos}s) o compra un Bono Idolday.",
+                        show_alert=True
+                    )
+                else:
+                    query.answer(
+                        "No puedes reclamar: espera el cooldown o compra un Bono Idolday.",
+                        show_alert=True
+                    )
                 return
-            puede_reclamar = True
-            col_usuarios.update_one({"user_id": usuario_click}, {"$inc": {"bono": -1}}, upsert=True)
-    # === NO ES EL DUEÑO DEL DROP ===
+    # --- NO ES DUEÑO DEL DROP ---
     else:
-        # Si es antes de los 15 segundos, ALERTA y return.
         if tiempo_desde_drop < 15:
             segundos_faltantes = int(round(15 - tiempo_desde_drop))
             query.answer(
-                f"Aún no puedes reclamar esta carta, te quedan {segundos_faltantes} segundos para poder reclamar.",
+                f"Aún no puedes reclamar esta carta, te quedan {segundos_faltantes} segundos.",
                 show_alert=True
             )
             return
-        # Si ya pasó el tiempo, ahora sí verifica si puede reclamar por /idolday o bono.
-        cooldown_listo, bono_listo = puede_usar_idolday(usuario_click)
         if cooldown_listo:
             puede_reclamar = True
             col_usuarios.update_one(
                 {"user_id": usuario_click},
-                {"$set": {"last_idolday": datetime.utcnow()}},
+                {"$set": {"last_idolday": ahora_dt}},
                 upsert=True
             )
         elif bono_listo:
             puede_reclamar = True
-            col_usuarios.update_one(
-                {"user_id": usuario_click},
-                {"$inc": {"bono": -1}},
-                upsert=True
-            )
+            if bonos_inventario and bonos_inventario > 0:
+                col_usuarios.update_one(
+                    {"user_id": usuario_click},
+                    {"$inc": {"objetos.bono_idolday": -1}},
+                    upsert=True
+                )
+            else:
+                col_usuarios.update_one(
+                    {"user_id": usuario_click},
+                    {"$inc": {"bono": -1}},
+                    upsert=True
+                )
         else:
-            query.answer("Solo puedes reclamar cartas si tienes disponible tu /idolday o tienes un bono disponible.", show_alert=True)
+            if last:
+                faltante = 6*3600 - (ahora_dt - last).total_seconds()
+                horas = int(faltante // 3600)
+                minutos = int((faltante % 3600) // 60)
+                segundos = int(faltante % 60)
+                query.answer(
+                    f"No puedes reclamar: espera cooldown ({horas}h {minutos}m {segundos}s) o compra un Bono Idolday.",
+                    show_alert=True
+                )
+            else:
+                query.answer(
+                    "No puedes reclamar: espera el cooldown o compra un Bono Idolday.",
+                    show_alert=True
+                )
             return
 
-    # Si no tiene permiso, no continúa.
     if not puede_reclamar:
         return
 
