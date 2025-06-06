@@ -12,7 +12,7 @@ from telegram import (
 from telegram.ext import Dispatcher, CommandHandler, CallbackQueryHandler
 import json
 import random
-from datetime import datetime
+from datetime import datetime, timedelta
 from pymongo import MongoClient
 from dotenv import load_dotenv
 import re
