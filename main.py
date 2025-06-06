@@ -1083,7 +1083,7 @@ def comprar_objeto(usuario_id, obj_id, context, chat_id, reply_func):
         upsert=True
     )
     reply_func(
-        f"¡Compraste {info['emoji']} <b>{info['nombre']}</b> por <b>{precio} Kponey</b>!",
+        f"¡Compraste {info['emoji']} {info['nombre']} por {precio} Kponey!",
         parse_mode="HTML"
     )
 
