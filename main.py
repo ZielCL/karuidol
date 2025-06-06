@@ -412,9 +412,9 @@ def comando_idolday(update, context):
     chat_id = update.effective_chat.id
     ahora = datetime.utcnow()
     ahora_ts = time.time()
-    user_doc = col_usuarios.find_one({"user_id": usuario_id})
-    bono = user_doc.get('bono', 0) if user_doc else 0
-    last = user_doc.get('last_idolday') if user_doc else None
+    user_doc = col_usuarios.find_one({"user_id": usuario_id}) or {}
+    bono = user_doc.get('bono', 0)
+    last = user_doc.get('last_idolday')
     puede_tirar = False
 
     # --- Cooldown global por grupo (30 seg) ---
@@ -432,7 +432,6 @@ def comando_idolday(update, context):
         return
 
     # --- Cooldown por usuario (6 horas o bono) ---
-    puede_tirar = False
     cooldown_listo, bono_listo = puede_usar_idolday(usuario_id)
 
     if cooldown_listo:
@@ -442,38 +441,37 @@ def comando_idolday(update, context):
             {"$set": {"last_idolday": ahora}},
             upsert=True
         )
-elif bono_listo:
-    puede_tirar = True
-    user_doc = col_usuarios.find_one({"user_id": usuario_id}) or {}
-    objetos = user_doc.get('objetos', {})
-    bonos_inventario = objetos.get('bono_idolday', 0)
-    if bonos_inventario and bonos_inventario > 0:
-        # Gasta del inventario
-        col_usuarios.update_one(
-            {"user_id": usuario_id},
-            {"$inc": {"objetos.bono_idolday": -1}},
-            upsert=True
-        )
+    elif bono_listo:
+        puede_tirar = True
+        objetos = user_doc.get('objetos', {})
+        bonos_inventario = objetos.get('bono_idolday', 0)
+        if bonos_inventario and bonos_inventario > 0:
+            # Gasta del inventario
+            col_usuarios.update_one(
+                {"user_id": usuario_id},
+                {"$inc": {"objetos.bono_idolday": -1}},
+                upsert=True
+            )
+        else:
+            # Gasta del campo legacy (admin)
+            col_usuarios.update_one(
+                {"user_id": usuario_id},
+                {"$inc": {"bono": -1}},
+                upsert=True
+            )
     else:
-        # Gasta del campo legacy (admin)
-        col_usuarios.update_one(
-            {"user_id": usuario_id},
-            {"$inc": {"bono": -1}},
-            upsert=True
-        )
-else:
-    if last:
-        faltante = 6*3600 - (ahora - last).total_seconds()
-        horas = int(faltante // 3600)
-        minutos = int((faltante % 3600) // 60)
-        segundos = int(faltante % 60)
-        context.bot.send_message(
-            chat_id=chat_id,
-            text=f"Ya usaste /idolday. Intenta de nuevo en {horas}h {minutos}m {segundos}s."
-        )
-    else:
-        context.bot.send_message(chat_id=chat_id, text=f"Ya usaste /idolday.")
-    return
+        if last:
+            faltante = 6*3600 - (ahora - last).total_seconds()
+            horas = int(faltante // 3600)
+            minutos = int((faltante % 3600) // 60)
+            segundos = int(faltante % 60)
+            context.bot.send_message(
+                chat_id=chat_id,
+                text=f"Ya usaste /idolday. Intenta de nuevo en {horas}h {minutos}m {segundos}s."
+            )
+        else:
+            context.bot.send_message(chat_id=chat_id, text=f"Ya usaste /idolday.")
+        return
 
 
     # --- Actualiza el cooldown global ---
