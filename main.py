@@ -680,9 +680,6 @@ def comando_usar(update, context):
             return
         # Llama a la función que muestra el menú de mejora
         mostrar_lista_mejorables(update, context, usuario_id, cartas_mejorables, pagina=1)
-        update.message.reply_text(
-            "Selecciona la carta que quieras mejorar. Tu Lightstick se consumirá en el proceso."
-        )
         return
 
 
