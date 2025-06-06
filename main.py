@@ -342,6 +342,8 @@ def es_admin(update):
 def puede_usar_idolday(user_id):
     user_doc = col_usuarios.find_one({"user_id": user_id}) or {}
     bono = user_doc.get('bono', 0)
+    objetos = user_doc.get('objetos', {})
+    bonos_inventario = objetos.get('bono_idolday', 0)
     last = user_doc.get('last_idolday')
     ahora = datetime.utcnow()
     cooldown_listo = False
@@ -353,7 +355,8 @@ def puede_usar_idolday(user_id):
     else:
         cooldown_listo = True
 
-    if bono and bono > 0:
+    # Hay bono por admin o por inventario
+    if (bono and bono > 0) or (bonos_inventario and bonos_inventario > 0):
         bono_listo = True
 
     return cooldown_listo, bono_listo
@@ -439,8 +442,20 @@ def comando_idolday(update, context):
             {"$set": {"last_idolday": ahora}},
             upsert=True
         )
-    elif bono_listo:
-        puede_tirar = True
+elif bono_listo:
+    puede_tirar = True
+    user_doc = col_usuarios.find_one({"user_id": usuario_id}) or {}
+    objetos = user_doc.get('objetos', {})
+    bonos_inventario = objetos.get('bono_idolday', 0)
+    if bonos_inventario and bonos_inventario > 0:
+        # Gasta del inventario
+        col_usuarios.update_one(
+            {"user_id": usuario_id},
+            {"$inc": {"objetos.bono_idolday": -1}},
+            upsert=True
+        )
+    else:
+        # Gasta del campo legacy (admin)
         col_usuarios.update_one(
             {"user_id": usuario_id},
             {"$inc": {"bono": -1}},
