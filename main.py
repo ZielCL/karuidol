@@ -2455,9 +2455,9 @@ def callback_comprarobj(update, context):
     usuario_id = query.from_user.id
     chat_id = query.message.chat_id
 
+    # Cambia aquí: usa query.answer para mostrar el mensaje en alerta
     def reply_func(text, **kwargs):
-        query.answer(text="¡Compra procesada!", show_alert=False)
-        context.bot.send_message(chat_id=chat_id, text=text, **kwargs)
+        query.answer(text=text, show_alert=True)
 
     comprar_objeto(usuario_id, obj_id, context, chat_id, reply_func)
 
