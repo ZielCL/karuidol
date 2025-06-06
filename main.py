@@ -585,14 +585,41 @@ FRASES_ESTADO = {
 
 @cooldown_critico
 def comando_usar(update, context):
+    from datetime import timedelta  # asegúrate de tener este import también
+
+    def normalizar_objeto(nombre):
+        return (
+            nombre.lower()
+            .replace("_", " ")
+            .replace("-", " ")
+            .replace('"', '')
+            .replace("'", '')
+            .strip()
+        )
+
+    # Mapeo de nombres normalizados a IDs de objetos
+    OBJETOS_NORM = {}
+    for obj_id, info in CATALOGO_OBJETOS.items():
+        clave = normalizar_objeto(info['nombre'])
+        OBJETOS_NORM[clave] = obj_id
+        OBJETOS_NORM[normalizar_objeto(obj_id)] = obj_id
+
     usuario_id = update.message.from_user.id
     chat_id = update.effective_chat.id
 
     if not context.args:
-        update.message.reply_text("Usa: /usar <objeto_id> (ejemplo: /usar abrazo_de_bias)")
+        update.message.reply_text('Usa: /usar <objeto> (ejemplo: /usar "abrazo de bias")')
         return
 
-    obj_id = context.args[0].strip().lower()
+    # Toma todo lo que escribió el usuario, una sola cadena
+    nombre_usuario = " ".join(context.args)
+    obj_norm = normalizar_objeto(nombre_usuario)
+    obj_id = OBJETOS_NORM.get(obj_norm)
+
+    if not obj_id:
+        update.message.reply_text("Ese objeto no existe o no es utilizable. Revisa tu inventario con /inventario.")
+        return
+
     doc = col_usuarios.find_one({"user_id": usuario_id}) or {}
     objetos = doc.get("objetos", {})
     cantidad = objetos.get(obj_id, 0)
@@ -602,7 +629,6 @@ def comando_usar(update, context):
         return
 
     if obj_id == "abrazo_de_bias":
-        # Chequea cooldown actual de idolday
         last = doc.get('last_idolday')
         if not last:
             update.message.reply_text("No tienes cooldown activo de /idolday.")
@@ -617,7 +643,6 @@ def comando_usar(update, context):
             update.message.reply_text("No tienes cooldown activo de /idolday.")
             return
 
-        # Reduce a la mitad el tiempo restante
         nuevo_faltante = faltante / 2
         nuevo_last = ahora - timedelta(seconds=(cd_total - nuevo_faltante))
         col_usuarios.update_one(
