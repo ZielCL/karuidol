@@ -272,60 +272,66 @@ def revisar_sets_completados(usuario_id, context):
 
 
 # Packs de gemas y links base
-GEMS_PACKS = [
+# Diccionario con los packs y sus datos
+PACKS_GEMAS = [
     {
+        "nombre": "x50 Gems",
         "label": "💎 x50 Gems",
-        "desc": "x50 Gems",
-        "paypal_url": "https://www.paypal.com/ncp/payment/V3W8K77LGJ82S"
+        "url": "https://www.paypal.com/ncp/payment/V3W8K77LGJ82S"
     },
     {
+        "nombre": "x100 Gems",
         "label": "💎 x100 Gems",
-        "desc": "x100 Gems",
-        "paypal_url": "https://www.paypal.com/ncp/payment/RN6F4LFZEBLNN"
+        "url": "https://www.paypal.com/ncp/payment/RN6F4LFZEBLNN"
     },
     {
+        "nombre": "x500 Gems (400 + 100 bonus)",
         "label": "💎 x500 Gems (400 + 100 bonus)",
-        "desc": "x500 Gems (400 + 100 bonus)",
-        "paypal_url": "https://www.paypal.com/ncp/payment/DQLNJS3UJTUA6"
+        "url": "https://www.paypal.com/ncp/payment/DQLNJS3UJTUA6"
     },
     {
+        "nombre": "x1000 Gems (850 + 150 bonus)",
         "label": "💎 x1000 Gems (850 + 150 bonus)",
-        "desc": "x1000 Gems (850 + 150 bonus)",
-        "paypal_url": "https://www.paypal.com/ncp/payment/SYUFSJPJUJVWJ"
+        "url": "https://www.paypal.com/ncp/payment/SYUFSJPJUJVWJ"
     },
     {
+        "nombre": "x5000 Gems (4000 + 1000 bonus)",
         "label": "💎 x5000 Gems (4000 + 1000 bonus)",
-        "desc": "x5000 Gems (4000 + 1000 bonus)",
-        "paypal_url": "https://www.paypal.com/ncp/payment/ZNZ4VFYNBM83E"
+        "url": "https://www.paypal.com/ncp/payment/ZNZ4VFYNBM83E"
     },
     {
+        "nombre": "x10000 Gems (8000 + 2000 bonus)",
         "label": "💎 x10000 Gems (8000 + 2000 bonus)",
-        "desc": "x10000 Gems (8000 + 2000 bonus)",
-        "paypal_url": "https://www.paypal.com/ncp/payment/A8JTU9PPTTL4S"
+        "url": "https://www.paypal.com/ncp/payment/A8JTU9PPTTL4S"
     },
 ]
 
-@cooldown_critico
+# FUNCION DE TIENDA DE GEMAS
 def tienda_gemas(update, context):
     user_id = update.message.from_user.id
+    username = update.message.from_user.username or "sin_username"
 
     texto = (
         "💎 <b>Tienda de Gemas KaruKpop</b>\n\n"
         "Compra gemas de forma segura con PayPal. Las gemas se agregarán automáticamente a tu cuenta tras el pago.\n\n"
+        "💎 x50 Gems\n"
+        "💎 x100 Gems\n"
+        "💎 x500 Gems (400 + 100 bonus)\n"
+        "💎 x1000 Gems (850 + 150 bonus)\n"
+        "💎 x5000 Gems (4000 + 1000 bonus)\n"
+        "💎 x10000 Gems (8000 + 2000 bonus)\n\n"
+        "<b>Recuerda:</b> Las gemas se acreditan automáticamente tras el pago.\n"
+        "Si tienes dudas, contáctanos."
     )
+
+    # Crear los botones, agregando el user_id como parámetro 'custom'
     botones = []
-    for pack in GEMS_PACKS:
-        # Genera URL personalizada con ?custom=<user_id>
-        enlace = f"{pack['paypal_url']}?custom={user_id}"
-        texto += f"{pack['label']}: <a href=\"{enlace}\">{pack['desc']}</a>\n"
-        botones.append([InlineKeyboardButton(pack['label'], url=enlace)])
+    for pack in PACKS_GEMAS:
+        url = f"{pack['url']}?custom={user_id}"
+        botones.append([InlineKeyboardButton(pack["label"], url=url)])
 
-    texto += "\n<b>Recuerda:</b> Las gemas se acreditan automáticamente tras el pago.\nSi tienes dudas, contáctanos."
-
-    reply_markup = InlineKeyboardMarkup(botones)
-    update.message.reply_text(
-        texto, parse_mode="HTML", disable_web_page_preview=True, reply_markup=reply_markup
-    )
+    teclado = InlineKeyboardMarkup(botones)
+    update.message.reply_text(texto, parse_mode="HTML", reply_markup=teclado)
 
 
 ADMIN_USER_ID = 1111798714  # <--- Reemplaza por tu propio ID
