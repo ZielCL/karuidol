@@ -202,6 +202,15 @@ CATALOGO_OBJETOS = {
             'Máx 8 caracteres. Ejemplo: /apodo fghj7 "Mi bebe"'
         ),
         "precio": 1800
+    },
+    "abrazo_de_bias": {
+        "nombre": "Abrazo de Bias",
+        "emoji": "🤗",
+        "desc": (
+            "Reduce el cooldown de /idolday a la mitad, una vez.\n"
+            "Uso: Cuando tengas cooldown, gasta 1 para reducir la espera."
+        ),
+        "precio": 600
     }
 }
 
@@ -572,6 +581,75 @@ FRASES_ESTADO = {
     "Mal estado": "Podría estar mejor...",
     "Muy mal estado": "¡Oh no!"
 }
+
+
+@cooldown_critico
+def comando_usar(update, context):
+    usuario_id = update.message.from_user.id
+    chat_id = update.effective_chat.id
+
+    if not context.args:
+        update.message.reply_text("Usa: /usar <objeto_id> (ejemplo: /usar abrazo_de_bias)")
+        return
+
+    obj_id = context.args[0].strip().lower()
+    doc = col_usuarios.find_one({"user_id": usuario_id}) or {}
+    objetos = doc.get("objetos", {})
+    cantidad = objetos.get(obj_id, 0)
+
+    if cantidad < 1:
+        update.message.reply_text("No tienes ese objeto en tu inventario.")
+        return
+
+    if obj_id == "abrazo_de_bias":
+        # Chequea cooldown actual de idolday
+        last = doc.get('last_idolday')
+        if not last:
+            update.message.reply_text("No tienes cooldown activo de /idolday.")
+            return
+
+        ahora = datetime.utcnow()
+        diferencia = (ahora - last).total_seconds()
+        cd_total = 6 * 3600  # 6 horas en segundos
+        faltante = cd_total - diferencia
+
+        if faltante <= 0:
+            update.message.reply_text("No tienes cooldown activo de /idolday.")
+            return
+
+        # Reduce a la mitad el tiempo restante
+        nuevo_faltante = faltante / 2
+        nuevo_last = ahora - timedelta(seconds=(cd_total - nuevo_faltante))
+        col_usuarios.update_one(
+            {"user_id": usuario_id},
+            {
+                "$set": {"last_idolday": nuevo_last},
+                "$inc": {f"objetos.{obj_id}": -1}
+            }
+        )
+
+        def formatear_tiempo(segundos):
+            h = int(segundos // 3600)
+            m = int((segundos % 3600) // 60)
+            s = int(segundos % 60)
+            partes = []
+            if h > 0: partes.append(f"{h}h")
+            if m > 0: partes.append(f"{m}m")
+            if s > 0 or not partes: partes.append(f"{s}s")
+            return " ".join(partes)
+
+        texto = (
+            f"🤗 <b>¡Usaste Abrazo de Bias!</b>\n"
+            f"Tiempo restante antes: <b>{formatear_tiempo(faltante)}</b>\n"
+            f"Nuevo tiempo restante: <b>{formatear_tiempo(nuevo_faltante)}</b>\n"
+            f"¡Ahora puedes usar /idolday mucho antes!"
+        )
+        update.message.reply_text(texto, parse_mode="HTML")
+        return
+
+    update.message.reply_text("Ese objeto no se puede usar por comando (aún).")
+
+
 
 
 def manejador_reclamar(update, context):
@@ -2837,6 +2915,7 @@ dispatcher.add_handler(CallbackQueryHandler(callback_ampliar_vender, pattern="^a
 dispatcher.add_handler(CallbackQueryHandler(callback_mejorar_carta, pattern="^mejorar_"))
 dispatcher.add_handler(CallbackQueryHandler(callback_confirmar_mejora, pattern="^(confirmamejora_|cancelarmejora)"))
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback))
+dispatcher.add_handler(CommandHandler('usar', comando_usar))
 dispatcher.add_handler(CommandHandler('apodo', comando_apodo))
 dispatcher.add_handler(CommandHandler('inventario', comando_inventario))
 dispatcher.add_handler(CommandHandler('tienda', comando_tienda))
