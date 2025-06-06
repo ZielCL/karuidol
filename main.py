@@ -271,7 +271,89 @@ def revisar_sets_completados(usuario_id, context):
 
 
 
+GEM_PACKS = [
+    {
+        "label": "x50 Gems",
+        "store": "50 Gemas",
+        "url": "https://www.paypal.com/ncp/payment/V3W8K77LGJ82S"
+    },
+    {
+        "label": "x100 Gems",
+        "store": "100 Gemas",
+        "url": "https://www.paypal.com/ncp/payment/RN6F4LFZEBLNN"
+    },
+    {
+        "label": "x500 Gems (400 + 100 bonus)",
+        "store": "500 Gemas (400 + 100 bonus)",
+        "url": "https://www.paypal.com/ncp/payment/DQLNJS3UJTUA6"
+    },
+    {
+        "label": "x1000 Gems (850 + 150 bonus)",
+        "store": "1000 Gemas (850 + 150 bonus)",
+        "url": "https://www.paypal.com/ncp/payment/SYUFSJPJUJVWJ"
+    },
+    {
+        "label": "x5000 Gems (4000 + 1000 bonus)",
+        "store": "5000 Gemas (4000 + 1000 bonus)",
+        "url": "https://www.paypal.com/ncp/payment/ZNZ4VFYNBM83E"
+    },
+    {
+        "label": "x10000 Gems (8000 + 2000 bonus)",
+        "store": "10000 Gemas (8000 + 2000 bonus)",
+        "url": "https://www.paypal.com/ncp/payment/A8JTU9PPTTL4S"
+    },
+]
 
+def tienda_gemas(update, context):
+    user_id = update.effective_user.id
+    buttons = []
+    for pack in GEM_PACKS:
+        # Le agregamos el user_id como parámetro "custom"
+        url = f"{pack['url']}?custom={user_id}"
+        buttons.append([InlineKeyboardButton(pack['label'], url=url)])
+    reply_markup = InlineKeyboardMarkup(buttons)
+    text = "💎 *Tienda de Gemas*\n\nSelecciona un pack para comprar gemas. Recibirás las gemas automáticamente después del pago."
+    update.message.reply_text(text, reply_markup=reply_markup, parse_mode="Markdown")
+
+
+ADMIN_USER_ID = 1111798714  # <--- Reemplaza por tu propio ID
+
+def historial_gemas_admin(update, context):
+    user_id = update.effective_user.id
+    if user_id != ADMIN_USER_ID:
+        update.message.reply_text("No tienes permiso para usar este comando.")
+        return
+
+    if len(context.args) == 0:
+        update.message.reply_text("Usa: /historialgemas <@username o id_usuario>")
+        return
+
+    arg = context.args[0]
+    query = {}
+    if arg.startswith("@"):
+        username = arg[1:].lower()
+        query["username"] = username
+    else:
+        try:
+            query["user_id"] = int(arg)
+        except ValueError:
+            update.message.reply_text("Debes ingresar un @username válido o un ID numérico.")
+            return
+
+    compras = list(db.historial_compras_gemas.find(query).sort("fecha", -1).limit(10))
+    if not compras:
+        update.message.reply_text("Ese usuario no tiene compras de gemas registradas.")
+        return
+
+    msg = f"🧾 *Historial de gemas para {'@'+compras[0].get('username','?') if 'username' in compras[0] else compras[0].get('user_id','?')}:*\n\n"
+    for c in compras:
+        fecha = c['fecha'].strftime("%d/%m/%Y %H:%M")
+        item = c.get("item_name", "")
+        cantidad = c.get("cantidad_gemas", "?")
+        msg += f"- {cantidad} gemas ({item}) el {fecha}\n"
+    update.message.reply_text(msg, parse_mode="Markdown")
+
+dispatcher.add_handler(CommandHandler("historialgemas", historial_gemas_admin))
 
 
 
@@ -3022,6 +3104,7 @@ dispatcher.add_handler(CallbackQueryHandler(callback_ampliar_vender, pattern="^a
 dispatcher.add_handler(CallbackQueryHandler(callback_mejorar_carta, pattern="^mejorar_"))
 dispatcher.add_handler(CallbackQueryHandler(callback_confirmar_mejora, pattern="^(confirmamejora_|cancelarmejora)"))
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback))
+dispatcher.add_handler(CommandHandler('tiendagemas', tienda_gemas))
 dispatcher.add_handler(CommandHandler('darGemas', comando_darGemas))
 dispatcher.add_handler(CommandHandler('gemas', comando_gemas))
 dispatcher.add_handler(CommandHandler('usar', comando_usar))
@@ -3050,6 +3133,64 @@ dispatcher.add_handler(CommandHandler('comprar', comando_comprar))
 dispatcher.add_handler(CommandHandler('retirar', comando_retirar))
 dispatcher.add_handler(CommandHandler('mejorar', comando_mejorar))
 
+
+def verify_paypal_ipn(data):
+    verify_url = "https://ipnpb.paypal.com/cgi-bin/webscr"
+    data['cmd'] = '_notify-validate'
+    resp = requests.post(verify_url, data=data)
+    return resp.text == "VERIFIED"
+
+@app.route('/paypal_ipn', methods=['POST'])
+def paypal_ipn():
+    data = request.form.to_dict()
+    print("IPN recibido:", data)
+    if not verify_paypal_ipn(data):
+        return "Invalid IPN", 400
+
+    # Solo procesar pagos completados
+    if data.get("payment_status") != "Completed":
+        return "Ignored", 200
+
+    # Aseguramos que 'custom' tenga el user_id de Telegram
+    user_id = data.get("custom")
+    if not user_id:
+        return "No user", 400
+    user_id = int(user_id)
+
+    # Detecta cuál pack compró
+    item_name = data.get("item_name", "")
+    # Hazlo flexible por si cambia el item_name
+    gems_map = {
+        "x50 Gems": 50,
+        "x100 Gems": 100,
+        "x500 Gems (400 + 100 bonus)": 500,
+        "x1000 Gems (850 + 150 bonus)": 1000,
+        "x5000 Gems (4000 + 1000 bonus)": 5000,
+        "x10000 Gems (8000 + 2000 bonus)": 10000,
+    }
+    cantidad_gemas = None
+    for k in gems_map:
+        if k in item_name:
+            cantidad_gemas = gems_map[k]
+            break
+    if not cantidad_gemas:
+        return "No pack", 400
+
+    # Aquí suma las gemas a la DB (MongoDB, ejemplo)
+    db.usuarios.update_one(
+        {"user_id": user_id},
+        {"$inc": {"gemas": cantidad_gemas}},
+        upsert=True
+    )
+
+    # Envía alerta al usuario por Telegram (solo alerta, no mensaje de chat)
+    bot.send_message(
+        chat_id=user_id,
+        text=f"🎉 ¡Compra exitosa! Recibiste {cantidad_gemas} gemas en KaruKpop. ¡Gracias por tu apoyo!"
+    )
+
+    return "OK", 200
+    
 
 
 @app.route(f'/{TOKEN}', methods=['POST'])
