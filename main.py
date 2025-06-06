@@ -582,6 +582,57 @@ FRASES_ESTADO = {
     "Muy mal estado": "¡Oh no!"
 }
 
+def comando_darGemas(update, context):
+    TU_USER_ID = 1111798714  # <-- Reemplaza por tu verdadero ID de Telegram
+    if update.message.from_user.id != TU_USER_ID:
+        update.message.reply_text("Este comando solo puede usarlo el creador del bot.")
+        return
+
+
+    # Destinatario
+    if update.message.reply_to_message:
+        dest_id = update.message.reply_to_message.from_user.id
+    elif context.args and context.args[0].startswith('@'):
+        username = context.args[0][1:].lower()
+        dest_user = col_usuarios.find_one({"username": username})
+        if not dest_user:
+            update.message.reply_text("Usuario no encontrado. Debe haber usado el bot antes.")
+            return
+        dest_id = dest_user["user_id"]
+    elif context.args:
+        try:
+            dest_id = int(context.args[0])
+        except ValueError:
+            update.message.reply_text("Uso: /darGemas <@usuario|user_id> <cantidad>")
+            return
+    else:
+        update.message.reply_text("Debes responder a un usuario o especificar @usuario o user_id.")
+        return
+
+    # Cantidad
+    if update.message.reply_to_message and len(context.args) >= 1:
+        try:
+            cantidad = int(context.args[0])
+        except:
+            update.message.reply_text("Debes poner la cantidad después del comando.")
+            return
+    elif len(context.args) >= 2:
+        try:
+            cantidad = int(context.args[1])
+        except:
+            update.message.reply_text("La cantidad debe ser un número.")
+            return
+    else:
+        update.message.reply_text("Debes indicar la cantidad de gemas.")
+        return
+
+    col_usuarios.update_one({"user_id": dest_id}, {"$inc": {"gemas": cantidad}}, upsert=True)
+    update.message.reply_text(f"💎 Gemas actualizadas para <code>{dest_id}</code> ({cantidad:+})", parse_mode="HTML")
+
+
+
+
+
 
 @cooldown_critico
 def comando_usar(update, context):
@@ -681,8 +732,6 @@ def comando_usar(update, context):
         # Llama a la función que muestra el menú de mejora
         mostrar_lista_mejorables(update, context, usuario_id, cartas_mejorables, pagina=1)
         return
-
-
 
 
 
@@ -953,6 +1002,16 @@ def manejador_reclamar(update, context):
 
 
 
+def gastar_gemas(usuario_id, cantidad):
+    doc = col_usuarios.find_one({"user_id": usuario_id}) or {}
+    gemas = doc.get("gemas", 0)
+    if gemas < cantidad:
+        return False
+    col_usuarios.update_one({"user_id": usuario_id}, {"$inc": {"gemas": -cantidad}})
+    return True
+
+
+
 
 # ----------------- Resto de funciones: album, paginación, etc. -----------------
 
@@ -1139,6 +1198,7 @@ def comando_inventario(update, context):
     objetos = doc.get("objetos", {})
     kponey = doc.get("kponey", 0)
     bono = doc.get("bono", 0)
+    gemas = doc.get("gemas", 0)   # ← AQUÍ
 
     texto = f"🎒 <b>Tu inventario</b>\n\n"
     tiene_objetos = False
@@ -1149,9 +1209,12 @@ def comando_inventario(update, context):
             texto += f"{info['emoji']} <b>{info['nombre']}</b>: <b>{cantidad}</b>\n"
     if not tiene_objetos:
         texto += "No tienes objetos todavía.\n"
+    texto += f"\n💎 <b>Gemas:</b> <code>{gemas}</code>"   # ← AQUÍ
     texto += f"\n💸 <b>Kponey:</b> <code>{kponey}</code>"
     texto += "\n\nUsa <code>/tienda</code> para comprar objetos."
     update.message.reply_text(texto, parse_mode="HTML")
+
+
 
 
 
@@ -1624,10 +1687,19 @@ def comando_saldo(update, context):
     kponey = usuario.get("kponey", 0)
     update.message.reply_text(f"💸 <b>Tus Kponey:</b> <code>{kponey}</code>", parse_mode="HTML")
 
+
+def comando_gemas(update, context):
+    usuario_id = update.message.from_user.id
+    usuario = col_usuarios.find_one({"user_id": usuario_id}) or {}
+    gemas = usuario.get("gemas", 0)
+    update.message.reply_text(f"💎 <b>Tus gemas:</b> <code>{gemas}</code>", parse_mode="HTML")
+
+
 #---------Para dar dinero------------
 def comando_darKponey(update, context):
-    if not es_admin(update):
-        update.message.reply_text("Solo admins pueden usar este comando.")
+    TU_USER_ID = 1111798714  # <-- Reemplaza por tu verdadero ID de Telegram
+    if update.message.from_user.id != TU_USER_ID:
+        update.message.reply_text("Este comando solo puede usarlo el creador del bot.")
         return
 
     # Revisar si se responde a alguien (reply)
@@ -1671,6 +1743,7 @@ def comando_darKponey(update, context):
 
     col_usuarios.update_one({"user_id": dest_id}, {"$inc": {"kponey": cantidad}}, upsert=True)
     update.message.reply_text(f"💸 Kponey actualizado para <code>{dest_id}</code> ({cantidad:+})", parse_mode="HTML")
+
 
 
 
@@ -2949,6 +3022,8 @@ dispatcher.add_handler(CallbackQueryHandler(callback_ampliar_vender, pattern="^a
 dispatcher.add_handler(CallbackQueryHandler(callback_mejorar_carta, pattern="^mejorar_"))
 dispatcher.add_handler(CallbackQueryHandler(callback_confirmar_mejora, pattern="^(confirmamejora_|cancelarmejora)"))
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback))
+dispatcher.add_handler(CommandHandler('darGemas', comando_darGemas))
+dispatcher.add_handler(CommandHandler('gemas', comando_gemas))
 dispatcher.add_handler(CommandHandler('usar', comando_usar))
 dispatcher.add_handler(CommandHandler('apodo', comando_apodo))
 dispatcher.add_handler(CommandHandler('inventario', comando_inventario))
