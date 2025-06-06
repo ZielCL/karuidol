@@ -585,7 +585,7 @@ FRASES_ESTADO = {
 
 @cooldown_critico
 def comando_usar(update, context):
-    from datetime import timedelta  # asegúrate de tener este import también
+    from datetime import timedelta
 
     def normalizar_objeto(nombre):
         return (
@@ -597,27 +597,24 @@ def comando_usar(update, context):
             .strip()
         )
 
-    # Mapeo de nombres normalizados a IDs de objetos
-    OBJETOS_NORM = {}
-    for obj_id, info in CATALOGO_OBJETOS.items():
-        clave = normalizar_objeto(info['nombre'])
-        OBJETOS_NORM[clave] = obj_id
-        OBJETOS_NORM[normalizar_objeto(obj_id)] = obj_id
+    OBJETOS_USABLES = {
+        "abrazo_de_bias": "abrazo_de_bias",
+        "lightstick": "lightstick",
+        "abrazo de bias": "abrazo_de_bias",
+        "light stick": "lightstick",
+    }
 
     usuario_id = update.message.from_user.id
-    chat_id = update.effective_chat.id
 
     if not context.args:
         update.message.reply_text('Usa: /usar <objeto> (ejemplo: /usar "abrazo de bias")')
         return
 
-    # Toma todo lo que escribió el usuario, una sola cadena
-    nombre_usuario = " ".join(context.args)
-    obj_norm = normalizar_objeto(nombre_usuario)
-    obj_id = OBJETOS_NORM.get(obj_norm)
+    obj_norm = normalizar_objeto(" ".join(context.args))
+    obj_id = OBJETOS_USABLES.get(obj_norm)
 
     if not obj_id:
-        update.message.reply_text("Ese objeto no existe o no es utilizable. Revisa tu inventario con /inventario.")
+        update.message.reply_text("No tienes ese objeto en tu inventario.")
         return
 
     doc = col_usuarios.find_one({"user_id": usuario_id}) or {}
@@ -636,7 +633,7 @@ def comando_usar(update, context):
 
         ahora = datetime.utcnow()
         diferencia = (ahora - last).total_seconds()
-        cd_total = 6 * 3600  # 6 horas en segundos
+        cd_total = 6 * 3600  # 6 horas
         faltante = cd_total - diferencia
 
         if faltante <= 0:
@@ -672,7 +669,22 @@ def comando_usar(update, context):
         update.message.reply_text(texto, parse_mode="HTML")
         return
 
-    update.message.reply_text("Ese objeto no se puede usar por comando (aún).")
+    if obj_id == "lightstick":
+        # Busca cartas mejorables
+        cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
+        cartas_mejorables = [
+            c for c in cartas_usuario if c.get("estrellas", "") != "★★★"
+        ]
+        if not cartas_mejorables:
+            update.message.reply_text("No tienes cartas que puedas mejorar con Lightstick (todas son ★★★).")
+            return
+        # Llama a la función que muestra el menú de mejora
+        mostrar_lista_mejorables(update, context, usuario_id, cartas_mejorables, pagina=1)
+        update.message.reply_text(
+            "Selecciona la carta que quieras mejorar. Tu Lightstick se consumirá en el proceso."
+        )
+        return
+
 
 
 
