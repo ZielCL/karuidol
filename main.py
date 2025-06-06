@@ -1773,7 +1773,7 @@ def comando_ampliar(update, context):
 
     # Texto bonito
     texto = (
-        f"💳 <b>Precio de carta [{id_unico}]</b>\n"
+        f"🎴 <b>Info de carta [{id_unico}]</b>\n"
         f"• Nombre: {estrella_fav}<b>{nombre_mostrar}</b>\n"
         f"• Grupo: <b>{grupo}</b>\n"
         f"• Versión: <b>{version}</b>\n"
