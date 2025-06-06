@@ -461,19 +461,20 @@ elif bono_listo:
             {"$inc": {"bono": -1}},
             upsert=True
         )
+else:
+    if last:
+        faltante = 6*3600 - (ahora - last).total_seconds()
+        horas = int(faltante // 3600)
+        minutos = int((faltante % 3600) // 60)
+        segundos = int(faltante % 60)
+        context.bot.send_message(
+            chat_id=chat_id,
+            text=f"Ya usaste /idolday. Intenta de nuevo en {horas}h {minutos}m {segundos}s."
+        )
     else:
-        if last:
-            faltante = 6*3600 - (ahora - last).total_seconds()
-            horas = int(faltante // 3600)
-            minutos = int((faltante % 3600) // 60)
-            segundos = int(faltante % 60)
-            context.bot.send_message(
-                chat_id=chat_id,
-                text=f"Ya usaste /idolday. Intenta de nuevo en {horas}h {minutos}m {segundos}s."
-            )
-        else:
-            context.bot.send_message(chat_id=chat_id, text=f"Ya usaste /idolday.")
-        return
+        context.bot.send_message(chat_id=chat_id, text=f"Ya usaste /idolday.")
+    return
+
 
     # --- Actualiza el cooldown global ---
     COOLDOWN_GRUPO[chat_id] = ahora_ts
