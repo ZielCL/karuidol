@@ -2220,7 +2220,7 @@ def mostrar_album_pagina(
     fin = inicio + cartas_por_pagina
     cartas_pagina = cartas[inicio:fin]
 
-    texto = f"📗 Álbum (página {pagina}/{total_paginas})\n"
+    texto = f"<b>📗 Álbum (página {pagina}/{total_paginas})</b>\n"
     if cartas_pagina:
         for idx, c in enumerate(cartas_pagina, start=inicio + 1):
             texto += f"• {c['id_unico']} · [{c.get('estrellas','?')}] · #{c.get('card_id','?')} · [V{c.get('version','?')}] · {c.get('nombre','?')} · {c.get('grupo','?')}\n"
