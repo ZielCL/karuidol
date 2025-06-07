@@ -1460,24 +1460,31 @@ def mostrar_menu_estrellas(user_id, pagina):
     return InlineKeyboardMarkup(botones)
 
 def mostrar_menu_grupos(user_id, pagina, grupos):
-    grupos_ordenados = sorted(grupos)
+    grupos = sorted(grupos)  # Ordena los grupos siempre igual
     grupos_por_pagina = 5
-    total_paginas = max(1, ((len(grupos_ordenados) - 1) // grupos_por_pagina) + 1)
-    pagina = max(1, min(pagina, total_paginas))
+    total_paginas = (len(grupos) - 1) // grupos_por_pagina + 1
+    pagina = max(1, min(pagina, total_paginas))  # Evita fuera de rango
+
     inicio = (pagina - 1) * grupos_por_pagina
     fin = inicio + grupos_por_pagina
-    botones = []
-    for grupo in grupos_ordenados[inicio:fin]:
-        botones.append([InlineKeyboardButton(grupo, callback_data=f"mercado_filtragrupo_{user_id}_1_{grupo}")])
-    paginacion = []
+    grupos_visibles = grupos[inicio:fin]
+
+    botones = [
+        [InlineKeyboardButton(grupo, callback_data=f"mercado_grupo_{grupo}_{user_id}")]
+        for grupo in grupos_visibles
+    ]
+
+    flechas = []
     if pagina > 1:
-        paginacion.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_filtro_grupo_{user_id}_1_{pagina-1}"))
+        flechas.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_filtro_grupo_{user_id}_{pagina-1}"))
     if pagina < total_paginas:
-        paginacion.append(InlineKeyboardButton("➡️", callback_data=f"mercado_filtro_grupo_{user_id}_1_{pagina+1}"))
-    if paginacion:
-        botones.append(paginacion)
-    botones.append([InlineKeyboardButton("⬅️ Volver", callback_data=f"mercado_filtros_{user_id}_1")])
+        flechas.append(InlineKeyboardButton("➡️", callback_data=f"mercado_filtro_grupo_{user_id}_{pagina+1}"))
+    if flechas:
+        botones.append(flechas)
+
+    botones.append([InlineKeyboardButton("⬅️ Volver", callback_data=f"mercado_filtros_{user_id}")])
     return InlineKeyboardMarkup(botones)
+
 
 def mostrar_menu_ordenar(user_id, pagina):
     botones = [
@@ -1743,45 +1750,6 @@ def comando_retirar(update, context):
     col_cartas_usuario.insert_one(carta)
     update.message.reply_text("Carta retirada del mercado y devuelta a tu álbum.")
     
-#---------filtros de mercado "grupo"------------------------------------------------
-
-def mostrar_filtros_grupo(
-    chat_id, context, mensaje=None, editar=False, pagina=1, user_id=None
-):
-    grupos = sorted({c.get("grupo", "") for c in col_mercado.find() if c.get("grupo")})
-    por_pagina = 4
-    total = len(grupos)
-    paginas = max(1, (total - 1) // por_pagina + 1)
-    if pagina < 1: pagina = 1
-    if pagina > paginas: pagina = paginas
-    inicio = (pagina - 1) * por_pagina
-    fin = min(inicio + por_pagina, total)
-    grupos_pagina = grupos[inicio:fin]
-
-    matriz = []
-    for g in grupos_pagina:
-        matriz.append([InlineKeyboardButton(g, callback_data=f"mercado_grupo_{g}_{user_id}")])
-
-    nav = []
-    if pagina > 1:
-        nav.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_filtropagegrupo_{pagina-1}_{user_id}"))
-    if pagina < paginas:
-        nav.append(InlineKeyboardButton("➡️", callback_data=f"mercado_filtropagegrupo_{pagina+1}_{user_id}"))
-    if nav:
-        matriz.append(nav)
-    matriz.append([InlineKeyboardButton("❌ Quitar filtro", callback_data=f"mercado_1_{user_id}")])
-
-    teclado = InlineKeyboardMarkup(matriz)
-    # --- Aquí NO cambias el texto, solo los botones ---
-    if editar and mensaje is not None:
-        try:
-            mensaje.edit_reply_markup(reply_markup=teclado)
-        except Exception as e:
-            print("Error edit_reply_markup en mostrar_filtros_grupo:", e)
-
-
-
-
 #--------------------------------------------------------------------------------
 
 
@@ -2417,11 +2385,17 @@ def manejador_callback(update, context):
         return
 
     elif data.startswith("mercado_filtro_grupo_"):
-        user_id = int(partes[3])
-        pagina = int(partes[4])
-        grupos = list({c.get('grupo') for c in col_mercado.find() if c.get('grupo')})
-        query.edit_message_reply_markup(reply_markup=mostrar_menu_grupos(user_id, pagina, grupos))
+        partes = data.split("_")
+        user_id = int(partes[-2])
+        pagina = int(partes[-1])
+        grupos = OBTEN_GRUPOS_DEL_MERCADO()  # Pon aquí tu función para obtener los grupos
+        try:
+            query.edit_message_reply_markup(reply_markup=mostrar_menu_grupos(user_id, pagina, grupos))
+        except BadRequest as e:
+            if "Message is not modified" not in str(e):
+                print("Error en menu grupos:", e)
         return
+
 
     elif data.startswith("mercado_filtragrupo_"):
         user_id = int(partes[2])
