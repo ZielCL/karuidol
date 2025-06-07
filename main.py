@@ -151,22 +151,7 @@ def create_order():
     return "No approve link", 400
 
 # ==== Endpoint para el webhook de PayPal (tienes que registrarlo en developer.paypal.com) ====
-@app.route("/paypal/webhook", methods=["POST"])
-def paypal_webhook():
-    data = request.json
-    print("Webhook recibido:", data)
 
-    if data["event_type"] == "CHECKOUT.ORDER.APPROVED":
-        order_id = data["resource"]["id"]
-        custom_id = data["resource"]["purchase_units"][0]["custom_id"]  # user_id de Telegram
-        # Aquí puedes marcar el pago como "en proceso" (esperando CAPTURE)
-    elif data["event_type"] == "PAYMENT.CAPTURE.COMPLETED":
-        order_id = data["resource"]["supplementary_data"]["related_ids"]["order_id"]
-        custom_id = data["resource"]["custom_id"]  # user_id de Telegram
-        # Aquí suma las gemas y notifica al usuario.
-        print(f"Pago confirmado para user_id={custom_id} - order_id={order_id}")
-
-    return "", 200  # Siempre responde 200 OK
 
 # ==== Endpoint para devolver al usuario tras pagar/cancelar ====
 @app.route("/paypal/return")
