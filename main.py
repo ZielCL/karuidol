@@ -1310,69 +1310,38 @@ if data.startswith("album_filtros_"):
         query.edit_message_reply_markup(reply_markup=markup)
     except Exception as e:
         print("Error cambiando markup:", e)
-        return
+    return
 
+# --- Selección de filtro ESTADO/ESTRELLAS ---
+if data.startswith("album_filtro_estado_"):
+    user_id = int(partes[-2])
+    pagina = int(partes[-1])
+    query.edit_message_reply_markup(reply_markup=mostrar_menu_estrellas_album(user_id, pagina))
+    query.answer()
+    return
 
-    # --- Selección de filtro ESTADO/ESTRELLAS ---
-    if data.startswith("album_filtro_estado_"):
-        query.edit_message_reply_markup(reply_markup=mostrar_menu_estrellas_album(usuario_id, pagina))
-        query.answer()
-        return
+# --- Selección de filtro GRUPO ---
+if data.startswith("album_filtro_grupo_"):
+    user_id = int(partes[-2])
+    pagina = int(partes[-1])
+    query.edit_message_reply_markup(reply_markup=mostrar_menu_grupos_album(user_id, pagina))
+    query.answer()
+    return
 
-    # --- Selección de filtro GRUPO ---
-    if data.startswith("album_filtro_grupo_"):
-        query.edit_message_reply_markup(reply_markup=mostrar_menu_grupos_album(usuario_id, pagina))
-        query.answer()
-        return
+# --- Ordenar por Número ---
+if data.startswith("album_filtro_numero_"):
+    user_id = int(partes[-2])
+    pagina = int(partes[-1])
+    # Aquí pones tu menú de orden
+    query.edit_message_reply_markup(reply_markup=mostrar_menu_ordenar_album(user_id, pagina))
+    query.answer()
+    return
 
-    # --- Elegir estrella concreta ---
-    if data.startswith("album_filtraestrella_"):
-        estrella = partes[4]
-        cartas_usuario = [c for c in col_cartas_usuario.find({"user_id": usuario_id}) if c.get('estrellas', '') == estrella]
-        enviar_lista_pagina(
-            query.message.chat_id, usuario_id, cartas_usuario, pagina, context,
-            editar=True, mensaje=query.message, filtro="estrellas", valor_filtro=estrella
-        )
-        query.answer()
-        return
+# --- Volver (solo por si acaso quieres refrescar la página del álbum) ---
+if data.startswith("album_pagina_"):
+    # (tu lógica normal para volver página)
+    ...
 
-    # --- Elegir grupo concreto ---
-    if data.startswith("album_filtragrupo_"):
-        grupo = "_".join(partes[4:])
-        cartas_usuario = [c for c in col_cartas_usuario.find({"user_id": usuario_id}) if c.get('grupo', '') == grupo]
-        enviar_lista_pagina(
-            query.message.chat_id, usuario_id, cartas_usuario, pagina, context,
-            editar=True, mensaje=query.message, filtro="grupo", valor_filtro=grupo
-        )
-        query.answer()
-        return
-
-    # --- Paginación normal (mantiene filtros si hay) ---
-    if data.startswith("album_pagina_"):
-        filtro = partes[4] if len(partes) > 4 and partes[4] != "none" else None
-        valor_filtro = partes[5] if len(partes) > 5 and partes[5] != "none" else None
-        cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
-        if filtro and valor_filtro:
-            if filtro == "estrellas":
-                cartas_usuario = [c for c in cartas_usuario if c.get('estrellas', '') == valor_filtro]
-            elif filtro == "grupo":
-                cartas_usuario = [c for c in cartas_usuario if c.get('grupo', '') == valor_filtro]
-        enviar_lista_pagina(
-            query.message.chat_id, usuario_id, cartas_usuario, pagina,
-            context, editar=True, mensaje=query.message, filtro=filtro, valor_filtro=valor_filtro
-        )
-        query.answer()
-        return
-
-    # --- Botón quitar filtros ---
-    if data.startswith("album_sin_filtro_"):
-        enviar_lista_pagina(
-            query.message.chat_id, usuario_id,
-            list(col_cartas_usuario.find({"user_id": usuario_id})),
-            pagina, context, editar=True, mensaje=query.message
-        )
-        query.answer()
-        return
 
 
 
