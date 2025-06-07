@@ -2602,19 +2602,30 @@ def mostrar_menu_mercado(query, user_id, pagina=1, filtro=None, valor_filtro=Non
     fin = inicio + por_pagina
     cartas_pagina = cartas[inicio:fin]
 
-    texto = "<b>🛒 Mercado KaruKpop</b>\n"
-    if filtro and valor_filtro:
-        texto += f"🔎 Filtro: {filtro.capitalize()} = {valor_filtro}\n"
-    if orden:
-        texto += f"🔢 Orden: {'Menor a mayor' if orden=='menor' else 'Mayor a menor'}\n"
-    texto += f"Página {pagina}/{total_paginas}\n\n"
+texto = "<b>🛒 Mercado KaruKpop</b>\n"
+if filtro and valor_filtro:
+    texto += f"🔎 Filtro: {filtro.capitalize()} = {valor_filtro}\n"
+if orden:
+    texto += f"🔢 Orden: {'Menor a mayor' if orden=='menor' else 'Mayor a menor'}\n"
+texto += f"Página {pagina}/{total_paginas}\n\n"
 
-    if cartas_pagina:
-        for idx, carta in enumerate(cartas_pagina, start=1):
-            texto += (f"#{idx + inicio}: <b>{carta['nombre']}</b> [{carta['version']}] {carta.get('estrellas', '')}\n"
-                      f"Precio: <b>{carta['precio']:,} kponey</b> | ID: <code>{carta['id_unico']}</code>\n\n")
-    else:
-        texto += "No hay cartas en el mercado con ese filtro."
+if cartas_pagina:
+    for carta in cartas_pagina:
+        estrellas = f"[{carta.get('estrellas', '?')}]"
+        num = f"#{carta.get('card_id', '?')}"
+        ver = f"[{carta.get('version', '?')}]"
+        nom = carta.get('nombre', '?')
+        grp = carta.get('grupo', '?')
+        precio = f"{carta.get('precio', '?'):,}"
+        idu = carta.get('id_unico', '')
+
+        texto += (
+            f"{estrellas} · {num} · {ver} · {nom} · {grp}\n"
+            f"💲{precio}\n"
+            f"<code>/comprar {idu}</code>\n\n"
+        )
+else:
+    texto += "No hay cartas en el mercado con ese filtro."
 
     botones = [
         [InlineKeyboardButton("⭐ Filtrar por Estado", callback_data=f"mercado_filtro_estado_{user_id}_{pagina}")],
