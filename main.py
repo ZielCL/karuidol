@@ -2220,9 +2220,9 @@ def mostrar_album_pagina(
     fin = inicio + cartas_por_pagina
     cartas_pagina = cartas[inicio:fin]
 
-texto = f"📗 <b>Álbum de cartas (página {pagina}/{total_paginas})</b>\n\n"
+    texto = f"📗 <b>Álbum de cartas (página {pagina}/{total_paginas})</b>\n\n"
 
-    # Anchos para formato móvil, puedes ajustar
+    # ⬇️ NO indentes aquí
     ANCHO_ID = 6
     ANCHO_EST = 5
     ANCHO_NUM = 4
@@ -2241,7 +2241,7 @@ texto = f"📗 <b>Álbum de cartas (página {pagina}/{total_paginas})</b>\n\n"
             ver = f"[{c.get('version','?')}]".ljust(ANCHO_VER)
             nom = corta(str(c.get('nombre','?')), ANCHO_NOM).ljust(ANCHO_NOM)
             grp = corta(str(c.get('grupo','?')), ANCHO_GRP).ljust(ANCHO_GRP)
-            texto += f"•<code>{idu}</code> · {est} · {num} · {ver} · {nom} · {grp}\n"
+            texto += f"•<code>{idu}</code> · {est}· {num}· {ver}· {nom}· {grp}\n"
     else:
         texto += "\n(No tienes cartas para mostrar con este filtro)\n"
 
