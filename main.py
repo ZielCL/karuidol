@@ -1189,8 +1189,11 @@ def comando_album(update, context):
     enviar_lista_pagina(chat_id, usuario_id, cartas_usuario, pagina, context, filtro=None)
 
 
+# ----------- Función principal para mostrar la lista del álbum -----------
+
 def enviar_lista_pagina(
-    chat_id, usuario_id, lista_cartas, pagina, context, editar=False, mensaje=None, filtro=None, valor_filtro=None
+    chat_id, usuario_id, lista_cartas, pagina, context,
+    editar=False, mensaje=None, filtro=None, valor_filtro=None, orden=None, mostrando_filtros=False
 ):
     total = len(lista_cartas)
     por_pagina = 10
@@ -1224,28 +1227,144 @@ def enviar_lista_pagina(
             )
         texto += "\n<i>Usa <code>/ampliar &lt;id_unico&gt;</code> para ver detalles de cualquier carta.</i>"
 
-    # --- Botones de filtro y paginación, IGUAL QUE MERCADO ---
-    botones = [
-        [InlineKeyboardButton("⭐ Filtrar por Estado", callback_data=f"album_filtro_estado_{usuario_id}_{pagina}")],
-        [InlineKeyboardButton("👥 Filtrar por Grupo", callback_data=f"album_filtro_grupo_{usuario_id}_{pagina}")],
-        [InlineKeyboardButton("❌ Quitar Filtros", callback_data=f"album_sin_filtro_{usuario_id}")],
-        [
-            InlineKeyboardButton("⬅️", callback_data=f"album_pagina_{usuario_id}_{pagina-1 if pagina>1 else 1}_none_none"),
-            InlineKeyboardButton("➡️", callback_data=f"album_pagina_{usuario_id}_{pagina+1 if pagina<paginas else paginas}_none_none")
+    # BOTONES, mismo flujo que mercado
+    botones = []
+    if not mostrando_filtros and not filtro:
+        botones = [[InlineKeyboardButton("⚙️ Filtrar / Ordenar", callback_data=f"album_filtros_{usuario_id}_{pagina}")]]
+    else:
+        # Menú de filtros
+        botones = [
+            [InlineKeyboardButton("⭐ Filtrar por Estado", callback_data=f"album_filtro_estado_{usuario_id}_{pagina}")],
+            [InlineKeyboardButton("👥 Filtrar por Grupo", callback_data=f"album_filtro_grupo_{usuario_id}_{pagina}")]
         ]
-    ]
+        # Si hay filtro activo, agrega "Quitar Filtros"
+        if filtro and valor_filtro:
+            botones.append([InlineKeyboardButton("❌ Quitar Filtros", callback_data=f"album_sin_filtro_{usuario_id}_{pagina}")])
+
+    # Botones de paginación abajo
+    paginacion = []
+    if pagina > 1:
+        paginacion.append(InlineKeyboardButton("⬅️", callback_data=f"album_pagina_{usuario_id}_{pagina-1}_{filtro or 'none'}_{valor_filtro or 'none'}"))
+    if pagina < paginas:
+        paginacion.append(InlineKeyboardButton("➡️", callback_data=f"album_pagina_{usuario_id}_{pagina+1}_{filtro or 'none'}_{valor_filtro or 'none'}"))
+    if paginacion:
+        botones.append(paginacion)
+
     teclado = InlineKeyboardMarkup(botones)
 
     if editar and mensaje:
         try:
             mensaje.edit_text(texto, reply_markup=teclado, parse_mode='HTML')
-        except Exception as e:
+        except Exception:
             context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode='HTML')
     else:
         context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode='HTML')
 
 
+# ----------- Menú de ESTRELLAS (Estados) para filtrar -----------
 
+def mostrar_menu_estrellas_album(user_id, pagina):
+    # Busca todas las estrellas que tiene el usuario en sus cartas
+    estrellas_posibles = ["☆☆☆", "★☆☆", "★★☆", "★★★"]
+    # Opción: Solo mostrar las que el usuario tiene
+    # estrellas_disponibles = sorted({c.get("estrellas", "☆☆☆") for c in col_cartas_usuario.find({"user_id": user_id})})
+    botones = []
+    for est in estrellas_posibles:
+        botones.append([
+            InlineKeyboardButton(est, callback_data=f"album_filtraestrella_{user_id}_{pagina}_{est}")
+        ])
+    teclado = InlineKeyboardMarkup(botones)
+    return teclado
+
+# ----------- Menú de GRUPOS para filtrar -----------
+
+def mostrar_menu_grupos_album(user_id, pagina):
+    grupos = sorted({c.get("grupo", "") for c in col_cartas_usuario.find({"user_id": user_id}) if c.get("grupo")})
+    botones = []
+    for grupo in grupos:
+        botones.append([InlineKeyboardButton(grupo, callback_data=f"album_filtragrupo_{user_id}_{pagina}_{grupo}")])
+    teclado = InlineKeyboardMarkup(botones)
+    return teclado
+
+# ----------- CALLBACK GENERAL para el menú de ALBUM -----------
+
+def manejador_callback_album(update, context):
+    query = update.callback_query
+    data = query.data
+    partes = data.split("_")
+    usuario_id = int(partes[2])
+    pagina = int(partes[3]) if len(partes) > 3 else 1
+
+    # --- Menú de filtros inicial ---
+    if data.startswith("album_filtros_"):
+        enviar_lista_pagina(
+            query.message.chat_id, usuario_id,
+            list(col_cartas_usuario.find({"user_id": usuario_id})),
+            pagina, context, editar=True, mensaje=query.message, mostrando_filtros=True
+        )
+        query.answer()
+        return
+
+    # --- Selección de filtro ESTADO/ESTRELLAS ---
+    if data.startswith("album_filtro_estado_"):
+        query.edit_message_reply_markup(reply_markup=mostrar_menu_estrellas_album(usuario_id, pagina))
+        query.answer()
+        return
+
+    # --- Selección de filtro GRUPO ---
+    if data.startswith("album_filtro_grupo_"):
+        query.edit_message_reply_markup(reply_markup=mostrar_menu_grupos_album(usuario_id, pagina))
+        query.answer()
+        return
+
+    # --- Elegir estrella concreta ---
+    if data.startswith("album_filtraestrella_"):
+        estrella = partes[4]
+        cartas_usuario = [c for c in col_cartas_usuario.find({"user_id": usuario_id}) if c.get('estrellas', '') == estrella]
+        enviar_lista_pagina(
+            query.message.chat_id, usuario_id, cartas_usuario, pagina, context,
+            editar=True, mensaje=query.message, filtro="estrellas", valor_filtro=estrella
+        )
+        query.answer()
+        return
+
+    # --- Elegir grupo concreto ---
+    if data.startswith("album_filtragrupo_"):
+        grupo = "_".join(partes[4:])
+        cartas_usuario = [c for c in col_cartas_usuario.find({"user_id": usuario_id}) if c.get('grupo', '') == grupo]
+        enviar_lista_pagina(
+            query.message.chat_id, usuario_id, cartas_usuario, pagina, context,
+            editar=True, mensaje=query.message, filtro="grupo", valor_filtro=grupo
+        )
+        query.answer()
+        return
+
+    # --- Paginación normal (mantiene filtros si hay) ---
+    if data.startswith("album_pagina_"):
+        filtro = partes[4] if len(partes) > 4 and partes[4] != "none" else None
+        valor_filtro = partes[5] if len(partes) > 5 and partes[5] != "none" else None
+        cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
+        if filtro and valor_filtro:
+            if filtro == "estrellas":
+                cartas_usuario = [c for c in cartas_usuario if c.get('estrellas', '') == valor_filtro]
+            elif filtro == "grupo":
+                cartas_usuario = [c for c in cartas_usuario if c.get('grupo', '') == valor_filtro]
+        enviar_lista_pagina(
+            query.message.chat_id, usuario_id, cartas_usuario, pagina,
+            context, editar=True, mensaje=query.message, filtro=filtro, valor_filtro=valor_filtro
+        )
+        query.answer()
+        return
+
+    # --- Botón quitar filtros ---
+    if data.startswith("album_sin_filtro_"):
+        enviar_lista_pagina(
+            query.message.chat_id, usuario_id,
+            list(col_cartas_usuario.find({"user_id": usuario_id})),
+            pagina, context, editar=True, mensaje=query.message
+        )
+        query.answer()
+        return
 
 
 
