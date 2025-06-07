@@ -1284,7 +1284,25 @@ def manejador_callback_album(update, context):
     query = update.callback_query
     data = query.data
     partes = data.split("_")
-    user_id = query.from_user.id
+    usuario_id = query.from_user.id
+
+    # Extrae el user_id dueño del menú (2° elemento después de album_)
+    # Ej: album_pagina_123456_2_none_none_none  ->  user_id=123456
+    try:
+        # Busca el primer elemento después de 'album_' que sea un número largo (usualmente user_id)
+        dueño_id = None
+        for part in partes:
+            if part.isdigit() and len(part) >= 5:  # para evitar el número de página (usualmente 1 o 2)
+                dueño_id = int(part)
+                break
+    except Exception:
+        dueño_id = None
+
+    # Si el que aprieta NO es el dueño, bloquear
+    if dueño_id and usuario_id != dueño_id:
+        query.answer("Solo puedes interactuar con tu propio Albúm.", show_alert=True)
+        return
+
 
     # --- Filtro por estrellas (estado) ---
     if data.startswith("album_filtro_estado_"):
@@ -2613,6 +2631,22 @@ def manejador_callback(update, context):
     query = update.callback_query
     data = query.data
     user_id = query.from_user.id
+
+    # Sólo para callbacks que inician con mercado_
+    if data.startswith("mercado"):
+        partes = data.split("_")
+        try:
+            dueño_id = None
+            for part in partes:
+                if part.isdigit() and len(part) >= 5:
+                    dueño_id = int(part)
+                    break
+        except Exception:
+            dueño_id = None
+
+        if dueño_id and user_id != dueño_id:
+            query.answer("Solo puedes interactuar con tu propio mercado.", show_alert=True)
+            return
 
     # Solo manejar callbacks del mercado
     if not data.startswith("mercado"):
