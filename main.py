@@ -232,16 +232,16 @@ def extraer_card_id_de_id_unico(id_unico):
     return None
 
 
-def revisar_sets_completados(usuario_id, context):
+def revisar_sets_completados(user_id, context):
     """
     Revisa si el usuario completó algún set y entrega premios proporcionales,
     enviando la alerta SOLO por privado.
     """
     sets = obtener_sets_disponibles()
-    cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
+    cartas_usuario = list(col_cartas_usuario.find({"user_id": user_id}))
     cartas_usuario_unicas = set((c["nombre"], c["version"]) for c in cartas_usuario)
 
-    doc_usuario = col_usuarios.find_one({"user_id": usuario_id}) or {}
+    doc_usuario = col_usuarios.find_one({"user_id": user_id}) or {}
     sets_premiados = set(doc_usuario.get("sets_premiados", []))
 
     premios = []
@@ -252,7 +252,7 @@ def revisar_sets_completados(usuario_id, context):
             premios.append((s, monto))
             sets_premiados.add(s)
             col_usuarios.update_one(
-                {"user_id": usuario_id},
+                {"user_id": user_id},
                 {
                     "$inc": {"kponey": monto},
                     "$set": {"sets_premiados": list(sets_premiados)}
@@ -262,7 +262,7 @@ def revisar_sets_completados(usuario_id, context):
             # ALERTA PRIVADA:
             try:
                 context.bot.send_message(
-                    chat_id=usuario_id,
+                    chat_id=user_id,
                     text=f"🎉 ¡Completaste el set <b>{s}</b>!\nPremio: <b>+{monto} Kponey 🪙</b>",
                     parse_mode="HTML"
                 )
@@ -521,11 +521,11 @@ def estados_disponibles_para_carta(nombre, version):
 
 # -- IDOLDAY DROP 2 CARTAS (Drop siempre muestra excelente estado, pero al reclamar puede variar) ---
 def comando_idolday(update, context):
-    usuario_id = update.message.from_user.id
+    user_id = update.message.from_user.id
     chat_id = update.effective_chat.id
     ahora = datetime.utcnow()
     ahora_ts = time.time()
-    user_doc = col_usuarios.find_one({"user_id": usuario_id}) or {}
+    user_doc = col_usuarios.find_one({"user_id": user_id}) or {}
     bono = user_doc.get('bono', 0)
     last = user_doc.get('last_idolday')
     puede_tirar = False
@@ -545,12 +545,12 @@ def comando_idolday(update, context):
         return
 
     # --- Cooldown por usuario (6 horas o bono) ---
-    cooldown_listo, bono_listo = puede_usar_idolday(usuario_id)
+    cooldown_listo, bono_listo = puede_usar_idolday(user_id)
 
     if cooldown_listo:
         puede_tirar = True
         col_usuarios.update_one(
-            {"user_id": usuario_id},
+            {"user_id": user_id},
             {"$set": {"last_idolday": ahora}},
             upsert=True
         )
@@ -561,14 +561,14 @@ def comando_idolday(update, context):
         if bonos_inventario and bonos_inventario > 0:
             # Gasta del inventario
             col_usuarios.update_one(
-                {"user_id": usuario_id},
+                {"user_id": user_id},
                 {"$inc": {"objetos.bono_idolday": -1}},
                 upsert=True
             )
         else:
             # Gasta del campo legacy (admin)
             col_usuarios.update_one(
-                {"user_id": usuario_id},
+                {"user_id": user_id},
                 {"$inc": {"bono": -1}},
                 upsert=True
             )
@@ -657,7 +657,7 @@ def comando_idolday(update, context):
     drop_id = crear_drop_id(chat_id, msg_botones.message_id)
     DROPS_ACTIVOS[drop_id] = {
         "cartas": cartas_info,
-        "dueño": usuario_id,
+        "dueño": user_id,
         "chat_id": chat_id,
         "mensaje_id": msg_botones.message_id,
         "inicio": time.time(),
@@ -668,7 +668,7 @@ def comando_idolday(update, context):
     }
 
     col_usuarios.update_one(
-        {"user_id": usuario_id},
+        {"user_id": user_id},
         {"$set": {
             "last_idolday": ahora,
             "username": update.effective_user.username.lower() if update.effective_user.username else ""
@@ -759,7 +759,7 @@ def comando_usar(update, context):
         "light stick": "lightstick",
     }
 
-    usuario_id = update.message.from_user.id
+    user_id = update.message.from_user.id
 
     if not context.args:
         update.message.reply_text('Usa: /usar <objeto> (ejemplo: /usar "abrazo de bias")')
@@ -772,7 +772,7 @@ def comando_usar(update, context):
         update.message.reply_text("No tienes ese objeto en tu inventario.")
         return
 
-    doc = col_usuarios.find_one({"user_id": usuario_id}) or {}
+    doc = col_usuarios.find_one({"user_id": user_id}) or {}
     objetos = doc.get("objetos", {})
     cantidad = objetos.get(obj_id, 0)
 
@@ -798,7 +798,7 @@ def comando_usar(update, context):
         nuevo_faltante = faltante / 2
         nuevo_last = ahora - timedelta(seconds=(cd_total - nuevo_faltante))
         col_usuarios.update_one(
-            {"user_id": usuario_id},
+            {"user_id": user_id},
             {
                 "$set": {"last_idolday": nuevo_last},
                 "$inc": {f"objetos.{obj_id}": -1}
@@ -826,7 +826,7 @@ def comando_usar(update, context):
 
     if obj_id == "lightstick":
         # Busca cartas mejorables
-        cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
+        cartas_usuario = list(col_cartas_usuario.find({"user_id": user_id}))
         cartas_mejorables = [
             c for c in cartas_usuario if c.get("estrellas", "") != "★★★"
         ]
@@ -834,7 +834,7 @@ def comando_usar(update, context):
             update.message.reply_text("No tienes cartas que puedas mejorar con Lightstick (todas son ★★★).")
             return
         # Llama a la función que muestra el menú de mejora
-        mostrar_lista_mejorables(update, context, usuario_id, cartas_mejorables, pagina=1)
+        mostrar_lista_mejorables(update, context, user_id, cartas_mejorables, pagina=1)
         return
 
 
@@ -1106,12 +1106,12 @@ def manejador_reclamar(update, context):
 
 
 
-def gastar_gemas(usuario_id, cantidad):
-    doc = col_usuarios.find_one({"user_id": usuario_id}) or {}
+def gastar_gemas(user_id, cantidad):
+    doc = col_usuarios.find_one({"user_id": user_id}) or {}
     gemas = doc.get("gemas", 0)
     if gemas < cantidad:
         return False
-    col_usuarios.update_one({"user_id": usuario_id}, {"$inc": {"gemas": -cantidad}})
+    col_usuarios.update_one({"user_id": user_id}, {"$inc": {"gemas": -cantidad}})
     return True
 
 
@@ -1119,7 +1119,7 @@ def gastar_gemas(usuario_id, cantidad):
 
 # ----------------- Resto de funciones: album, paginación, etc. -----------------
 
-def mostrar_lista_mejorables(update, context, usuario_id, cartas_mejorables, pagina, mensaje=None, editar=False):
+def mostrar_lista_mejorables(update, context, user_id, cartas_mejorables, pagina, mensaje=None, editar=False):
     por_pagina = 8
     total = len(cartas_mejorables)
     paginas = max(1, (total - 1) // por_pagina + 1)
@@ -1144,9 +1144,9 @@ def mostrar_lista_mejorables(update, context, usuario_id, cartas_mejorables, pag
     # Botones de navegación
     nav = []
     if pagina > 1:
-        nav.append(InlineKeyboardButton("⬅️", callback_data=f"mejorarpag_{pagina-1}_{usuario_id}"))
+        nav.append(InlineKeyboardButton("⬅️", callback_data=f"mejorarpag_{pagina-1}_{user_id}"))
     if pagina < paginas:
-        nav.append(InlineKeyboardButton("➡️", callback_data=f"mejorarpag_{pagina+1}_{usuario_id}"))
+        nav.append(InlineKeyboardButton("➡️", callback_data=f"mejorarpag_{pagina+1}_{user_id}"))
     if nav:
         botones.append(nav)
 
@@ -1184,7 +1184,7 @@ def comando_album(update, context):
 # ----------- Función principal para mostrar la lista del álbum -----------
 
 def enviar_lista_pagina(
-    chat_id, usuario_id, lista_cartas, pagina, context,
+    chat_id, user_id, lista_cartas, pagina, context,
     editar=False, mensaje=None, filtro=None, valor_filtro=None, orden=None, mostrando_filtros=False
 ):
     total = len(lista_cartas)
@@ -1222,23 +1222,23 @@ def enviar_lista_pagina(
     # BOTONES, mismo flujo que mercado
     botones = []
     if not mostrando_filtros and not filtro:
-        botones = [[InlineKeyboardButton("⚙️ Filtrar / Ordenar", callback_data=f"album_filtros_{usuario_id}_{pagina}")]]
+        botones = [[InlineKeyboardButton("⚙️ Filtrar / Ordenar", callback_data=f"album_filtros_{user_id}_{pagina}")]]
     else:
         # Menú de filtros
         botones = [
-            [InlineKeyboardButton("⭐ Filtrar por Estado", callback_data=f"album_filtro_estado_{usuario_id}_{pagina}")],
-            [InlineKeyboardButton("👥 Filtrar por Grupo", callback_data=f"album_filtro_grupo_{usuario_id}_{pagina}")]
+            [InlineKeyboardButton("⭐ Filtrar por Estado", callback_data=f"album_filtro_estado_{user_id}_{pagina}")],
+            [InlineKeyboardButton("👥 Filtrar por Grupo", callback_data=f"album_filtro_grupo_{user_id}_{pagina}")]
         ]
         # Si hay filtro activo, agrega "Quitar Filtros"
         if filtro and valor_filtro:
-            botones.append([InlineKeyboardButton("❌ Quitar Filtros", callback_data=f"album_sin_filtro_{usuario_id}_{pagina}")])
+            botones.append([InlineKeyboardButton("❌ Quitar Filtros", callback_data=f"album_sin_filtro_{user_id}_{pagina}")])
 
     # Botones de paginación abajo
     paginacion = []
     if pagina > 1:
-        paginacion.append(InlineKeyboardButton("⬅️", callback_data=f"album_pagina_{usuario_id}_{pagina-1}_{filtro or 'none'}_{valor_filtro or 'none'}"))
+        paginacion.append(InlineKeyboardButton("⬅️", callback_data=f"album_pagina_{user_id}_{pagina-1}_{filtro or 'none'}_{valor_filtro or 'none'}"))
     if pagina < paginas:
-        paginacion.append(InlineKeyboardButton("➡️", callback_data=f"album_pagina_{usuario_id}_{pagina+1}_{filtro or 'none'}_{valor_filtro or 'none'}"))
+        paginacion.append(InlineKeyboardButton("➡️", callback_data=f"album_pagina_{user_id}_{pagina+1}_{filtro or 'none'}_{valor_filtro or 'none'}"))
     if paginacion:
         botones.append(paginacion)
 
@@ -1284,7 +1284,7 @@ def manejador_callback_album(update, context):
     query = update.callback_query
     data = query.data
     partes = data.split("_")
-    usuario_id = query.from_user.id
+    user_id = query.from_user.id
 
     # --- Filtro por estrellas (estado) ---
     if data.startswith("album_filtro_estado_"):
@@ -1373,12 +1373,12 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 @cooldown_critico
 def comando_mejorar(update, context):
-    usuario_id = update.message.from_user.id
+    user_id = update.message.from_user.id
 
     # Si se pasa un argumento, buscar esa carta y lanzar el menú de mejora SOLO para esa carta
     if context.args:
         id_unico = context.args[0].strip()
-        carta = col_cartas_usuario.find_one({"user_id": usuario_id, "id_unico": id_unico})
+        carta = col_cartas_usuario.find_one({"user_id": user_id, "id_unico": id_unico})
         if not carta:
             update.message.reply_text("No tienes esa carta (o el id_unico no es válido).")
             return
@@ -1386,11 +1386,11 @@ def comando_mejorar(update, context):
             update.message.reply_text("Esta carta ya tiene el máximo de estrellas.")
             return
         # Llama directo a mostrar_lista_mejorables con SOLO esa carta
-        mostrar_lista_mejorables(update, context, usuario_id, [carta], pagina=1)
+        mostrar_lista_mejorables(update, context, user_id, [carta], pagina=1)
         return
 
     # Caso tradicional: mostrar todas las mejorables
-    cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
+    cartas_usuario = list(col_cartas_usuario.find({"user_id": user_id}))
     cartas_mejorables = [
         c for c in cartas_usuario
         if c.get("estrellas", "") != "★★★"
@@ -1407,7 +1407,7 @@ def comando_mejorar(update, context):
         return
 
     pagina = 1
-    mostrar_lista_mejorables(update, context, usuario_id, cartas_mejorables, pagina)
+    mostrar_lista_mejorables(update, context, user_id, cartas_mejorables, pagina)
 
 
 
@@ -1416,10 +1416,10 @@ def comando_mejorar(update, context):
 
 @cooldown_critico
 def comando_inventario(update, context):
-    usuario_id = update.message.from_user.id
+    user_id = update.message.from_user.id
     chat_id = update.effective_chat.id
 
-    doc = col_usuarios.find_one({"user_id": usuario_id}) or {}
+    doc = col_usuarios.find_one({"user_id": user_id}) or {}
     objetos = doc.get("objetos", {})
     kponey = doc.get("kponey", 0)
     bono = doc.get("bono", 0)
@@ -1445,9 +1445,9 @@ def comando_inventario(update, context):
 
 @cooldown_critico
 def comando_tienda(update, context):
-    usuario_id = update.message.from_user.id
+    user_id = update.message.from_user.id
     chat_id = update.effective_chat.id
-    doc = col_usuarios.find_one({"user_id": usuario_id}) or {}
+    doc = col_usuarios.find_one({"user_id": user_id}) or {}
     kponey = doc.get("kponey", 0)
 
     texto = "🛒 <b>Tienda de objetos</b>\n\n"
@@ -1464,13 +1464,13 @@ def comando_tienda(update, context):
     update.message.reply_text(texto, parse_mode="HTML", reply_markup=teclado)
 
 
-def comprar_objeto(usuario_id, obj_id, context, chat_id, reply_func):
+def comprar_objeto(user_id, obj_id, context, chat_id, reply_func):
     info = CATALOGO_OBJETOS.get(obj_id)
     if not info:
         reply_func("Ese objeto no existe.")
         return
 
-    doc = col_usuarios.find_one({"user_id": usuario_id}) or {}
+    doc = col_usuarios.find_one({"user_id": user_id}) or {}
     kponey = doc.get("kponey", 0)
     precio = info['precio']
     if kponey < precio:
@@ -1478,7 +1478,7 @@ def comprar_objeto(usuario_id, obj_id, context, chat_id, reply_func):
         return
 
     col_usuarios.update_one(
-        {"user_id": usuario_id},
+        {"user_id": user_id},
         {"$inc": {f"objetos.{obj_id}": 1, "kponey": -precio}},
         upsert=True
     )
@@ -1490,14 +1490,14 @@ def comprar_objeto(usuario_id, obj_id, context, chat_id, reply_func):
 
 @cooldown_critico
 def comando_comprarobjeto(update, context):
-    usuario_id = update.message.from_user.id
+    user_id = update.message.from_user.id
     chat_id = update.effective_chat.id
     if not context.args:
         update.message.reply_text("Usa: /comprarobjeto <objeto_id>\nEjemplo: /comprarobjeto bono_idolday")
         return
     obj_id = context.args[0].strip()
     comprar_objeto(
-        usuario_id, obj_id, context, chat_id,
+        user_id, obj_id, context, chat_id,
         lambda text, **kwargs: update.message.reply_text(text, **kwargs)
     )
 
@@ -1628,8 +1628,8 @@ def mostrar_menu_ordenar(user_id, pagina):
 #----------Comando FAV1---------------
 @cooldown_critico
 def comando_favoritos(update, context):
-    usuario_id = update.message.from_user.id
-    doc = col_usuarios.find_one({"user_id": usuario_id})
+    user_id = update.message.from_user.id
+    doc = col_usuarios.find_one({"user_id": user_id})
     favoritos = doc.get("favoritos", []) if doc else []
 
     if not favoritos:
@@ -1648,7 +1648,7 @@ def comando_favoritos(update, context):
 #----------Comando FAV---------------
 @cooldown_critico
 def comando_fav(update, context):
-    usuario_id = update.message.from_user.id
+    user_id = update.message.from_user.id
     args = context.args
     if not args:
         update.message.reply_text("Usa: /fav [Vn] Nombre\nPor ejemplo: /fav [V1] Dahyun")
@@ -1669,17 +1669,17 @@ def comando_fav(update, context):
         update.message.reply_text(f"No se encontró la carta: [{version}] {nombre}")
         return
 
-    doc = col_usuarios.find_one({"user_id": usuario_id}) or {}
+    doc = col_usuarios.find_one({"user_id": user_id}) or {}
     favoritos = doc.get("favoritos", [])
 
     key = {"nombre": nombre, "version": version}
     if key in favoritos:
         favoritos = [f for f in favoritos if not (f["nombre"] == nombre and f["version"] == version)]
-        col_usuarios.update_one({"user_id": usuario_id}, {"$set": {"favoritos": favoritos}}, upsert=True)
+        col_usuarios.update_one({"user_id": user_id}, {"$set": {"favoritos": favoritos}}, upsert=True)
         update.message.reply_text(f"❌ Quitaste de favoritos: <code>[{version}] {nombre}</code>", parse_mode="HTML")
     else:
         favoritos.append(key)
-        col_usuarios.update_one({"user_id": usuario_id}, {"$set": {"favoritos": favoritos}}, upsert=True)
+        col_usuarios.update_one({"user_id": user_id}, {"$set": {"favoritos": favoritos}}, upsert=True)
         update.message.reply_text(f"⭐ Añadiste a favoritos: <code>[{version}] {nombre}</code>", parse_mode="HTML")
 
 #------------COMANDO PRECIO---------------------
@@ -1713,14 +1713,14 @@ def comando_precio(update, context):
 #------Comando vender--------------------
 @cooldown_critico
 def comando_vender(update, context):
-    usuario_id = update.message.from_user.id
+    user_id = update.message.from_user.id
     chat_id = update.effective_chat.id
 
     if not context.args:
         update.message.reply_text("Usa: /vender <id_unico>")
         return
     id_unico = context.args[0].strip()
-    carta = col_cartas_usuario.find_one({"user_id": usuario_id, "id_unico": id_unico})
+    carta = col_cartas_usuario.find_one({"user_id": user_id, "id_unico": id_unico})
     if not carta:
         update.message.reply_text("No tienes esa carta en tu inventario.")
         return
@@ -1738,7 +1738,7 @@ def comando_vender(update, context):
         return
 
     # Quitar de inventario y poner en mercado
-    col_cartas_usuario.delete_one({"user_id": usuario_id, "id_unico": id_unico})
+    col_cartas_usuario.delete_one({"user_id": user_id, "id_unico": id_unico})
 
     # Busca las estrellas (corregido)
     estrellas = carta.get('estrellas')
@@ -1756,7 +1756,7 @@ def comando_vender(update, context):
 
     col_mercado.insert_one({
        "id_unico": id_unico,
-       "vendedor_id": usuario_id,
+       "vendedor_id": user_id,
        "nombre": nombre,
        "version": version,
        "estado": estado,
@@ -1776,7 +1776,7 @@ def comando_vender(update, context):
 #----------Comprar carta del mercado------------------
 @cooldown_critico
 def comando_comprar(update, context):
-    usuario_id = update.message.from_user.id
+    user_id = update.message.from_user.id
     if not context.args:
         update.message.reply_text("Usa: /comprar <id_unico>")
         return
@@ -1786,13 +1786,13 @@ def comando_comprar(update, context):
     if not carta:
         update.message.reply_text("Esa carta ya no está disponible o ya fue comprada.")
         return
-    if carta["vendedor_id"] == usuario_id:
+    if carta["vendedor_id"] == user_id:
         update.message.reply_text("No puedes comprar tu propia carta.")
         # Devuelve la carta al mercado si el vendedor intentó comprarla
         col_mercado.insert_one(carta)
         return
 
-    usuario = col_usuarios.find_one({"user_id": usuario_id}) or {}
+    usuario = col_usuarios.find_one({"user_id": user_id}) or {}
     saldo = usuario.get("kponey", 0)
     precio = carta["precio"]
 
@@ -1803,7 +1803,7 @@ def comando_comprar(update, context):
         return
 
     # Transacción de dinero
-    col_usuarios.update_one({"user_id": usuario_id}, {"$inc": {"kponey": -precio}}, upsert=True)
+    col_usuarios.update_one({"user_id": user_id}, {"$inc": {"kponey": -precio}}, upsert=True)
     col_usuarios.update_one({"user_id": carta["vendedor_id"]}, {"$inc": {"kponey": precio}}, upsert=True)
 
     # --- 👇 CORRECCIÓN AQUÍ: asegura que card_id esté correcto 👇 ---
@@ -1814,7 +1814,7 @@ def comando_comprar(update, context):
     # --------------------------------------------------------------
 
     # Preparar carta para el inventario del usuario
-    carta['user_id'] = usuario_id
+    carta['user_id'] = user_id
     if '_id' in carta: del carta['_id']
     if 'vendedor_id' in carta: del carta['vendedor_id']
     if 'precio' in carta: del carta['precio']
@@ -1829,7 +1829,7 @@ def comando_comprar(update, context):
             carta['estrellas'] = '★??'
 
     col_cartas_usuario.insert_one(carta)
-    revisar_sets_completados(usuario_id, context)
+    revisar_sets_completados(user_id, context)
     
     update.message.reply_text(
         f"✅ Compraste la carta <b>{carta['nombre']} [{carta['version']}]</b> por <b>{precio} Kponey</b>.",
@@ -1850,18 +1850,18 @@ def comando_comprar(update, context):
 #----------Retirar carta del mercado------------------
 
 def comando_retirar(update, context):
-    usuario_id = update.message.from_user.id
+    user_id = update.message.from_user.id
     if not context.args:
         update.message.reply_text("Usa: /retirar <id_unico>")
         return
     id_unico = context.args[0].strip()
-    carta = col_mercado.find_one({"id_unico": id_unico, "vendedor_id": usuario_id})
+    carta = col_mercado.find_one({"id_unico": id_unico, "vendedor_id": user_id})
     if not carta:
         update.message.reply_text("No tienes esa carta en el mercado.")
         return
     # Devolver carta al usuario
     col_mercado.delete_one({"id_unico": id_unico})
-    carta['user_id'] = usuario_id
+    carta['user_id'] = user_id
     del carta['_id']
     del carta['vendedor_id']
     del carta['precio']
@@ -1886,15 +1886,15 @@ def comando_retirar(update, context):
 #---------Dinero del bot------------
 @cooldown_critico
 def comando_saldo(update, context):
-    usuario_id = update.message.from_user.id
-    usuario = col_usuarios.find_one({"user_id": usuario_id}) or {}
+    user_id = update.message.from_user.id
+    usuario = col_usuarios.find_one({"user_id": user_id}) or {}
     kponey = usuario.get("kponey", 0)
     update.message.reply_text(f"💸 <b>Tus Kponey:</b> <code>{kponey}</code>", parse_mode="HTML")
 
 
 def comando_gemas(update, context):
-    usuario_id = update.message.from_user.id
-    usuario = col_usuarios.find_one({"user_id": usuario_id}) or {}
+    user_id = update.message.from_user.id
+    usuario = col_usuarios.find_one({"user_id": user_id}) or {}
     gemas = usuario.get("gemas", 0)
     update.message.reply_text(f"💎 <b>Tus gemas:</b> <code>{gemas}</code>", parse_mode="HTML")
 
@@ -1951,7 +1951,7 @@ def comando_darKponey(update, context):
 
 
 
-def mostrar_carta_individual(chat_id, usuario_id, lista_cartas, idx, context, mensaje_a_editar=None, query=None):
+def mostrar_carta_individual(chat_id, user_id, lista_cartas, idx, context, mensaje_a_editar=None, query=None):
     carta = lista_cartas[idx]
     version = carta.get('version', '')
     nombre = carta.get('nombre', '')
@@ -2013,11 +2013,11 @@ def comando_ampliar(update, context):
     if not context.args:
         update.message.reply_text("Debes indicar el ID único de la carta: /ampliar <id_unico>")
         return
-    usuario_id = update.message.from_user.id
+    user_id = update.message.from_user.id
     id_unico = context.args[0].strip()
 
     # 1. Busca en inventario
-    carta = col_cartas_usuario.find_one({"user_id": usuario_id, "id_unico": id_unico})
+    carta = col_cartas_usuario.find_one({"user_id": user_id, "id_unico": id_unico})
     fuente = "album"
     if not carta:
         # 2. Si no está, busca en mercado
@@ -2040,7 +2040,7 @@ def comando_ampliar(update, context):
     total_copias = col_cartas_usuario.count_documents({"nombre": nombre, "version": version})
 
     # Saber si es favorita (solo si está en el álbum)
-    doc_user = col_usuarios.find_one({"user_id": usuario_id}) or {}
+    doc_user = col_usuarios.find_one({"user_id": user_id}) or {}
     favoritos = doc_user.get("favoritos", [])
     es_fav = any(fav.get("nombre") == nombre and fav.get("version") == version for fav in favoritos)
     estrella_fav = "⭐ " if es_fav else ""
@@ -2127,11 +2127,11 @@ def comando_giveidol(update, context):
         return
     id_unico = context.args[0].strip()
     user_dest = context.args[1].strip()
-    usuario_id = update.message.from_user.id
+    user_id = update.message.from_user.id
     chat = update.effective_chat
 
     # Buscar la carta exacta del usuario por id_unico
-    carta = col_cartas_usuario.find_one({"user_id": usuario_id, "id_unico": id_unico})
+    carta = col_cartas_usuario.find_one({"user_id": user_id, "id_unico": id_unico})
     if not carta:
         update.message.reply_text("No tienes esa carta para regalar.")
         return
@@ -2158,12 +2158,12 @@ def comando_giveidol(update, context):
     if not target_user_id:
         update.message.reply_text("No pude identificar al usuario destino. Usa @username o el ID numérico de Telegram.")
         return
-    if usuario_id == target_user_id:
+    if user_id == target_user_id:
         update.message.reply_text("No puedes regalarte cartas a ti mismo.")
         return
 
     # Quitar carta al remitente
-    col_cartas_usuario.delete_one({"user_id": usuario_id, "id_unico": id_unico})
+    col_cartas_usuario.delete_one({"user_id": user_id, "id_unico": id_unico})
 
     # Entregar carta al destinatario (misma id_unico)
     carta["user_id"] = target_user_id
@@ -2332,10 +2332,10 @@ def obtener_sets_disponibles():
     return sorted(list(sets), key=lambda s: s.lower())
 
 def mostrar_setsprogreso(update, context, pagina=1, mensaje=None, editar=False):
-    usuario_id = update.effective_user.id
+    user_id = update.effective_user.id
     chat_id = update.effective_chat.id
     sets = obtener_sets_disponibles()
-    cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
+    cartas_usuario = list(col_cartas_usuario.find({"user_id": user_id}))
     # El usuario puede tener varias copias/estados de una misma carta. Solo cuenta una vez cada (nombre, version).
     cartas_usuario_unicas = set((c["nombre"], c["version"]) for c in cartas_usuario)
     por_pagina = 5
@@ -2380,7 +2380,7 @@ def mostrar_setsprogreso(update, context, pagina=1, mensaje=None, editar=False):
         context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML")
 
 def comando_set_detalle(update, context):
-    usuario_id = update.effective_user.id
+    user_id = update.effective_user.id
     chat_id = update.effective_chat.id
     if not context.args:
         mostrar_lista_set(update, context, pagina=1)
@@ -2428,7 +2428,7 @@ def mostrar_lista_set(update, context, pagina=1, mensaje=None, editar=False, err
         context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML")
 
 def mostrar_detalle_set(update, context, set_name, pagina=1, mensaje=None, editar=False):
-    usuario_id = update.effective_user.id
+    user_id = update.effective_user.id
     chat_id = update.effective_chat.id
 
     # Todas las cartas del set (puede haber repetidas por estado)
@@ -2451,11 +2451,11 @@ def mostrar_detalle_set(update, context, set_name, pagina=1, mensaje=None, edita
     fin = min(inicio + por_pagina, total)
 
     # Cartas únicas que tiene el usuario (SIN importar el estado)
-    cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
+    cartas_usuario = list(col_cartas_usuario.find({"user_id": user_id}))
     cartas_usuario_unicas = set((c["nombre"], c["version"]) for c in cartas_usuario)
 
     # Trae favoritos del usuario
-    user_doc = col_usuarios.find_one({"user_id": usuario_id}) or {}
+    user_doc = col_usuarios.find_one({"user_id": user_id}) or {}
     favoritos = user_doc.get("favoritos", [])
 
     usuario_tiene = sum(1 for c in cartas_set_unicas if (c["nombre"], c["version"]) in cartas_usuario_unicas)
@@ -2524,8 +2524,8 @@ def callback_ampliar_vender(update, context):
     if not data.startswith("ampliar_vender_"):
         return
     id_unico = data.replace("ampliar_vender_", "")
-    usuario_id = query.from_user.id
-    carta = col_cartas_usuario.find_one({"user_id": usuario_id, "id_unico": id_unico})
+    user_id = query.from_user.id
+    carta = col_cartas_usuario.find_one({"user_id": user_id, "id_unico": id_unico})
     if not carta:
         query.answer("No tienes esa carta en tu álbum.", show_alert=True)
         return
@@ -2543,11 +2543,11 @@ def callback_ampliar_vender(update, context):
         query.answer("Esta carta ya está en el mercado.", show_alert=True)
         return
 
-    col_cartas_usuario.delete_one({"user_id": usuario_id, "id_unico": id_unico})
+    col_cartas_usuario.delete_one({"user_id": user_id, "id_unico": id_unico})
     estrellas = carta.get('estrellas', '★??')
     col_mercado.insert_one({
        "id_unico": id_unico,
-       "vendedor_id": usuario_id,
+       "vendedor_id": user_id,
        "nombre": nombre,
        "version": version,
        "estado": estado,
@@ -2701,7 +2701,7 @@ def manejador_callback_album(update, context):
     query = update.callback_query
     data = query.data
     partes = data.split("_")
-    usuario_id = query.from_user.id
+    user_id = query.from_user.id
 
     # --- Filtro por estrellas (estado) ---
     if data.startswith("album_filtro_estado_"):
@@ -2805,18 +2805,18 @@ def manejador_callback_album(update, context):
         if len(partes) != 3:
             query.answer()
             return
-        usuario_id = int(partes[1])
+        user_id = int(partes[1])
         id_unico = partes[2]
-        if query.from_user.id != usuario_id:
+        if query.from_user.id != user_id:
             query.answer(text="Solo puedes ver tus propias cartas.", show_alert=True)
             return
-        carta = col_cartas_usuario.find_one({"user_id": usuario_id, "id_unico": id_unico})
+        carta = col_cartas_usuario.find_one({"user_id": user_id, "id_unico": id_unico})
         if not carta:
             query.answer(text="Esa carta no existe.", show_alert=True)
             return
         mostrar_carta_individual(
             query.message.chat_id,
-            usuario_id,
+            user_id,
             [carta],
             0,
             context,
@@ -2833,12 +2833,12 @@ def manejador_callback_album(update, context):
         if len(partes) != 3:
             query.answer()
             return
-        usuario_id = int(partes[1])
+        user_id = int(partes[1])
         idx = int(partes[2])
-        if query.from_user.id != usuario_id:
+        if query.from_user.id != user_id:
             query.answer(text="Solo puedes regalar tus propias cartas.", show_alert=True)
             return
-        cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
+        cartas_usuario = list(col_cartas_usuario.find({"user_id": user_id}))
         def sort_key(x):
             grupo = grupo_de_carta(x.get('nombre', ''), x.get('version', '')) or ""
             return (
@@ -2851,7 +2851,7 @@ def manejador_callback_album(update, context):
             query.answer(text="Esa carta no existe.", show_alert=True)
             return
         carta = cartas_usuario[idx]
-        SESIONES_REGALO[usuario_id] = {
+        SESIONES_REGALO[user_id] = {
             "carta": carta,
             "msg_id": query.message.message_id,
             "chat_id": query.message.chat_id,
@@ -2896,12 +2896,12 @@ def manejador_callback_album(update, context):
     partes = data.split("_", 3)
     if len(partes) >= 3 and partes[0] == "lista":
         pagina = int(partes[1])
-        usuario_id = int(partes[2])
+        user_id = int(partes[2])
         filtro = partes[3].strip().lower() if len(partes) > 3 and partes[3] else None
-        if query.from_user.id != usuario_id:
+        if query.from_user.id != user_id:
             query.answer(text="Este álbum no es tuyo.", show_alert=True)
             return
-        cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
+        cartas_usuario = list(col_cartas_usuario.find({"user_id": user_id}))
         if filtro:
             cartas_usuario = [
                 carta for carta in cartas_usuario if
@@ -2919,7 +2919,7 @@ def manejador_callback_album(update, context):
         cartas_usuario.sort(key=sort_key)
         enviar_lista_pagina(
             query.message.chat_id,
-            usuario_id,
+            user_id,
             cartas_usuario,
             pagina,
             context,
@@ -2934,11 +2934,11 @@ def manejador_callback_album(update, context):
     if data.startswith("mejorarpag_"):
         partes = data.split("_")
         pagina = int(partes[1])
-        usuario_id = int(partes[2])
-        if query.from_user.id != usuario_id:
+        user_id = int(partes[2])
+        if query.from_user.id != user_id:
             query.answer("Solo puedes ver tu propio menú de mejora.", show_alert=True)
             return
-        cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
+        cartas_usuario = list(col_cartas_usuario.find({"user_id": user_id}))
         cartas_mejorables = [
             c for c in cartas_usuario
             if c.get("estrellas", "") != "★★★"
@@ -2951,7 +2951,7 @@ def manejador_callback_album(update, context):
             )
         )
         mostrar_lista_mejorables(
-            update, context, usuario_id, cartas_mejorables, pagina,
+            update, context, user_id, cartas_mejorables, pagina,
             mensaje=query.message, editar=True
         )
         query.answer()
@@ -2967,14 +2967,14 @@ def callback_comprarobj(update, context):
     if not data.startswith("comprarobj_"):
         return
     obj_id = data.replace("comprarobj_", "")
-    usuario_id = query.from_user.id
+    user_id = query.from_user.id
     chat_id = query.message.chat_id
 
     # Cambia aquí: usa query.answer para mostrar el mensaje en alerta
     def reply_func(text, **kwargs):
         query.answer(text=text, show_alert=True)
 
-    comprar_objeto(usuario_id, obj_id, context, chat_id, reply_func)
+    comprar_objeto(user_id, obj_id, context, chat_id, reply_func)
 
 
    
@@ -2984,18 +2984,18 @@ def callback_comprarobj(update, context):
         if len(partes) != 3:
             query.answer()
             return
-        usuario_id = int(partes[1])
+        user_id = int(partes[1])
         id_unico = partes[2]
-        if query.from_user.id != usuario_id:
+        if query.from_user.id != user_id:
             query.answer(text="Solo puedes ver tus propias cartas.", show_alert=True)
             return
-        carta = col_cartas_usuario.find_one({"user_id": usuario_id, "id_unico": id_unico})
+        carta = col_cartas_usuario.find_one({"user_id": user_id, "id_unico": id_unico})
         if not carta:
             query.answer(text="Esa carta no existe.", show_alert=True)
             return
         mostrar_carta_individual(
             query.message.chat_id,
-            usuario_id,
+            user_id,
             [carta],
             0,
             context,
@@ -3013,12 +3013,12 @@ def callback_comprarobj(update, context):
         if len(partes) != 3:
             query.answer()
             return
-        usuario_id = int(partes[1])
+        user_id = int(partes[1])
         idx = int(partes[2])
-        if query.from_user.id != usuario_id:
+        if query.from_user.id != user_id:
             query.answer(text="Solo puedes regalar tus propias cartas.", show_alert=True)
             return
-        cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
+        cartas_usuario = list(col_cartas_usuario.find({"user_id": user_id}))
         def sort_key(x):
             grupo = grupo_de_carta(x.get('nombre', ''), x.get('version', '')) or ""
             return (
@@ -3031,7 +3031,7 @@ def callback_comprarobj(update, context):
             query.answer(text="Esa carta no existe.", show_alert=True)
             return
         carta = cartas_usuario[idx]
-        SESIONES_REGALO[usuario_id] = {
+        SESIONES_REGALO[user_id] = {
             "carta": carta,
             "msg_id": query.message.message_id,
             "chat_id": query.message.chat_id,
@@ -3075,19 +3075,19 @@ def callback_comprarobj(update, context):
 
 def callback_mejorar_carta(update, context):
     query = update.callback_query
-    usuario_id = query.from_user.id
+    user_id = query.from_user.id
     data = query.data
 
     if not data.startswith("mejorar_"):
         return
     id_unico = data.split("_", 1)[1]
 
-    carta = col_cartas_usuario.find_one({"user_id": usuario_id, "id_unico": id_unico})
+    carta = col_cartas_usuario.find_one({"user_id": user_id, "id_unico": id_unico})
     if not carta:
         query.answer("No tienes esa carta.", show_alert=True)
         return
 
-    user = col_usuarios.find_one({"user_id": usuario_id}) or {}
+    user = col_usuarios.find_one({"user_id": user_id}) or {}
     objetos = user.get("objetos", {})
     lightsticks = objetos.get("lightstick", 0)
     if lightsticks < 1:
@@ -3128,16 +3128,16 @@ def callback_mejorar_carta(update, context):
 
 def callback_confirmar_mejora(update, context):
     query = update.callback_query
-    usuario_id = query.from_user.id
+    user_id = query.from_user.id
     data = query.data
 
     if data.startswith("confirmamejora_"):
         id_unico = data.split("_", 1)[1]
-        carta = col_cartas_usuario.find_one({"user_id": usuario_id, "id_unico": id_unico})
+        carta = col_cartas_usuario.find_one({"user_id": user_id, "id_unico": id_unico})
         if not carta:
             query.answer("No tienes esa carta.", show_alert=True)
             return
-        user = col_usuarios.find_one({"user_id": usuario_id}) or {}
+        user = col_usuarios.find_one({"user_id": user_id}) or {}
         objetos = user.get("objetos", {})
         lightsticks = objetos.get("lightstick", 0)
         if lightsticks < 1:
@@ -3182,7 +3182,7 @@ def callback_confirmar_mejora(update, context):
 
             # 2. Actualizar todos los campos sincronizados en Mongo
             col_cartas_usuario.update_one(
-                {"user_id": usuario_id, "id_unico": id_unico},
+                {"user_id": user_id, "id_unico": id_unico},
                 {
                     "$set": {
                         "estrellas": estrellas_nuevo,
@@ -3196,7 +3196,7 @@ def callback_confirmar_mejora(update, context):
             resultado = "Fallaste el intento de mejora. La carta se mantiene igual."
 
         # Gasta lightstick (SIEMPRE, falles o aciertes)
-        col_usuarios.update_one({"user_id": usuario_id}, {"$inc": {"objetos.lightstick": -1}})
+        col_usuarios.update_one({"user_id": user_id}, {"$inc": {"objetos.lightstick": -1}})
         query.edit_message_text(resultado, parse_mode="HTML")
         query.answer("¡Listo!")
 
@@ -3299,7 +3299,7 @@ def comando_setsprogreso(update, context):
 
 @cooldown_critico
 def comando_apodo(update, context):
-    usuario_id = update.message.from_user.id
+    user_id = update.message.from_user.id
 
     if len(context.args) < 2:
         update.message.reply_text(
@@ -3317,13 +3317,13 @@ def comando_apodo(update, context):
         return
 
     # Buscar la carta
-    carta = col_cartas_usuario.find_one({"user_id": usuario_id, "id_unico": id_unico})
+    carta = col_cartas_usuario.find_one({"user_id": user_id, "id_unico": id_unico})
     if not carta:
         update.message.reply_text("No encontré esa carta en tu álbum.")
         return
 
     # Verificar que el usuario tenga el ticket
-    doc_usuario = col_usuarios.find_one({"user_id": usuario_id}) or {}
+    doc_usuario = col_usuarios.find_one({"user_id": user_id}) or {}
     objetos = doc_usuario.get("objetos", {})
     ticket_apodo = objetos.get("ticket_agregar_apodo", 0)
     if ticket_apodo < 1:
@@ -3332,12 +3332,12 @@ def comando_apodo(update, context):
 
     # Consumir ticket
     col_usuarios.update_one(
-        {"user_id": usuario_id},
+        {"user_id": user_id},
         {"$inc": {"objetos.ticket_agregar_apodo": -1}}
     )
     # Actualizar carta con apodo
     col_cartas_usuario.update_one(
-        {"user_id": usuario_id, "id_unico": id_unico},
+        {"user_id": user_id, "id_unico": id_unico},
         {"$set": {"apodo": apodo}}
     )
     update.message.reply_text(
