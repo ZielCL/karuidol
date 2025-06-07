@@ -424,62 +424,32 @@ def revisar_sets_completados(user_id, context):
 # Packs de gemas y links base
 # Diccionario con los packs y sus datos
 PACKS_GEMAS = [
-    {
-        "nombre": "x50 Gems",
-        "label": "💎 x50 Gems",
-        "url": "https://www.paypal.com/ncp/payment/V3W8K77LGJ82S"
-    },
-    {
-        "nombre": "x100 Gems",
-        "label": "💎 x100 Gems",
-        "url": "https://www.paypal.com/ncp/payment/RN6F4LFZEBLNN"
-    },
-    {
-        "nombre": "x500 Gems (400 + 100 bonus)",
-        "label": "💎 x500 Gems (400 + 100 bonus)",
-        "url": "https://www.paypal.com/ncp/payment/DQLNJS3UJTUA6"
-    },
-    {
-        "nombre": "x1000 Gems (850 + 150 bonus)",
-        "label": "💎 x1000 Gems (850 + 150 bonus)",
-        "url": "https://www.paypal.com/ncp/payment/SYUFSJPJUJVWJ"
-    },
-    {
-        "nombre": "x5000 Gems (4000 + 1000 bonus)",
-        "label": "💎 x5000 Gems (4000 + 1000 bonus)",
-        "url": "https://www.paypal.com/ncp/payment/ZNZ4VFYNBM83E"
-    },
-    {
-        "nombre": "x10000 Gems (8000 + 2000 bonus)",
-        "label": "💎 x10000 Gems (8000 + 2000 bonus)",
-        "url": "https://www.paypal.com/ncp/payment/A8JTU9PPTTL4S"
-    },
+    {"pack": "x50", "amount": 1.00, "label": "💎 x50 Gems (USD $1)"},
+    {"pack": "x100", "amount": 2.00, "label": "💎 x100 Gems (USD $2)"},
+    {"pack": "x500", "amount": 8.00, "label": "💎 x500 Gems (USD $8)"},
+    {"pack": "x1000", "amount": 13.00, "label": "💎 x1000 Gems (USD $13)"},
+    {"pack": "x5000", "amount": 60.00, "label": "💎 x5000 Gems (USD $60)"},
+    {"pack": "x10000", "amount": 100.00, "label": "💎 x10000 Gems (USD $100)"},
 ]
 
 # FUNCION DE TIENDA DE GEMAS
 def tienda_gemas(update, context):
     user_id = update.message.from_user.id
-    username = update.message.from_user.username or "sin_username"
 
     texto = (
         "💎 <b>Tienda de Gemas KaruKpop</b>\n\n"
-        "Compra gemas de forma segura con PayPal. Las gemas se agregarán automáticamente a tu cuenta tras el pago.\n\n"
-        "💎 x50 Gems\n"
-        "💎 x100 Gems\n"
-        "💎 x500 Gems (400 + 100 bonus)\n"
-        "💎 x1000 Gems (850 + 150 bonus)\n"
-        "💎 x5000 Gems (4000 + 1000 bonus)\n"
-        "💎 x10000 Gems (8000 + 2000 bonus)\n\n"
-        "<b>Recuerda:</b> Las gemas se acreditan automáticamente tras el pago.\n"
-        "Si tienes dudas, contáctanos."
+        "Compra gemas de forma segura con PayPal. Las gemas se agregan automáticamente.\n\n"
+        "Elige el pack que deseas comprar:"
     )
-
-    # Crear los botones, agregando el user_id como parámetro 'custom'
     botones = []
     for pack in PACKS_GEMAS:
-        url = f"{pack['url']}?custom={user_id}"
-        botones.append([InlineKeyboardButton(pack["label"], url=url)])
-
+        # El callback_data lleva la info del pack (ej: tienda_paypal_x100_2.00)
+        botones.append([
+            InlineKeyboardButton(
+                pack["label"],
+                callback_data=f"tienda_paypal_{pack['pack']}_{pack['amount']}"
+            )
+        ])
     teclado = InlineKeyboardMarkup(botones)
     update.message.reply_text(texto, parse_mode="HTML", reply_markup=teclado)
 
@@ -522,6 +492,54 @@ def historial_gemas_admin(update, context):
     update.message.reply_text(msg, parse_mode="Markdown")
 
 dispatcher.add_handler(CommandHandler("historialgemas", historial_gemas_admin))
+
+
+def manejador_tienda_paypal(update, context):
+    query = update.callback_query
+    data = query.data  # tienda_paypal_x100_2.00
+    user_id = query.from_user.id
+
+    _, _, pack, amount = data.split("_")
+    amount = float(amount)
+
+    # Llama a tu backend para crear la orden de PayPal
+    import requests
+    try:
+        resp = requests.post(
+            "https://karuidol.onrender.com/paypal/create_order",
+            json={
+                "user_id": user_id,
+                "pack": pack,
+                "amount": amount
+            },
+            timeout=10
+        )
+        if resp.ok:
+            url = resp.json().get("url")
+            if url:
+                query.answer()
+                query.edit_message_text(
+                    f"🔗 Haz clic aquí para pagar tu pack de gemas:\n\n<a href='{url}'>Pagar con PayPal</a>\n\n"
+                    "Cuando el pago esté confirmado recibirás las gemas automáticamente.",
+                    parse_mode="HTML", disable_web_page_preview=True
+                )
+            else:
+                query.answer("No se pudo generar el enlace de pago.", show_alert=True)
+        else:
+            query.answer("Error al conectar con PayPal.", show_alert=True)
+    except Exception as e:
+        query.answer("Fallo al generar enlace de pago.", show_alert=True)
+
+
+
+
+
+
+
+
+
+
+
 
 def obtener_grupos_del_mercado():
     # Devuelve una lista ORDENADA de todos los grupos únicos en el mercado
@@ -3571,6 +3589,7 @@ dispatcher.add_handler(CallbackQueryHandler(callback_ampliar_vender, pattern="^a
 dispatcher.add_handler(CallbackQueryHandler(callback_mejorar_carta, pattern="^mejorar_"))
 dispatcher.add_handler(CallbackQueryHandler(callback_confirmar_mejora, pattern="^(confirmamejora_|cancelarmejora)"))
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback, pattern="^mercado_"))
+dispatcher.add_handler(CallbackQueryHandler(manejador_tienda_paypal, pattern=r"^tienda_paypal_"))
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback))
 dispatcher.add_handler(CommandHandler('mercado', comando_mercado))
 dispatcher.add_handler(CommandHandler('tiendagemas', tienda_gemas))
