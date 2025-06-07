@@ -2222,14 +2222,9 @@ def mostrar_album_pagina(
 
     texto = f"📗 <b>Álbum de cartas (página {pagina}/{total_paginas})</b>\n\n"
 
-    # ⬇️ NO indentes aquí
-    ANCHO_ID = 5    
+    ANCHO_ID = 6
     ANCHO_EST = 5
-    ANCHO_NUM = 4
-    ANCHO_VER = 4
-    ANCHO_NOM = 0
-    ANCHO_GRP = 0
-    
+
     def corta(txt, n):
         return (txt[:n-1] + "…") if len(txt) > n else txt
 
@@ -2237,11 +2232,11 @@ def mostrar_album_pagina(
         for c in cartas_pagina:
             idu = str(c['id_unico']).ljust(ANCHO_ID)
             est = f"[{c.get('estrellas','?')}]".ljust(ANCHO_EST)
-            num = f"#{c.get('card_id','?')}".ljust(ANCHO_NUM)
-            ver = f"[{c.get('version','?')}]".ljust(ANCHO_VER)
-            nom = corta(str(c.get('nombre','?')), ANCHO_NOM).ljust(ANCHO_NOM)
-            grp = corta(str(c.get('grupo','?')), ANCHO_GRP).ljust(ANCHO_GRP)
-            texto += f"•<code>{idu}</code> · {est} · {num} · {ver} · {nom} · {grp}\n"
+            num = f"#{c.get('card_id','?')}"
+            ver = f"[{c.get('version','?')}]"
+            nom = c.get('nombre','?')
+            grp = c.get('grupo','?')
+            texto += f"• <code>{idu}</code> · {est} · {num} · {ver} · {nom} · {grp}\n"
     else:
         texto += "\n(No tienes cartas para mostrar con este filtro)\n"
 
