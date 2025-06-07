@@ -1524,8 +1524,8 @@ def mostrar_mercado_pagina(chat_id, message_id, context, user_id, pagina=1, filt
     elif orden == "mayor":
         cartas.sort(key=lambda x: -x.get("card_id", 0))
     else:
-        # Orden default: nombre, grupo, card_id
-        cartas.sort(key=lambda x: (x.get("nombre", "").lower(), x.get("grupo", "").lower(), x.get("card_id", 0)))
+        # Orden default: grupo, nombre, card_id (así las repes van juntas)
+        cartas.sort(key=lambda x: (x.get("grupo", "").lower(), x.get("nombre", "").lower(), x.get("card_id", 0)))
 
     # --- PAGINACIÓN ---
     cartas_por_pagina = 10
@@ -1554,13 +1554,10 @@ def mostrar_mercado_pagina(chat_id, message_id, context, user_id, pagina=1, filt
             )
     else:
         texto += "\n(No hay cartas para mostrar con este filtro)\n"
-        
+
     # --- BOTONES ---
     botones = []
-    # Filtro/Ordenar (sólo cuando no estás dentro de menú de filtros)
     botones.append([InlineKeyboardButton("🔎 Filtrar / Ordenar", callback_data=f"mercado_filtros_{user_id}_{pagina}")])
-
-    # Paginación
     paginacion = []
     if pagina > 1:
         paginacion.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_pagina_{user_id}_{pagina-1}_{filtro or 'none'}_{valor_filtro or 'none'}_{orden or 'none'}"))
@@ -1577,6 +1574,7 @@ def mostrar_mercado_pagina(chat_id, message_id, context, user_id, pagina=1, filt
         parse_mode="HTML",
         reply_markup=teclado
     )
+
 
 def mostrar_menu_filtros(user_id, pagina):
     botones = [
@@ -2596,7 +2594,7 @@ def callback_ampliar_vender(update, context):
     )
 
 #-------------mostrar_menu_mercado------------
-def mostrar_menu_mercado
+
 
 
 
