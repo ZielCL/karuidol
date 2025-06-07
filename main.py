@@ -2,6 +2,7 @@ import os
 import threading
 import time
 from flask import Flask, request
+from telegram.error import BadRequest
 from telegram import (
     Bot,
     Update,
