@@ -1297,13 +1297,11 @@ def manejador_callback_album(update, context):
 
     # --- Menú de filtros inicial ---
     if data.startswith("album_filtros_"):
-        enviar_lista_pagina(
-            query.message.chat_id, usuario_id,
-            list(col_cartas_usuario.find({"user_id": usuario_id})),
-            pagina, context, editar=True, mensaje=query.message, mostrando_filtros=True
-        )
-        query.answer()
+        user_id = int(partes[2])
+        pagina = int(partes[3])
+        query.edit_message_reply_markup(reply_markup=mostrar_menu_filtros_album(user_id, pagina))
         return
+
 
     # --- Selección de filtro ESTADO/ESTRELLAS ---
     if data.startswith("album_filtro_estado_"):
