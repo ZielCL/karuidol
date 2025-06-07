@@ -1524,7 +1524,7 @@ def mostrar_mercado_pagina(chat_id, message_id, context, user_id, pagina=1, filt
     elif orden == "mayor":
         cartas.sort(key=lambda x: -x.get("card_id", 0))
     else:
-        # Orden default: grupo, nombre, card_id (así las repes van juntas)
+        # Orden default: grupo, nombre, card_id
         cartas.sort(key=lambda x: (x.get("grupo", "").lower(), x.get("nombre", "").lower(), x.get("card_id", 0)))
 
     # --- PAGINACIÓN ---
@@ -1535,25 +1535,34 @@ def mostrar_mercado_pagina(chat_id, message_id, context, user_id, pagina=1, filt
     fin = inicio + cartas_por_pagina
     cartas_pagina = cartas[inicio:fin]
 
-    # --- TEXTO LISTA ---
-    texto = "<b>🛒 Mercado</b>\n\n"
-    if cartas_pagina:
-        for c in cartas_pagina:
-            estrellas = f"[{c.get('estrellas','?')}]"
-            num = f"#{c.get('card_id','?')}"
-            ver = f"[{c.get('version','?')}]"
-            nom = c.get('nombre','?')
-            grp = c.get('grupo','?')
-            precio = f"{c.get('precio', '?'):,}"
-            idu = c.get('id_unico', '')
+    # --- PREPARA FAVORITOS DEL USUARIO ---
+    usuario = col_usuarios.find_one({"user_id": user_id}) or {}
+    favoritos = usuario.get("favoritos", [])
 
-            texto += (
-                f"{estrellas} · {num} · {ver} · {nom} · {grp}\n"
-                f"💲{precio}\n"
-                f"<code>/comprar {idu}</code>\n\n"
-            )
-    else:
-        texto += "\n(No hay cartas para mostrar con este filtro)\n"
+    # --- TEXTO LISTA ---
+    texto = "<b>🛒 Mercado</b>\n"
+    for c in cartas_pagina:
+        estrellas = f"[{c.get('estrellas', '?')}]"
+        num = f"#{c.get('card_id', '?')}"
+        ver = f"[{c.get('version', '?')}]"
+        nom = c.get('nombre', '?')
+        grp = c.get('grupo', '?')
+        precio = f"{c.get('precio', '?'):,}"
+        idu = c.get('id_unico', '')
+
+        es_fav = any(
+            fav.get("nombre") == c.get("nombre") and fav.get("version") == c.get("version")
+            for fav in favoritos
+        )
+        estrella_fav = " ⭐" if es_fav else ""
+
+        texto += (
+            f"{estrellas} · {num} · {ver} · {nom} · {grp}{estrella_fav}\n"
+            f"💲{precio}\n"
+            f"<code>/comprar {idu}</code>\n\n"
+        )
+    if not cartas_pagina:
+        texto += "\n(No hay cartas para mostrar con este filtro)"
 
     # --- BOTONES ---
     botones = []
@@ -1574,6 +1583,7 @@ def mostrar_mercado_pagina(chat_id, message_id, context, user_id, pagina=1, filt
         parse_mode="HTML",
         reply_markup=teclado
     )
+
 
 
 def mostrar_menu_filtros(user_id, pagina):
