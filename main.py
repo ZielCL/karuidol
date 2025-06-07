@@ -1536,12 +1536,25 @@ def mostrar_mercado_pagina(chat_id, message_id, context, user_id, pagina=1, filt
     cartas_pagina = cartas[inicio:fin]
 
     # --- TEXTO LISTA ---
-    texto = "<b>🛒 Mercado</b>\n"
-    for idx, c in enumerate(cartas_pagina, start=inicio + 1):
-        texto += f"#{idx}: <code>{c['id_unico']}</code> · {c.get('estrellas','')} · #{c.get('card_id','?')} · V{c.get('version','?')} · {c.get('nombre','?')} · {c.get('grupo','?')}\n"
-    if not cartas_pagina:
-        texto += "\n(No hay cartas para mostrar con este filtro)"
+    texto = "<b>🛒 Mercado</b>\n\n"
+    if cartas_pagina:
+        for c in cartas_pagina:
+            estrellas = f"[{c.get('estrellas','?')}]"
+            num = f"#{c.get('card_id','?')}"
+            ver = f"[{c.get('version','?')}]"
+            nom = c.get('nombre','?')
+            grp = c.get('grupo','?')
+            precio = f"{c.get('precio', '?'):,}"
+            idu = c.get('id_unico', '')
 
+            texto += (
+                f"{estrellas} · {num} · {ver} · {nom} · {grp}\n"
+                f"💲{precio}\n"
+                f"<code>/comprar {idu}</code>\n\n"
+            )
+    else:
+        texto += "\n(No hay cartas para mostrar con este filtro)\n"
+        
     # --- BOTONES ---
     botones = []
     # Filtro/Ordenar (sólo cuando no estás dentro de menú de filtros)
@@ -2583,71 +2596,7 @@ def callback_ampliar_vender(update, context):
     )
 
 #-------------mostrar_menu_mercado------------
-def mostrar_menu_mercado(query, user_id, pagina=1, filtro=None, valor_filtro=None, orden=None):
-    # Consulta en base a los filtros y orden
-    busqueda = {}
-    if filtro and valor_filtro:
-        busqueda[filtro] = valor_filtro
-    cartas = list(col_mercado.find(busqueda))
-    
-    # Ordenar por grupo y luego por nombre (orden base si no hay otra opción)
-    cartas.sort(key=lambda x: (x.get("grupo", "").lower(), x.get("nombre", "").lower(), x.get("card_id", 0)))
-    if orden == "menor":
-        cartas.sort(key=lambda x: x.get("card_id", 0))
-    elif orden == "mayor":
-        cartas.sort(key=lambda x: x.get("card_id", 0), reverse=True)
-    
-    # Paginado
-    por_pagina = 5
-    total_paginas = max(1, (len(cartas) + por_pagina - 1) // por_pagina)
-    pagina = max(1, min(pagina, total_paginas))
-    inicio = (pagina - 1) * por_pagina
-    fin = inicio + por_pagina
-    cartas_pagina = cartas[inicio:fin]
-
-    texto = "<b>🛒 Mercado KaruKpop</b>\n"
-    if filtro and valor_filtro:
-        texto += f"🔎 Filtro: {filtro.capitalize()} = {valor_filtro}\n"
-    if orden:
-        texto += f"🔢 Orden: {'Menor a mayor' if orden=='menor' else 'Mayor a menor'}\n"
-    texto += f"Página {pagina}/{total_paginas}\n\n"
-
-    if cartas_pagina:
-        for carta in cartas_pagina:
-            estrellas = f"[{carta.get('estrellas', '?')}]"
-            num = f"#{carta.get('card_id', '?')}"
-            ver = f"[{carta.get('version', '?')}]"
-            nom = carta.get('nombre', '?')
-            grp = carta.get('grupo', '?')
-            precio = f"{carta.get('precio', '?'):,}"
-            idu = carta.get('id_unico', '')
-            texto += (
-                f"{estrellas} · {num} · {ver} · {nom} · {grp}\n"
-                f"💲{precio}\n"
-                f"<code>/comprar {idu}</code>\n\n"
-            )
-    else:
-        texto += "No hay cartas en el mercado con ese filtro."
-
-    botones = [
-        [InlineKeyboardButton("⭐ Filtrar por Estado", callback_data=f"mercado_filtro_estado_{user_id}_{pagina}")],
-        [InlineKeyboardButton("👥 Filtrar por Grupo", callback_data=f"mercado_filtro_grupo_{user_id}_{pagina}")],
-        [InlineKeyboardButton("🔢 Ordenar por Número", callback_data=f"mercado_orden_{user_id}_{pagina}")],
-        [InlineKeyboardButton("❌ Quitar Filtros", callback_data=f"mercado_sin_filtro_{user_id}")],
-        [
-            InlineKeyboardButton("⬅️", callback_data=f"mercado_pagina_{user_id}_{pagina-1 if pagina>1 else 1}_{filtro or 'none'}_{valor_filtro or 'none'}_{orden or 'none'}"),
-            InlineKeyboardButton("➡️", callback_data=f"mercado_pagina_{user_id}_{pagina+1 if pagina<total_paginas else total_paginas}_{filtro or 'none'}_{valor_filtro or 'none'}_{orden or 'none'}")
-        ]
-    ]
-    markup = InlineKeyboardMarkup(botones)
-    if query:
-        try:
-            query.edit_message_text(texto, parse_mode="HTML", reply_markup=markup)
-        except:
-            query.message.reply_text(texto, parse_mode="HTML", reply_markup=markup)
-    else:
-        return texto, markup
-
+def mostrar_menu_mercado
 
 
 
