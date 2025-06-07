@@ -2549,7 +2549,6 @@ def manejador_callback(update, context):
 
 
 
-
     elif data.startswith("album_filtros_"):
         user_id = int(partes[2])
         pagina = int(partes[3])
@@ -2575,7 +2574,7 @@ def manejador_callback(update, context):
         grupos = sorted({c.get("grupo", "") for c in col_cartas_usuario.find({"user_id": user_id}) if c.get("grupo")})
         try:
             query.edit_message_reply_markup(reply_markup=mostrar_menu_grupos_album(user_id, pagina, grupos))
-    except BadRequest as e:
+        except BadRequest as e:
             if "Message is not modified" not in str(e):
                 print("Error en menu grupos album:", e)
         return
