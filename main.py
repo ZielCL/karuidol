@@ -2221,27 +2221,28 @@ def mostrar_album_pagina(
     cartas_pagina = cartas[inicio:fin]
 
     texto = f"📗 <b>Álbum de cartas (página {pagina}/{total_paginas})</b>\n\n"
-    
-    # Define anchos fijos para cada columna
-    ANCHO_ID = 6  # id_unico
-    ANCHO_EST = 6 # estrellas
-    ANCHO_NUM = 4 # card_id
-    ANCHO_VER = 5 # version
-    ANCHO_NOM = 12 # nombre
-    ANCHO_GRP = 12 # grupo
 
-    def corta(texto, n):
-        return (texto[:n-1] + "…") if len(texto) > n else texto
+    # Ajusta anchos para que en móvil no se corte
+    ANCHO_ID = 6      # id_unico (corto)
+    ANCHO_EST = 5     # estrellas
+    ANCHO_NUM = 4     # #n
+    ANCHO_VER = 4     # versión
+    ANCHO_NOM = 11    # nombre idol
+    ANCHO_GRP = 11    # grupo
+
+    def corta(txt, n):
+        return (txt[:n-1] + "…") if len(txt) > n else txt
 
     if cartas_pagina:
         for c in cartas_pagina:
-            idu = f"{c['id_unico']}".ljust(ANCHO_ID)
+            idu = str(c['id_unico']).ljust(ANCHO_ID)
             est = f"[{c.get('estrellas','?')}]".ljust(ANCHO_EST)
             num = f"#{c.get('card_id','?')}".ljust(ANCHO_NUM)
             ver = f"[{c.get('version','?')}]".ljust(ANCHO_VER)
-            nom = corta(f"{c.get('nombre','?')}", ANCHO_NOM).ljust(ANCHO_NOM)
-            grp = corta(f"{c.get('grupo','?')}", ANCHO_GRP).ljust(ANCHO_GRP)
-            texto += f"<code>• {idu} {est} {num} {ver} {nom} {grp}</code>\n"
+            nom = corta(str(c.get('nombre','?')), ANCHO_NOM).ljust(ANCHO_NOM)
+            grp = corta(str(c.get('grupo','?')), ANCHO_GRP).ljust(ANCHO_GRP)
+            # id_unico al inicio y en <code> (copiable)
+            texto += f"•<code>{idu}</code> {est}{num}{ver}{nom}{grp}\n"
     else:
         texto += "\n(No tienes cartas para mostrar con este filtro)\n"
 
