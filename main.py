@@ -1284,55 +1284,87 @@ def manejador_callback_album(update, context):
     query = update.callback_query
     data = query.data
     partes = data.split("_")
-    usuario_id = int(partes[2])
-    pagina = int(partes[3]) if len(partes) > 3 else 1
+    usuario_id = query.from_user.id
 
-    # --- Menú de filtros inicial ---
-if data.startswith("album_filtros_"):
-    user_id = int(partes[2])
-    pagina = int(partes[3])
-    botones = [
-        [InlineKeyboardButton("⭐ Filtrar por Estado", callback_data=f"album_filtro_estado_{user_id}_{pagina}")],
-        [InlineKeyboardButton("👥 Filtrar por Grupo", callback_data=f"album_filtro_grupo_{user_id}_{pagina}")],
-        [InlineKeyboardButton("🔢 Ordenar por Número", callback_data=f"album_filtro_numero_{user_id}_{pagina}")],
-        [InlineKeyboardButton("⬅️ Volver", callback_data=f"album_pagina_{user_id}_{pagina}_none_none")]
-    ]
-    markup = InlineKeyboardMarkup(botones)
-    try:
-        query.edit_message_reply_markup(reply_markup=markup)
-    except Exception as e:
-        print("Error cambiando markup:", e)
-    return
+    # --- Filtro por estrellas (estado) ---
+    if data.startswith("album_filtro_estado_"):
+        user_id = int(partes[-2])
+        pagina = int(partes[-1])
+        context.bot.edit_message_reply_markup(
+            chat_id=query.message.chat_id,
+            message_id=query.message.message_id,
+            reply_markup=mostrar_menu_estrellas_album(user_id, pagina)
+        )
+        return
 
-# --- Selección de filtro ESTADO/ESTRELLAS ---
-if data.startswith("album_filtro_estado_"):
-    user_id = int(partes[-2])
-    pagina = int(partes[-1])
-    query.edit_message_reply_markup(reply_markup=mostrar_menu_estrellas_album(user_id, pagina))
-    query.answer()
-    return
+    # --- Filtro aplicado por estrella ---
+    if data.startswith("album_filtraestrella_"):
+        user_id = int(partes[2])
+        pagina = int(partes[3])
+        estrellas = partes[4]
+        mostrar_album_pagina(query.message.chat_id, query.message.message_id, context, user_id, pagina, filtro="estrellas", valor_filtro=estrellas)
+        return
 
-# --- Selección de filtro GRUPO ---
-if data.startswith("album_filtro_grupo_"):
-    user_id = int(partes[-2])
-    pagina = int(partes[-1])
-    query.edit_message_reply_markup(reply_markup=mostrar_menu_grupos_album(user_id, pagina))
-    query.answer()
-    return
+    # --- Filtro por grupo ---
+    if data.startswith("album_filtro_grupo_"):
+        user_id = int(partes[-2])
+        pagina = int(partes[-1])
+        grupos = sorted({c.get("grupo", "") for c in col_cartas_usuario.find({"user_id": user_id}) if c.get("grupo")})
+        context.bot.edit_message_reply_markup(
+            chat_id=query.message.chat_id,
+            message_id=query.message.message_id,
+            reply_markup=mostrar_menu_grupos_album(user_id, pagina, grupos)
+        )
+        return
 
-# --- Ordenar por Número ---
-if data.startswith("album_filtro_numero_"):
-    user_id = int(partes[-2])
-    pagina = int(partes[-1])
-    # Aquí pones tu menú de orden
-    query.edit_message_reply_markup(reply_markup=mostrar_menu_ordenar_album(user_id, pagina))
-    query.answer()
-    return
+    # --- Filtro aplicado por grupo ---
+    if data.startswith("album_filtragrupo_"):
+        user_id = int(partes[2])
+        pagina = int(partes[3])
+        grupo = "_".join(partes[4:])
+        mostrar_album_pagina(query.message.chat_id, query.message.message_id, context, user_id, pagina, filtro="grupo", valor_filtro=grupo)
+        return
 
-# --- Volver (solo por si acaso quieres refrescar la página del álbum) ---
-if data.startswith("album_pagina_"):
-    # (tu lógica normal para volver página)
-    ...
+    # --- Menú de filtros principal ---
+    if data.startswith("album_filtros_"):
+        user_id = int(partes[2])
+        pagina = int(partes[3])
+        context.bot.edit_message_reply_markup(
+            chat_id=query.message.chat_id,
+            message_id=query.message.message_id,
+            reply_markup=mostrar_menu_filtros_album(user_id, pagina)
+        )
+        return
+
+    # --- Filtro ordenar por número ---
+    if data.startswith("album_filtro_numero_"):
+        user_id = int(partes[3])
+        pagina = int(partes[4])
+        context.bot.edit_message_reply_markup(
+            chat_id=query.message.chat_id,
+            message_id=query.message.message_id,
+            reply_markup=mostrar_menu_ordenar_album(user_id, pagina)
+        )
+        return
+
+    # --- Orden aplicado ---
+    if data.startswith("album_ordennum_"):
+        user_id = int(partes[2])
+        pagina = int(partes[3])
+        orden = partes[4]
+        mostrar_album_pagina(query.message.chat_id, query.message.message_id, context, user_id, pagina, orden=orden)
+        return
+
+    # --- Volver al álbum completo (sin filtros) ---
+    if data.startswith("album_pagina_"):
+        user_id = int(partes[2])
+        pagina = int(partes[3])
+        filtro = partes[4] if len(partes) > 4 and partes[4] != "none" else None
+        valor_filtro = partes[5] if len(partes) > 5 and partes[5] != "none" else None
+        orden = partes[6] if len(partes) > 6 and partes[6] != "none" else None
+        mostrar_album_pagina(query.message.chat_id, query.message.message_id, context, user_id, int(pagina), filtro=filtro, valor_filtro=valor_filtro, orden=orden)
+        return
+
 
 
 
