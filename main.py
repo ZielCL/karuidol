@@ -1286,6 +1286,24 @@ def manejador_callback_album(update, context):
     partes = data.split("_")
     usuario_id = query.from_user.id
 
+    # DEBUG LOG
+    print("query.data:", data)
+    print("partes:", partes)
+    print("usuario_id que presionó:", usuario_id)
+
+    # Busca user_id explícitamente en cada tipo de callback_data del álbum
+    dueño_id = None
+    for p in partes:
+        if p.isdigit() and len(p) > 5:  # asume user_id >= 100000
+            dueño_id = int(p)
+            break
+
+    print("dueño_id detectado:", dueño_id)
+
+    if dueño_id and usuario_id != dueño_id:
+        query.answer("Solo puedes interactuar con tu propio álbum.", show_alert=True)
+        return
+
     # === 1. Determina el tipo de callback y la posición del user_id ===
     dueño_id = None
     try:
