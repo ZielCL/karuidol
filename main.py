@@ -2220,12 +2220,13 @@ def mostrar_album_pagina(
     fin = inicio + cartas_por_pagina
     cartas_pagina = cartas[inicio:fin]
 
-    texto = f"<b>📗 Álbum (página {pagina}/{total_paginas})</b>\n"
+    texto = f"📗 Álbum (página {pagina}/{total_paginas})\n"
     if cartas_pagina:
         for idx, c in enumerate(cartas_pagina, start=inicio + 1):
-            texto += f"• {c['id_unico']} · [{c.get('estrellas','?')}] · #{c.get('card_id','?')} · [{c.get('version','?')}] · {c.get('nombre','?')} · {c.get('grupo','?')}\n"
+            texto += f"• {c['id_unico']} · [{c.get('estrellas','?')}] · #{c.get('card_id','?')} · [V{c.get('version','?')}] · {c.get('nombre','?')} · {c.get('grupo','?')}\n"
     else:
         texto += "\n(No tienes cartas para mostrar con este filtro)"
+
 
     # === 4. Botones ===
     botones = []
