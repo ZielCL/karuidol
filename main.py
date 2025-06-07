@@ -1186,18 +1186,19 @@ def comando_album(update, context):
         )
     cartas_usuario.sort(key=sort_key)
     pagina = 1
-    enviar_lista_pagina(chat_id, usuario_id, cartas_usuario, pagina, context)
+    enviar_lista_pagina(chat_id, usuario_id, cartas_usuario, pagina, context, filtro=None)
 
 def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, editar=False, mensaje=None, filtro=None):
     total = len(lista_cartas)
     por_pagina = 10
-    paginas = (total - 1) // por_pagina + 1
+    paginas = (total - 1) // por_pagina + 1 if total else 1
     if pagina < 1:
         pagina = 1
     if pagina > paginas:
         pagina = paginas
     inicio = (pagina - 1) * por_pagina
     fin = min(inicio + por_pagina, total)
+
     if total == 0:
         texto = (
             "📕 <b>Tu álbum está vacío.</b>\n"
@@ -1214,7 +1215,7 @@ def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, edit
             id_unico = carta.get('id_unico', 'xxxx')
             estrellas = carta.get('estrellas', '★??')
             apodo = carta.get('apodo', '')
-            # Visual según rareza (puedes ajustar los emojis si quieres)
+            # Visual según rareza
             if estrellas == "★★★":
                 icon = "🌟"
             elif estrellas == "★★☆":
@@ -1229,12 +1230,23 @@ def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, edit
             )
         texto += "\n<i>Usa <code>/ampliar &lt;id_unico&gt;</code> para ver detalles de cualquier carta.</i>"
 
+    # --- Botones de paginación, filtro y favoritos ---
     nav = []
     if pagina > 1:
         nav.append(InlineKeyboardButton("« Anterior", callback_data=f"album_{pagina-1}_{usuario_id}"))
     if pagina < paginas:
         nav.append(InlineKeyboardButton("Siguiente »", callback_data=f"album_{pagina+1}_{usuario_id}"))
-    teclado = InlineKeyboardMarkup([nav]) if nav else None
+    filtros = [
+        [InlineKeyboardButton("🔎 Buscar por nombre", switch_inline_query_current_chat="albumbuscar_")],
+        [InlineKeyboardButton("👥 Filtrar por grupo", callback_data=f"album_filtro_grupo_{usuario_id}_{pagina}")]
+        # Puedes agregar más filtros si quieres (ej: por versión)
+    ]
+    # Botón para ver solo favoritos (opcional)
+    doc = col_usuarios.find_one({"user_id": usuario_id}) or {}
+    favoritos = doc.get("favoritos", [])
+    if favoritos:
+        filtros.append([InlineKeyboardButton("⭐ Solo favoritos", callback_data=f"album_fav_{usuario_id}_{pagina}")])
+    teclado = InlineKeyboardMarkup([nav] + filtros) if nav or filtros else None
 
     if editar and mensaje:
         try:
@@ -1243,6 +1255,7 @@ def enviar_lista_pagina(chat_id, usuario_id, lista_cartas, pagina, context, edit
             context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode='HTML')
     else:
         context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode='HTML')
+
 
 
 
