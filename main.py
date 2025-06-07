@@ -1296,11 +1296,21 @@ def manejador_callback_album(update, context):
     pagina = int(partes[3]) if len(partes) > 3 else 1
 
     # --- Menú de filtros inicial ---
-    if data.startswith("album_filtros_"):
-        user_id = int(partes[2])
-        pagina = int(partes[3])
-        query.edit_message_reply_markup(reply_markup=mostrar_menu_filtros_album(user_id, pagina))
-        return
+if data.startswith("album_filtros_"):
+    user_id = int(partes[2])
+    pagina = int(partes[3])
+    botones = [
+        [InlineKeyboardButton("⭐ Filtrar por Estado", callback_data=f"album_filtro_estado_{user_id}_{pagina}")],
+        [InlineKeyboardButton("👥 Filtrar por Grupo", callback_data=f"album_filtro_grupo_{user_id}_{pagina}")],
+        [InlineKeyboardButton("🔢 Ordenar por Número", callback_data=f"album_filtro_numero_{user_id}_{pagina}")],
+        [InlineKeyboardButton("⬅️ Volver", callback_data=f"album_pagina_{user_id}_{pagina}_none_none")]
+    ]
+    markup = InlineKeyboardMarkup(botones)
+    try:
+        query.edit_message_reply_markup(reply_markup=markup)
+    except Exception as e:
+        print("Error cambiando markup:", e)
+    return
 
 
     # --- Selección de filtro ESTADO/ESTRELLAS ---
