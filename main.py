@@ -373,6 +373,9 @@ def historial_gemas_admin(update, context):
 
 dispatcher.add_handler(CommandHandler("historialgemas", historial_gemas_admin))
 
+def obtener_grupos_del_mercado():
+    # Devuelve una lista ORDENADA de todos los grupos únicos en el mercado
+    return sorted({c.get("grupo", "") for c in col_mercado.find() if c.get("grupo")})
 
 
 
@@ -2388,7 +2391,7 @@ def manejador_callback(update, context):
         partes = data.split("_")
         user_id = int(partes[-2])
         pagina = int(partes[-1])
-        grupos = OBTEN_GRUPOS_DEL_MERCADO()  # Pon aquí tu función para obtener los grupos
+        grupos = OBTENER_GRUPOS_DEL_MERCADO()  # Pon aquí tu función para obtener los grupos
         try:
             query.edit_message_reply_markup(reply_markup=mostrar_menu_grupos(user_id, pagina, grupos))
         except BadRequest as e:
