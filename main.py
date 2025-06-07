@@ -1462,31 +1462,36 @@ def mostrar_menu_estrellas(user_id, pagina):
     ]
     return InlineKeyboardMarkup(botones)
 
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
 def mostrar_menu_grupos(user_id, pagina, grupos):
-    grupos = sorted(grupos)  # Ordena los grupos siempre igual
-    grupos_por_pagina = 5
-    total_paginas = (len(grupos) - 1) // grupos_por_pagina + 1
-    pagina = max(1, min(pagina, total_paginas))  # Evita fuera de rango
+    por_pagina = 5
+    total = len(grupos)
+    paginas = max(1, (total - 1) // por_pagina + 1)
+    if pagina < 1:
+        pagina = 1
+    if pagina > paginas:
+        pagina = paginas
+    inicio = (pagina - 1) * por_pagina
+    fin = min(inicio + por_pagina, total)
+    grupos_pagina = grupos[inicio:fin]
 
-    inicio = (pagina - 1) * grupos_por_pagina
-    fin = inicio + grupos_por_pagina
-    grupos_visibles = grupos[inicio:fin]
+    matriz = []
+    for g in grupos_pagina:
+        # Usa callback_data consistente con tu manejador_callback
+        matriz.append([InlineKeyboardButton(g, callback_data=f"mercado_filtragrupo_{user_id}_{pagina}_{g}")])
 
-    botones = [
-        [InlineKeyboardButton(grupo, callback_data=f"mercado_grupo_{grupo}_{user_id}")]
-        for grupo in grupos_visibles
-    ]
-
-    flechas = []
+    nav = []
     if pagina > 1:
-        flechas.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_filtro_grupo_{user_id}_{pagina-1}"))
-    if pagina < total_paginas:
-        flechas.append(InlineKeyboardButton("➡️", callback_data=f"mercado_filtro_grupo_{user_id}_{pagina+1}"))
-    if flechas:
-        botones.append(flechas)
+        nav.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_filtro_grupo_{user_id}_{pagina-1}"))
+    if pagina < paginas:
+        nav.append(InlineKeyboardButton("➡️", callback_data=f"mercado_filtro_grupo_{user_id}_{pagina+1}"))
+    if nav:
+        matriz.append(nav)
+    matriz.append([InlineKeyboardButton("Volver", callback_data=f"mercado_filtros_{user_id}_{pagina}")])
 
-    botones.append([InlineKeyboardButton("⬅️ Volver", callback_data=f"mercado_filtros_{user_id}")])
-    return InlineKeyboardMarkup(botones)
+    return InlineKeyboardMarkup(matriz)
+
 
 
 def mostrar_menu_ordenar(user_id, pagina):
@@ -2391,7 +2396,7 @@ def manejador_callback(update, context):
         partes = data.split("_")
         user_id = int(partes[-2])
         pagina = int(partes[-1])
-        grupos = OBTENER_GRUPOS_DEL_MERCADO()  # Pon aquí tu función para obtener los grupos
+        grupos = obtener_grupos_del_mercado()  # Pon aquí tu función para obtener los grupos
         try:
             query.edit_message_reply_markup(reply_markup=mostrar_menu_grupos(user_id, pagina, grupos))
         except BadRequest as e:
