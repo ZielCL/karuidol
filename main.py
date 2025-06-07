@@ -2227,7 +2227,9 @@ def mostrar_album_pagina(
     ANCHO_EST = 5
     ANCHO_NUM = 4
     ANCHO_VER = 4
-
+    ANCHO_NOM = 0
+    ANCHO_GRP = 0
+    
     def corta(txt, n):
         return (txt[:n-1] + "…") if len(txt) > n else txt
 
