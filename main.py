@@ -153,18 +153,10 @@ def create_order():
 # ==== Endpoint para el webhook de PayPal (tienes que registrarlo en developer.paypal.com) ====
 
 
-# ==== Endpoint para devolver al usuario tras pagar/cancelar ====
-@app.route("/paypal/return")
-def paypal_return():
-    return "¡Gracias por tu compra! Puedes volver a Telegram."
+# --- Configuración ---
+ADMIN_USER_ID = 1111798714  # <-- Cambia por tu user_id real de Telegram
 
-@app.route("/paypal/cancel")
-def paypal_cancel():
-    return "Pago cancelado."
-#-----------------------------paypal_webhook----------------------------------------------------------------------------------------------------------------
-
-ADMIN_USER_ID = 1111798714  # <--- Cambia esto por tu Telegram user_id real
-
+# --- WEBHOOK PAYPAL: Suma gemas, guarda historial y notifica usuario y admin ---
 @app.route("/paypal/webhook", methods=["POST"])
 def paypal_webhook():
     data = request.json
@@ -178,7 +170,7 @@ def paypal_webhook():
             amount = resource["amount"]["value"]
             pago_id = resource.get("id")  # ID único del pago
 
-            # 2. Mapear monto a gemas (ajusta según tus precios)
+            # 2. Mapear monto a gemas (ajusta según tus precios reales)
             gemas_por_monto = {
                 "1.00": 50,
                 "2.00": 100,
@@ -226,7 +218,7 @@ def paypal_webhook():
             try:
                 bot.send_message(
                     chat_id=ADMIN_USER_ID,
-                    text=f"💸 Nuevo pago confirmado:\n• Usuario: <code>{user_id}</code>\n• Ganas: {cantidad_gemas}\n• Monto: ${amount} USD",
+                    text=f"💸 Nuevo pago confirmado:\n• Usuario: <code>{user_id}</code>\n• Gemas: {cantidad_gemas}\n• Monto: ${amount} USD",
                     parse_mode="HTML"
                 )
             except Exception as e:
@@ -236,6 +228,16 @@ def paypal_webhook():
         except Exception as e:
             print("❌ Error en webhook:", e)
     return "", 200
+
+# --- ENDPOINT DE RETORNO DESPUÉS DE PAGAR ---
+@app.route("/paypal/return")
+def paypal_return():
+    return "¡Gracias por tu compra! Puedes volver a Telegram."
+
+@app.route("/paypal/cancel")
+def paypal_cancel():
+    return "Pago cancelado."
+
 
 
 
@@ -3574,7 +3576,6 @@ dispatcher.add_handler(CommandHandler('mercado', comando_mercado))
 dispatcher.add_handler(CommandHandler('tiendagemas', tienda_gemas))
 dispatcher.add_handler(CommandHandler('darGemas', comando_darGemas))
 dispatcher.add_handler(CommandHandler('gemas', comando_gemas))
-dispatcher.add_handler(CommandHandler("simularipn", simular_compra_gemas))
 dispatcher.add_handler(CommandHandler('usar', comando_usar))
 dispatcher.add_handler(CommandHandler('apodo', comando_apodo))
 dispatcher.add_handler(CommandHandler('inventario', comando_inventario))
