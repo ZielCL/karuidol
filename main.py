@@ -1310,7 +1310,7 @@ if data.startswith("album_filtros_"):
         query.edit_message_reply_markup(reply_markup=markup)
     except Exception as e:
         print("Error cambiando markup:", e)
-    return
+        return
 
 
     # --- Selección de filtro ESTADO/ESTRELLAS ---
