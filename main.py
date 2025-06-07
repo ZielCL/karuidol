@@ -2264,7 +2264,7 @@ def mostrar_album_pagina(
 def mostrar_menu_filtros_album(user_id, pagina):
     botones = [
         [InlineKeyboardButton("⭐ Filtrar por Estado", callback_data=f"album_filtro_estado_{user_id}_{pagina}")],
-        [InlineKeyboardButton("👥 Filtrar por Grupo", callback_data=f"album_filtro_grupo_{user_id}_{pagina}_1")],
+        [InlineKeyboardButton("👥 Filtrar por Grupo", callback_data=f"album_filtro_grupo_{user_id}_1")]
         [InlineKeyboardButton("🔢 Ordenar por Número", callback_data=f"album_filtro_numero_{user_id}_{pagina}")],
         [InlineKeyboardButton("⬅️ Volver", callback_data=f"album_pagina_{user_id}_{pagina}_none_none_none")]
     ]
@@ -2724,8 +2724,13 @@ def manejador_callback_album(update, context):
 
     # --- Filtro por grupo ---
     if data.startswith("album_filtro_grupo_"):
-        user_id = int(partes[-2])
-        pagina = int(partes[-1])
+    # Extrae user_id y página correctamente aunque la callback tenga _ adicionales
+        partes_split = data.split("_")
+        user_id = int(partes_split[3])
+        if len(partes_split) > 4:
+            pagina = int(partes_split[4])
+        else:
+            pagina = 1
         grupos = sorted({c.get("grupo", "") for c in col_cartas_usuario.find({"user_id": user_id}) if c.get("grupo")})
         context.bot.edit_message_reply_markup(
             chat_id=query.message.chat_id,
@@ -2733,6 +2738,8 @@ def manejador_callback_album(update, context):
             reply_markup=mostrar_menu_grupos_album(user_id, pagina, grupos)
         )
         return
+
+
 
     # --- Filtro aplicado por grupo ---
     if data.startswith("album_filtragrupo_"):
