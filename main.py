@@ -1381,99 +1381,113 @@ def comando_comprarobjeto(update, context):
 
 #----------------------------------------------------
 
-def mostrar_mercado_pagina(
-    chat_id, pagina=1, context=None, mensaje=None, editar=False,
-    filtro=None, valor_filtro=None, orden=None, user_id=None
-):
-    if user_id is None:
-        return
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-    query = {}
-    if filtro == "estrellas" and valor_filtro:
-        query["estrellas"] = valor_filtro
-    if filtro == "grupo" and valor_filtro:
-        query["grupo"] = valor_filtro
+def mostrar_mercado_pagina(chat_id, message_id, context, user_id, pagina=1, filtro=None, valor_filtro=None, orden=None):
+    # --- FILTRO DE CARTAS ---
+    query_mercado = {}
+    if filtro == "estrellas":
+        query_mercado["estrellas"] = valor_filtro
+    elif filtro == "grupo":
+        query_mercado["grupo"] = valor_filtro
 
-    cartas = list(col_mercado.find(query))
+    cartas = list(col_mercado.find(query_mercado))
 
-    # Orden
-    if orden == "mayor":
-        cartas.sort(key=lambda c: c.get("card_id", 0), reverse=True)
-    elif orden == "menor":
-        cartas.sort(key=lambda c: c.get("card_id", 0))
-
-    por_pagina = 10
-    total = len(cartas)
-    paginas = max(1, (total - 1) // por_pagina + 1)
-    if pagina < 1: pagina = 1
-    if pagina > paginas: pagina = paginas
-    inicio = (pagina - 1) * por_pagina
-    fin = min(inicio + por_pagina, total)
-
-    if filtro and valor_filtro:
-        texto = f"<b>🛒 Cartas en el mercado (página {pagina}/{paginas}) — Filtrado por: {valor_filtro}</b>\n"
+    # --- ORDEN ---
+    if orden == "menor":
+        cartas.sort(key=lambda x: x.get("card_id", 0))
+    elif orden == "mayor":
+        cartas.sort(key=lambda x: -x.get("card_id", 0))
     else:
-        texto = f"<b>🛒 Cartas en el mercado (página {pagina}/{paginas})</b>\n"
-    texto += "━━━━━━━━━━━━━━━━━\n"
+        # Orden default: nombre, grupo, card_id
+        cartas.sort(key=lambda x: (x.get("nombre", "").lower(), x.get("grupo", "").lower(), x.get("card_id", 0)))
 
-    if total == 0:
-        texto += "⚠️ <b>No hay cartas a la venta en el mercado.</b>\n"
-        texto += "Usa <code>/vender &lt;id_unico&gt;</code> para poner la tuya."
-    else:
-        for c in cartas[inicio:fin]:
-            estrellas = c.get('estrellas', '★??')
-            id_unico = c.get('id_unico', '')
-            nombre = c.get('nombre', '')
-            version = c.get('version', '')
-            card_id = c.get('card_id', '')
-            precio = precio_carta_karuta(nombre, version, c.get('estado', ''), id_unico=id_unico)
-            # Emoji por rareza
-            if estrellas == "★★★":
-                icon = "🌟"
-            elif estrellas == "★★☆":
-                icon = "⭐"
-            elif estrellas == "★☆☆":
-                icon = "🔸"
-            else:
-                icon = "⚪"
-            texto += (
-                f"{icon} <b>{nombre}</b> [{version}] · <b>#{card_id}</b> · [{estrellas}]\n"
-                f"   <b>💲{precio}</b>\n"
-                f"   <code>/comprar {id_unico}</code>\n"
-                "━━━━━━━━━━━━━━━━━━\n"
-            )
-        if fin < total:
-            texto += f"Y {total-fin} más...\n"
+    # --- PAGINACIÓN ---
+    cartas_por_pagina = 10
+    total_paginas = max(1, ((len(cartas) - 1) // cartas_por_pagina) + 1)
+    pagina = max(1, min(pagina, total_paginas))
+    inicio = (pagina - 1) * cartas_por_pagina
+    fin = inicio + cartas_por_pagina
+    cartas_pagina = cartas[inicio:fin]
 
-    # --------- Teclado ----------
-    matriz = []
-    # Solo un botón para Filtros (al inicio), nunca muestra los 3 juntos aquí
-    matriz.append([InlineKeyboardButton("🔍 Filtrar / Ordenar", callback_data=f"mercado_filtro_{user_id}")])
+    # --- TEXTO LISTA ---
+    texto = "<b>🛒 Mercado</b>\n"
+    for idx, c in enumerate(cartas_pagina, start=inicio + 1):
+        texto += f"#{idx}: <code>{c['id_unico']}</code> · {c.get('estrellas','')} · #{c.get('card_id','?')} · V{c.get('version','?')} · {c.get('nombre','?')} · {c.get('grupo','?')}\n"
+    if not cartas_pagina:
+        texto += "\n(No hay cartas para mostrar con este filtro)"
 
-    # Navegación
-    nav = []
+    # --- BOTONES ---
+    botones = []
+    # Filtro/Ordenar (sólo cuando no estás dentro de menú de filtros)
+    botones.append([InlineKeyboardButton("🔎 Filtrar / Ordenar", callback_data=f"mercado_filtros_{user_id}_{pagina}")])
+
+    # Paginación
+    paginacion = []
     if pagina > 1:
-        nav.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_{pagina-1}_{user_id}" + (f"_{orden}" if orden else "")))
-    if pagina < paginas:
-        nav.append(InlineKeyboardButton("➡️", callback_data=f"mercado_{pagina+1}_{user_id}" + (f"_{orden}" if orden else "")))
-    if nav:
-        matriz.append(nav)
-    # Solo muestra "❌ Quitar filtro" si hay filtro activo
-    if filtro:
-        matriz.append([InlineKeyboardButton("❌ Quitar filtro", callback_data=f"mercado_1_{user_id}")])
+        paginacion.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_pagina_{user_id}_{pagina-1}_{filtro or 'none'}_{valor_filtro or 'none'}_{orden or 'none'}"))
+    if pagina < total_paginas:
+        paginacion.append(InlineKeyboardButton("➡️", callback_data=f"mercado_pagina_{user_id}_{pagina+1}_{filtro or 'none'}_{valor_filtro or 'none'}_{orden or 'none'}"))
+    if paginacion:
+        botones.append(paginacion)
 
-    teclado = InlineKeyboardMarkup(matriz)
+    teclado = InlineKeyboardMarkup(botones)
+    context.bot.edit_message_text(
+        chat_id=chat_id,
+        message_id=message_id,
+        text=texto,
+        parse_mode="HTML",
+        reply_markup=teclado
+    )
 
-    # Edita o envía el mensaje
-    if editar and mensaje is not None:
-        try:
-            mensaje.edit_text(texto, reply_markup=teclado, parse_mode="HTML")
-        except Exception:
-            context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML")
-    else:
-        context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML")
+def mostrar_menu_filtros(user_id, pagina):
+    botones = [
+        [InlineKeyboardButton("⭐ Filtrar por Estado", callback_data=f"mercado_filtro_estado_{user_id}_{pagina}")],
+        [InlineKeyboardButton("👥 Filtrar por Grupo", callback_data=f"mercado_filtro_grupo_{user_id}_{pagina}_1")],
+        [InlineKeyboardButton("🔢 Ordenar por Número", callback_data=f"mercado_filtro_numero_{user_id}_{pagina}")],
+        [InlineKeyboardButton("⬅️ Volver", callback_data=f"mercado_pagina_{user_id}_{pagina}_none_none_none")]
+    ]
+    return InlineKeyboardMarkup(botones)
 
-    
+def mostrar_menu_estrellas(user_id, pagina):
+    botones = [
+        [InlineKeyboardButton("★★★", callback_data=f"mercado_filtraestrella_{user_id}_{pagina}_★★★")],
+        [InlineKeyboardButton("★★☆", callback_data=f"mercado_filtraestrella_{user_id}_{pagina}_★★☆")],
+        [InlineKeyboardButton("★☆☆", callback_data=f"mercado_filtraestrella_{user_id}_{pagina}_★☆☆")],
+        [InlineKeyboardButton("☆☆☆", callback_data=f"mercado_filtraestrella_{user_id}_{pagina}_☆☆☆")],
+        [InlineKeyboardButton("⬅️ Volver", callback_data=f"mercado_filtros_{user_id}_{pagina}")]
+    ]
+    return InlineKeyboardMarkup(botones)
+
+def mostrar_menu_grupos(user_id, pagina, grupos):
+    grupos_ordenados = sorted(grupos)
+    grupos_por_pagina = 5
+    total_paginas = max(1, ((len(grupos_ordenados) - 1) // grupos_por_pagina) + 1)
+    pagina = max(1, min(pagina, total_paginas))
+    inicio = (pagina - 1) * grupos_por_pagina
+    fin = inicio + grupos_por_pagina
+    botones = []
+    for grupo in grupos_ordenados[inicio:fin]:
+        botones.append([InlineKeyboardButton(grupo, callback_data=f"mercado_filtragrupo_{user_id}_1_{grupo}")])
+    paginacion = []
+    if pagina > 1:
+        paginacion.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_filtro_grupo_{user_id}_1_{pagina-1}"))
+    if pagina < total_paginas:
+        paginacion.append(InlineKeyboardButton("➡️", callback_data=f"mercado_filtro_grupo_{user_id}_1_{pagina+1}"))
+    if paginacion:
+        botones.append(paginacion)
+    botones.append([InlineKeyboardButton("⬅️ Volver", callback_data=f"mercado_filtros_{user_id}_1")])
+    return InlineKeyboardMarkup(botones)
+
+def mostrar_menu_ordenar(user_id, pagina):
+    botones = [
+        [InlineKeyboardButton("⬆️ Menor a mayor", callback_data=f"mercado_ordennum_{user_id}_{pagina}_menor")],
+        [InlineKeyboardButton("⬇️ Mayor a menor", callback_data=f"mercado_ordennum_{user_id}_{pagina}_mayor")],
+        [InlineKeyboardButton("⬅️ Volver", callback_data=f"mercado_filtros_{user_id}_{pagina}")]
+    ]
+    return InlineKeyboardMarkup(botones)
+
+
 #----------Comando FAV1---------------
 @cooldown_critico
 def comando_favoritos(update, context):
@@ -1998,8 +2012,14 @@ def comando_comandos(update, context):
 
 def comando_mercado(update, context):
     user_id = update.message.from_user.id
-    texto, markup = mostrar_menu_mercado(query=None, user_id=user_id)
-    update.message.reply_text(texto, parse_mode="HTML", reply_markup=markup)
+    chat_id = update.effective_chat.id
+    # Mensaje inicial, muestra la primera página
+    msg = context.bot.send_message(
+        chat_id=chat_id,
+        text="Cargando mercado...",
+    )
+    mostrar_mercado_pagina(chat_id, msg.message_id, context, user_id, pagina=1)
+
 
 
 def comando_giveidol(update, context):
@@ -2369,111 +2389,69 @@ def manejador_callback(update, context):
     query = update.callback_query
     data = query.data
     user_id = query.from_user.id
-    
-    # Función auxiliar para extraer user_id de data tipo "mercado_*_<user_id>"
-    def get_uid(data):
-        partes = data.split("_")
-        if partes[-1].isdigit():
-            return int(partes[-1])
-        return None
 
-    #---------MERCADO---------
-    # Solo el dueño del menú puede interactuar
-    
-    def is_owner(callback_data):
-        return str(user_id) == callback_data.split("_")[3]
-
-    # 1. Navegación de páginas
-    if data.startswith("mercado_pagina_"):
-        partes = data.split("_")
-        uid = partes[3]
-        if not is_owner(data): return query.answer("Solo tú puedes usar estos botones.", show_alert=True)
-        pagina = int(partes[4])
-        filtro = partes[5] if partes[5] != "none" else None
-        valor_filtro = partes[6] if partes[6] != "none" else None
-        orden = partes[7] if partes[7] != "none" else None
-        mostrar_menu_mercado(query, user_id, pagina, filtro, valor_filtro, orden)
+    # Solo manejar callbacks del mercado
+    if not data.startswith("mercado"):
+        # ...deja el resto de tus callbacks aquí
         return
 
-    # 2. Filtro por estado
-    if data.startswith("mercado_filtro_estado_"):
-        partes = data.split("_")
-        uid = partes[3]
-        if not is_owner(data): return query.answer("Solo tú puedes usar estos botones.", show_alert=True)
-        pagina = int(partes[4])
-        estados = ["★★★", "★★☆", "★☆☆", "☆☆☆"]
-        botones = [[InlineKeyboardButton(est, callback_data=f"mercado_estado_{est}_{user_id}_{pagina}")] for est in estados]
-        botones.append([InlineKeyboardButton("⬅️ Volver", callback_data=f"mercado_menu_{user_id}_{pagina}")])
-        markup = InlineKeyboardMarkup(botones)
-        query.edit_message_text("Elige el estado de la carta:", reply_markup=markup)
-        return
+    partes = data.split("_")
 
-    if data.startswith("mercado_estado_"):
-        partes = data.split("_")
-        est = partes[2]
-        uid = partes[3]
-        pagina = int(partes[4])
-        mostrar_menu_mercado(query, user_id, pagina, filtro="estrellas", valor_filtro=est)
-        return
-
-    # 3. Filtro por grupo
-    if data.startswith("mercado_filtro_grupo_"):
-        partes = data.split("_")
-        uid = partes[3]
-        if not is_owner(data): return query.answer("Solo tú puedes usar estos botones.", show_alert=True)
-        pagina = int(partes[4])
-        grupos = list(col_mercado.distinct("grupo"))
-        grupos = [g for g in grupos if g] or ["N/A"]
-        botones = [[InlineKeyboardButton(grupo, callback_data=f"mercado_grupo_{grupo}_{user_id}_{pagina}")] for grupo in grupos]
-        botones.append([InlineKeyboardButton("⬅️ Volver", callback_data=f"mercado_menu_{user_id}_{pagina}")])
-        markup = InlineKeyboardMarkup(botones)
-        query.edit_message_text("Elige el grupo:", reply_markup=markup)
-        return
-
-    if data.startswith("mercado_grupo_"):
-        partes = data.split("_")
-        grupo = "_".join(partes[2:-2])
-        uid = partes[-2]
-        pagina = int(partes[-1])
-        mostrar_menu_mercado(query, user_id, pagina, filtro="grupo", valor_filtro=grupo)
-        return
-
-    # 4. Ordenar por número
-    if data.startswith("mercado_orden_"):
-        partes = data.split("_")
-        uid = partes[3]
-        if not is_owner(data): return query.answer("Solo tú puedes usar estos botones.", show_alert=True)
-        pagina = int(partes[4])
-        botones = [
-            [InlineKeyboardButton("⬆️ Menor a mayor", callback_data=f"mercado_ordmenor_{user_id}_{pagina}")],
-            [InlineKeyboardButton("⬇️ Mayor a menor", callback_data=f"mercado_ordmayor_{user_id}_{pagina}")],
-            [InlineKeyboardButton("⬅️ Volver", callback_data=f"mercado_menu_{user_id}_{pagina}")]
-        ]
-        markup = InlineKeyboardMarkup(botones)
-        query.edit_message_text("¿Cómo quieres ordenar?", reply_markup=markup)
-        return
-
-    if data.startswith("mercado_ordmenor_"):
-        partes = data.split("_")
-        uid = partes[2]
+    if data.startswith("mercado_filtros_"):
+        user_id = int(partes[2])
         pagina = int(partes[3])
-        mostrar_menu_mercado(query, user_id, pagina, orden="menor")
+        query.edit_message_reply_markup(reply_markup=mostrar_menu_filtros(user_id, pagina))
         return
 
-    if data.startswith("mercado_ordmayor_"):
-        partes = data.split("_")
-        uid = partes[2]
+    elif data.startswith("mercado_filtro_estado_"):
+        user_id = int(partes[3])
+        pagina = int(partes[4])
+        query.edit_message_reply_markup(reply_markup=mostrar_menu_estrellas(user_id, pagina))
+        return
+
+    elif data.startswith("mercado_filtraestrella_"):
+        user_id = int(partes[2])
         pagina = int(partes[3])
-        mostrar_menu_mercado(query, user_id, pagina, orden="mayor")
+        estrellas = partes[4]
+        mostrar_mercado_pagina(query.message.chat_id, query.message.message_id, context, user_id, pagina, filtro="estrellas", valor_filtro=estrellas)
         return
 
-    # 5. Quitar filtros / volver menú
-    if data.startswith("mercado_sin_filtro_") or data.startswith("mercado_menu_"):
-        partes = data.split("_")
-        uid = partes[2] if data.startswith("mercado_sin_filtro_") else partes[2]
-        pagina = int(partes[3]) if len(partes) > 3 else 1
-        mostrar_menu_mercado(query, user_id, pagina)
+    elif data.startswith("mercado_filtro_grupo_"):
+        user_id = int(partes[3])
+        pagina = int(partes[4])
+        grupos = list({c.get('grupo') for c in col_mercado.find() if c.get('grupo')})
+        query.edit_message_reply_markup(reply_markup=mostrar_menu_grupos(user_id, pagina, grupos))
         return
+
+    elif data.startswith("mercado_filtragrupo_"):
+        user_id = int(partes[2])
+        pagina = int(partes[3])
+        grupo = "_".join(partes[4:])
+        mostrar_mercado_pagina(query.message.chat_id, query.message.message_id, context, user_id, pagina, filtro="grupo", valor_filtro=grupo)
+        return
+
+    elif data.startswith("mercado_filtro_numero_"):
+        user_id = int(partes[3])
+        pagina = int(partes[4])
+        query.edit_message_reply_markup(reply_markup=mostrar_menu_ordenar(user_id, pagina))
+        return
+
+    elif data.startswith("mercado_ordennum_"):
+        user_id = int(partes[2])
+        pagina = int(partes[3])
+        orden = partes[4]
+        mostrar_mercado_pagina(query.message.chat_id, query.message.message_id, context, user_id, pagina, orden=orden)
+        return
+
+    elif data.startswith("mercado_pagina_"):
+        user_id = int(partes[2])
+        pagina = int(partes[3])
+        filtro = partes[4] if partes[4] != "none" else None
+        valor_filtro = partes[5] if partes[5] != "none" else None
+        orden = partes[6] if len(partes) > 6 and partes[6] != "none" else None
+        mostrar_mercado_pagina(query.message.chat_id, query.message.message_id, context, user_id, int(pagina), filtro=filtro, valor_filtro=valor_filtro, orden=orden)
+        return
+
     
     # --- RECLAMAR DROP ---
     if data.startswith("reclamar"):
