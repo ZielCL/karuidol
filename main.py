@@ -2210,7 +2210,7 @@ def mostrar_album_pagina(
         cartas.sort(key=lambda x: -x.get("card_id", 0))
     else:
         # Ordena por nombre y luego grupo, siempre
-        cartas.sort(key=lambda x: (x.get("nombre", "").lower(), x.get("grupo", "").lower(), x.get("card_id", 0)))
+        cartas.sort(key=lambda x: (x.get("grupo", "").lower(), x.get("nombre", "").lower(), x.get("card_id", 0)))
 
     # === 3. Paginación ===
     cartas_por_pagina = 10
