@@ -99,6 +99,55 @@ group_last_cmd = {}
 COOLDOWN_USER = 3    # 3 segundos mínimo entre comandos por usuario
 COOLDOWN_GROUP = 1   # 1 segundo mínimo entre comandos por grupo
 
+ADMIN_IDS = [1111798714]  # <-- Cambia a tu user_id de Telegram (o agrega varios)
+
+def simular_compra_gemas(update, context):
+    user_id = update.effective_user.id
+    if user_id not in ADMIN_IDS:
+        update.message.reply_text("Solo admins pueden usar este comando.")
+        return
+
+    try:
+        args = context.args
+        if len(args) != 2:
+            update.message.reply_text("Uso: /simularipn <user_id> <cantidad>")
+            return
+        user_id_sim = int(args[0])
+        cantidad = int(args[1])
+    except Exception:
+        update.message.reply_text("Error en los parámetros. Usa: /simularipn <user_id> <cantidad>")
+        return
+
+    # Simula la entrega y notificación (igual que tu endpoint IPN)
+    usuario = col_usuarios.find_one({"user_id": user_id_sim}) or {}
+    username = usuario.get("username", "")
+
+    col_usuarios.update_one(
+        {"user_id": user_id_sim},
+        {"$inc": {"gemas": cantidad}},
+        upsert=True
+    )
+    db.historial_compras_gemas.insert_one({
+        "pago_id": f"prueba_{user_id_sim}_{cantidad}_{datetime.utcnow().isoformat()}",
+        "user_id": user_id_sim,
+        "username": username.lower() if username else "",
+        "cantidad_gemas": cantidad,
+        "item_name": f"Simulado {cantidad} Gems",
+        "fecha": datetime.utcnow()
+    })
+
+    try:
+        bot.send_message(
+            chat_id=user_id_sim,
+            text=f"🎉 ¡Compra exitosa! Recibiste {cantidad} gemas (simulado admin)."
+        )
+    except Exception as e:
+        update.message.reply_text(f"Error notificando usuario: {e}")
+
+    update.message.reply_text(f"Gemas simuladas entregadas a {user_id_sim}.")
+
+
+
 def check_cooldown(update):
     now = time.time()
     uid = update.effective_user.id
@@ -3427,6 +3476,7 @@ dispatcher.add_handler(CommandHandler('mercado', comando_mercado))
 dispatcher.add_handler(CommandHandler('tiendagemas', tienda_gemas))
 dispatcher.add_handler(CommandHandler('darGemas', comando_darGemas))
 dispatcher.add_handler(CommandHandler('gemas', comando_gemas))
+dispatcher.add_handler(CommandHandler("simularipn", simular_compra_gemas))
 dispatcher.add_handler(CommandHandler('usar', comando_usar))
 dispatcher.add_handler(CommandHandler('apodo', comando_apodo))
 dispatcher.add_handler(CommandHandler('inventario', comando_inventario))
