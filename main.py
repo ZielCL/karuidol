@@ -1286,20 +1286,34 @@ def manejador_callback_album(update, context):
     partes = data.split("_")
     usuario_id = query.from_user.id
 
-    # Busca el primer valor largo (al menos 5 dígitos) que esté después de la palabra 'album'
+    # === 1. Determina el tipo de callback y la posición del user_id ===
     dueño_id = None
     try:
-        # Busca la posición de la palabra 'album' y empieza a buscar después de ahí
-        for idx, part in enumerate(partes):
-            if part == "album":
-                # Busca en las siguientes posiciones
-                for siguiente in partes[idx+1:]:
-                    if siguiente.isdigit() and len(siguiente) >= 5:
-                        dueño_id = int(siguiente)
-                        break
-                break
-        # Si no encontró con el método anterior, prueba con todos los elementos
-        if dueño_id is None:
+        if data.startswith("album_pagina_"):
+            # album_pagina_userid_pagina_filtro_valor_orden
+            if len(partes) >= 4 and partes[2].isdigit():
+                dueño_id = int(partes[2])
+        elif data.startswith("album_filtros_"):
+            # album_filtros_userid_pagina
+            if len(partes) >= 3 and partes[2].isdigit():
+                dueño_id = int(partes[2])
+        elif data.startswith("album_filtro_estado_") or data.startswith("album_filtro_grupo_") or data.startswith("album_filtro_numero_"):
+            # album_filtro_estado_userid_pagina
+            if len(partes) >= 4 and partes[2].isdigit():
+                dueño_id = int(partes[2])
+        elif data.startswith("album_filtraestrella_") or data.startswith("album_filtragrupo_") or data.startswith("album_ordennum_"):
+            # album_filtraestrella_userid_pagina_valor
+            if len(partes) >= 3 and partes[2].isdigit():
+                dueño_id = int(partes[2])
+        elif data.startswith("album_sin_filtro_"):
+            # album_sin_filtro_userid
+            if len(partes) >= 3 and partes[2].isdigit():
+                dueño_id = int(partes[2])
+        elif data.startswith("album_fav_"):
+            if len(partes) >= 3 and partes[2].isdigit():
+                dueño_id = int(partes[2])
+        else:
+            # Fallback: busca el primer número largo de la lista
             for part in partes:
                 if part.isdigit() and len(part) >= 5:
                     dueño_id = int(part)
@@ -1307,12 +1321,12 @@ def manejador_callback_album(update, context):
     except Exception:
         dueño_id = None
 
-    # Solo el dueño puede interactuar
+    # === 2. Si el que aprieta NO es el dueño, bloquear ===
     if dueño_id and usuario_id != dueño_id:
         query.answer("Solo puedes interactuar con tu propio álbum.", show_alert=True)
         return
 
-
+  
     # --- Filtro por estrellas (estado) ---
     if data.startswith("album_filtro_estado_"):
         user_id = int(partes[-2])
