@@ -1171,22 +1171,14 @@ def mostrar_lista_mejorables(update, context, usuario_id, cartas_mejorables, pag
 # Aquí pego la versión adaptada de /album para usar id_unico, estrellas y letra pegada a la izquierda:
 @cooldown_critico
 def comando_album(update, context):
-    usuario_id = update.message.from_user.id
+    user_id = update.message.from_user.id
     chat_id = update.effective_chat.id
-    cartas_usuario = list(col_cartas_usuario.find({"user_id": usuario_id}))
-    if not cartas_usuario:
-        context.bot.send_message(chat_id=chat_id, text="Tu álbum está vacío.")
-        return
-    def sort_key(x):
-        grupo = grupo_de_carta(x.get('nombre',''), x.get('version','')) or ""
-        return (
-            grupo.lower(),
-            x.get('nombre','').lower(),
-            x.get('card_id', 0)
-        )
-    cartas_usuario.sort(key=sort_key)
-    pagina = 1
-    enviar_lista_pagina(chat_id, usuario_id, cartas_usuario, pagina, context, filtro=None)
+    msg = context.bot.send_message(
+        chat_id=chat_id,
+        text="Cargando tu álbum...",
+    )
+    mostrar_album_pagina(chat_id, msg.message_id, context, user_id, pagina=1)
+
 
 
 # ----------- Función principal para mostrar la lista del álbum -----------
@@ -2160,8 +2152,18 @@ def comando_giveidol(update, context):
         pass
 
 
-def mostrar_album_pagina(chat_id, message_id, context, user_id, pagina=1, filtro=None, valor_filtro=None, orden=None):
-    # FILTRO SOLO las cartas del usuario
+def mostrar_album_pagina(
+    chat_id, 
+    message_id, 
+    context, 
+    user_id, 
+    pagina=1, 
+    filtro=None, 
+    valor_filtro=None, 
+    orden=None, 
+    solo_botones=False,  # Para refrescar solo botones al abrir filtros
+):
+    # === 1. Consulta cartas del usuario y aplica filtro ===
     query_album = {"user_id": user_id}
     if filtro == "estrellas":
         query_album["estrellas"] = valor_filtro
@@ -2169,16 +2171,16 @@ def mostrar_album_pagina(chat_id, message_id, context, user_id, pagina=1, filtro
         query_album["grupo"] = valor_filtro
 
     cartas = list(col_cartas_usuario.find(query_album))
-
-    # ORDEN
+    # === 2. Ordenamiento ===
     if orden == "menor":
         cartas.sort(key=lambda x: x.get("card_id", 0))
     elif orden == "mayor":
         cartas.sort(key=lambda x: -x.get("card_id", 0))
     else:
+        # Ordena por nombre y luego grupo, siempre
         cartas.sort(key=lambda x: (x.get("nombre", "").lower(), x.get("grupo", "").lower(), x.get("card_id", 0)))
 
-    # PAGINACIÓN
+    # === 3. Paginación ===
     cartas_por_pagina = 10
     total_paginas = max(1, ((len(cartas) - 1) // cartas_por_pagina) + 1)
     pagina = max(1, min(pagina, total_paginas))
@@ -2187,15 +2189,17 @@ def mostrar_album_pagina(chat_id, message_id, context, user_id, pagina=1, filtro
     cartas_pagina = cartas[inicio:fin]
 
     texto = f"<b>📗 Álbum (página {pagina}/{total_paginas})</b>\n"
-    for idx, c in enumerate(cartas_pagina, start=inicio + 1):
-        texto += f"#{idx}: <code>{c['id_unico']}</code> · {c.get('estrellas','')} · #{c.get('card_id','?')} · V{c.get('version','?')} · {c.get('nombre','?')} · {c.get('grupo','?')}\n"
-    if not cartas_pagina:
+    if cartas_pagina:
+        for idx, c in enumerate(cartas_pagina, start=inicio + 1):
+            texto += f"• {c['id_unico']} · [{c.get('estrellas','?')}] · #{c.get('card_id','?')} · [{c.get('version','?')}] · {c.get('nombre','?')} · {c.get('grupo','?')}\n"
+    else:
         texto += "\n(No tienes cartas para mostrar con este filtro)"
 
-    # BOTONES
+    # === 4. Botones ===
     botones = []
-    # Filtro/Ordenar
-    botones.append([InlineKeyboardButton("🔎 Filtrar / Ordenar", callback_data=f"album_filtros_{user_id}_{pagina}")])
+    # Filtrar / Ordenar (si no estamos viendo los sub-menús de filtros)
+    if not solo_botones:
+        botones.append([InlineKeyboardButton("🔎 Filtrar / Ordenar", callback_data=f"album_filtros_{user_id}_{pagina}")])
 
     # Paginación
     paginacion = []
@@ -2203,10 +2207,20 @@ def mostrar_album_pagina(chat_id, message_id, context, user_id, pagina=1, filtro
         paginacion.append(InlineKeyboardButton("⬅️", callback_data=f"album_pagina_{user_id}_{pagina-1}_{filtro or 'none'}_{valor_filtro or 'none'}_{orden or 'none'}"))
     if pagina < total_paginas:
         paginacion.append(InlineKeyboardButton("➡️", callback_data=f"album_pagina_{user_id}_{pagina+1}_{filtro or 'none'}_{valor_filtro or 'none'}_{orden or 'none'}"))
-    if paginacion:
+    if paginacion and not solo_botones:
         botones.append(paginacion)
 
     teclado = InlineKeyboardMarkup(botones)
+
+    # Si estamos cambiando solo los botones (al entrar a filtros), editamos solo el teclado
+    if solo_botones:
+        context.bot.edit_message_reply_markup(
+            chat_id=chat_id, 
+            message_id=message_id, 
+            reply_markup=teclado
+        )
+        return
+
     context.bot.edit_message_text(
         chat_id=chat_id,
         message_id=message_id,
@@ -2224,6 +2238,7 @@ def mostrar_menu_filtros_album(user_id, pagina):
     ]
     return InlineKeyboardMarkup(botones)
 
+
 def mostrar_menu_estrellas_album(user_id, pagina):
     botones = [
         [InlineKeyboardButton("★★★", callback_data=f"album_filtraestrella_{user_id}_{pagina}_★★★")],
@@ -2233,6 +2248,7 @@ def mostrar_menu_estrellas_album(user_id, pagina):
         [InlineKeyboardButton("⬅️ Volver", callback_data=f"album_filtros_{user_id}_{pagina}")]
     ]
     return InlineKeyboardMarkup(botones)
+
 
 def mostrar_menu_grupos_album(user_id, pagina, grupos):
     por_pagina = 5
@@ -2255,9 +2271,10 @@ def mostrar_menu_grupos_album(user_id, pagina, grupos):
         nav.append(InlineKeyboardButton("➡️", callback_data=f"album_filtro_grupo_{user_id}_{pagina+1}"))
     if nav:
         matriz.append(nav)
-    matriz.append([InlineKeyboardButton("Volver", callback_data=f"album_filtros_{user_id}_{pagina}")])
+    matriz.append([InlineKeyboardButton("⬅️ Volver", callback_data=f"album_filtros_{user_id}_{pagina}")])
 
     return InlineKeyboardMarkup(matriz)
+
 
 def mostrar_menu_ordenar_album(user_id, pagina):
     botones = [
@@ -2266,6 +2283,7 @@ def mostrar_menu_ordenar_album(user_id, pagina):
         [InlineKeyboardButton("⬅️ Volver", callback_data=f"album_filtros_{user_id}_{pagina}")]
     ]
     return InlineKeyboardMarkup(botones)
+
 
 
 
@@ -2657,12 +2675,11 @@ def manejador_callback_album(update, context):
     if data.startswith("album_filtro_estado_"):
         user_id = int(partes[-2])
         pagina = int(partes[-1])
-        # Obtén los distintos estados (estrellas) del álbum del usuario
-        estrellas_unicas = sorted({c.get("estrellas", "") for c in col_cartas_usuario.find({"user_id": user_id})})
-        try:
-            query.edit_message_reply_markup(reply_markup=mostrar_menu_estrellas_album(user_id, pagina, estrellas_unicas))
-        except Exception as e:
-            print("Error en menu estrellas album:", e)
+        context.bot.edit_message_reply_markup(
+            chat_id=query.message.chat_id,
+            message_id=query.message.message_id,
+            reply_markup=mostrar_menu_estrellas_album(user_id, pagina)
+        )
         return
 
     # --- Filtro aplicado por estrella ---
@@ -2670,13 +2687,7 @@ def manejador_callback_album(update, context):
         user_id = int(partes[2])
         pagina = int(partes[3])
         estrellas = partes[4]
-        cartas_usuario = [c for c in col_cartas_usuario.find({"user_id": user_id, "estrellas": estrellas})]
-        def sort_key(x):
-            grupo = grupo_de_carta(x.get('nombre',''), x.get('version','')) or ""
-            return (grupo.lower(), x.get('nombre','').lower(), x.get('card_id', 0))
-        cartas_usuario.sort(key=sort_key)
-        enviar_lista_pagina(query.message.chat_id, user_id, cartas_usuario, pagina, context, editar=True, mensaje=query.message, filtro="estrellas", valor_filtro=estrellas)
-        query.answer()
+        mostrar_album_pagina(query.message.chat_id, query.message.message_id, context, user_id, pagina, filtro="estrellas", valor_filtro=estrellas)
         return
 
     # --- Filtro por grupo ---
@@ -2684,10 +2695,11 @@ def manejador_callback_album(update, context):
         user_id = int(partes[-2])
         pagina = int(partes[-1])
         grupos = sorted({c.get("grupo", "") for c in col_cartas_usuario.find({"user_id": user_id}) if c.get("grupo")})
-        try:
-            query.edit_message_reply_markup(reply_markup=mostrar_menu_grupos_album(user_id, pagina, grupos))
-        except Exception as e:
-            print("Error en menu grupos album:", e)
+        context.bot.edit_message_reply_markup(
+            chat_id=query.message.chat_id,
+            message_id=query.message.message_id,
+            reply_markup=mostrar_menu_grupos_album(user_id, pagina, grupos)
+        )
         return
 
     # --- Filtro aplicado por grupo ---
@@ -2695,67 +2707,51 @@ def manejador_callback_album(update, context):
         user_id = int(partes[2])
         pagina = int(partes[3])
         grupo = "_".join(partes[4:])
-        cartas_usuario = [c for c in col_cartas_usuario.find({"user_id": user_id, "grupo": grupo})]
-        def sort_key(x):
-            grupo = grupo_de_carta(x.get('nombre',''), x.get('version','')) or ""
-            return (grupo.lower(), x.get('nombre','').lower(), x.get('card_id', 0))
-        cartas_usuario.sort(key=sort_key)
-        enviar_lista_pagina(query.message.chat_id, user_id, cartas_usuario, pagina, context, editar=True, mensaje=query.message, filtro="grupo", valor_filtro=grupo)
-        query.answer()
+        mostrar_album_pagina(query.message.chat_id, query.message.message_id, context, user_id, pagina, filtro="grupo", valor_filtro=grupo)
         return
 
-    # --- Quitar filtros ---
-    if data.startswith("album_sin_filtro_"):
-        user_id = int(partes[-1])
-        cartas_usuario = list(col_cartas_usuario.find({"user_id": user_id}))
-        def sort_key(x):
-            grupo = grupo_de_carta(x.get('nombre',''), x.get('version','')) or ""
-            return (grupo.lower(), x.get('nombre','').lower(), x.get('card_id', 0))
-        cartas_usuario.sort(key=sort_key)
-        enviar_lista_pagina(query.message.chat_id, user_id, cartas_usuario, 1, context, editar=True, mensaje=query.message)
-        query.answer()
+    # --- Menú de filtros principal ---
+    if data.startswith("album_filtros_"):
+        user_id = int(partes[2])
+        pagina = int(partes[3])
+        context.bot.edit_message_reply_markup(
+            chat_id=query.message.chat_id,
+            message_id=query.message.message_id,
+            reply_markup=mostrar_menu_filtros_album(user_id, pagina)
+        )
         return
 
-    # --- Paginación álbum con filtros (avanzar/retroceder) ---
+    # --- Filtro ordenar por número ---
+    if data.startswith("album_filtro_numero_"):
+        user_id = int(partes[3])
+        pagina = int(partes[4])
+        context.bot.edit_message_reply_markup(
+            chat_id=query.message.chat_id,
+            message_id=query.message.message_id,
+            reply_markup=mostrar_menu_ordenar_album(user_id, pagina)
+        )
+        return
+
+    # --- Orden aplicado ---
+    if data.startswith("album_ordennum_"):
+        user_id = int(partes[2])
+        pagina = int(partes[3])
+        orden = partes[4]
+        mostrar_album_pagina(query.message.chat_id, query.message.message_id, context, user_id, pagina, orden=orden)
+        return
+
+    # --- Volver al álbum completo (sin filtros) ---
     if data.startswith("album_pagina_"):
         user_id = int(partes[2])
         pagina = int(partes[3])
         filtro = partes[4] if len(partes) > 4 and partes[4] != "none" else None
         valor_filtro = partes[5] if len(partes) > 5 and partes[5] != "none" else None
-
-        # Aplica filtro si corresponde
-        if filtro == "estrellas" and valor_filtro:
-            cartas_usuario = [c for c in col_cartas_usuario.find({"user_id": user_id, "estrellas": valor_filtro})]
-        elif filtro == "grupo" and valor_filtro:
-            cartas_usuario = [c for c in col_cartas_usuario.find({"user_id": user_id, "grupo": valor_filtro})]
-        else:
-            cartas_usuario = list(col_cartas_usuario.find({"user_id": user_id}))
-        def sort_key(x):
-            grupo = grupo_de_carta(x.get('nombre',''), x.get('version','')) or ""
-            return (grupo.lower(), x.get('nombre','').lower(), x.get('card_id', 0))
-        cartas_usuario.sort(key=sort_key)
-        enviar_lista_pagina(query.message.chat_id, user_id, cartas_usuario, pagina, context, editar=True, mensaje=query.message, filtro=filtro, valor_filtro=valor_filtro)
-        query.answer()
+        orden = partes[6] if len(partes) > 6 and partes[6] != "none" else None
+        mostrar_album_pagina(query.message.chat_id, query.message.message_id, context, user_id, int(pagina), filtro=filtro, valor_filtro=valor_filtro, orden=orden)
         return
 
-    # --- Solo favoritos (si lo quieres agregar) ---
-    if data.startswith("album_fav_"):
-        user_id = int(partes[2])
-        pagina = int(partes[3])
-        doc = col_usuarios.find_one({"user_id": user_id}) or {}
-        favoritos = doc.get("favoritos", [])
-        fav_keys = set((f["nombre"], f["version"]) for f in favoritos)
-        cartas_usuario = [c for c in col_cartas_usuario.find({"user_id": user_id}) if (c.get("nombre"), c.get("version")) in fav_keys]
-        def sort_key(x):
-            grupo = grupo_de_carta(x.get('nombre',''), x.get('version','')) or ""
-            return (grupo.lower(), x.get('nombre','').lower(), x.get('card_id', 0))
-        cartas_usuario.sort(key=sort_key)
-        enviar_lista_pagina(query.message.chat_id, user_id, cartas_usuario, pagina, context, editar=True, mensaje=query.message, filtro="favoritos", valor_filtro="1")
-        query.answer()
-        return
 
-    # Si no matchea, deja pasar a otros callbacks
-
+   
     
     
     # --- RECLAMAR DROP ---
