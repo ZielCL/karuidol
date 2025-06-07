@@ -2222,7 +2222,7 @@ def mostrar_album_pagina(
 
     texto = f"📗 <b>Álbum de cartas (página {pagina}/{total_paginas})</b>\n\n"
 
-    ANCHO_ID = 6
+    ANCHO_ID = 5    
     ANCHO_EST = 5
 
     def corta(txt, n):
