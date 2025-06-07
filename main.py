@@ -1,7 +1,7 @@
 import os
 import threading
 import time
-from flask import Flask, request
+from flask import Flask, request, jsonify, redirect
 from telegram.error import BadRequest
 from telegram import (
     Bot,
@@ -99,55 +99,168 @@ group_last_cmd = {}
 COOLDOWN_USER = 3    # 3 segundos mínimo entre comandos por usuario
 COOLDOWN_GROUP = 1   # 1 segundo mínimo entre comandos por grupo
 
-ADMIN_IDS = [1111798714]  # <-- Cambia a tu user_id de Telegram (o agrega varios)
 
-def simular_compra_gemas(update, context):
-    user_id = update.effective_user.id
-    if user_id not in ADMIN_IDS:
-        update.message.reply_text("Solo admins pueden usar este comando.")
-        return
-
-    try:
-        args = context.args
-        if len(args) != 2:
-            update.message.reply_text("Uso: /simularipn <user_id> <cantidad>")
-            return
-        user_id_sim = int(args[0])
-        cantidad = int(args[1])
-    except Exception:
-        update.message.reply_text("Error en los parámetros. Usa: /simularipn <user_id> <cantidad>")
-        return
-
-    # Simula la entrega y notificación (igual que tu endpoint IPN)
-    usuario = col_usuarios.find_one({"user_id": user_id_sim}) or {}
-    username = usuario.get("username", "")
-
-    col_usuarios.update_one(
-        {"user_id": user_id_sim},
-        {"$inc": {"gemas": cantidad}},
-        upsert=True
-    )
-    db.historial_compras_gemas.insert_one({
-        "pago_id": f"prueba_{user_id_sim}_{cantidad}_{datetime.utcnow().isoformat()}",
-        "user_id": user_id_sim,
-        "username": username.lower() if username else "",
-        "cantidad_gemas": cantidad,
-        "item_name": f"Simulado {cantidad} Gems",
-        "fecha": datetime.utcnow()
-    })
-
-    try:
-        bot.send_message(
-            chat_id=user_id_sim,
-            text=f"🎉 ¡Compra exitosa! Recibiste {cantidad} gemas (simulado admin)."
-        )
-    except Exception as e:
-        update.message.reply_text(f"Error notificando usuario: {e}")
-
-    update.message.reply_text(f"Gemas simuladas entregadas a {user_id_sim}.")
+#----------PAYPALAPP-------------------
 
 
+# Pon aquí tus credenciales de PayPal sandbox
+PAYPAL_CLIENT_ID = os.getenv("PAYPAL_CLIENT_ID")
+PAYPAL_CLIENT_SECRET = os.getenv("PAYPAL_CLIENT_SECRET")
 
+app = Flask(__name__)
+
+# ==== Helper: Obtener token de acceso OAuth2 de PayPal ====
+def get_paypal_token():
+    url = "https://api-m.paypal.com/v1/oauth2/token"
+    resp = requests.post(url, auth=(PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET), data={"grant_type": "client_credentials"})
+    resp.raise_for_status()
+    return resp.json()["access_token"]
+
+# ==== Endpoint para crear una orden de pago ====
+@app.route("/paypal/create_order", methods=["POST"])
+def create_order():
+    data = request.json
+    user_id = data["user_id"]
+    pack_gemas = data["pack"]  # Ej: "x100"
+    amount = data["amount"]    # Ej: 1.99
+
+    access_token = get_paypal_token()
+    headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
+
+    order_data = {
+        "intent": "CAPTURE",
+        "purchase_units": [{
+            "reference_id": f"user_{user_id}_{pack_gemas}",
+            "amount": {"currency_code": "USD", "value": str(amount)},
+            "custom_id": str(user_id)  # Así asocias el pago al user_id de Telegram
+        }],
+        "application_context": {
+            "return_url": "https://karuidol.onrender.com/paypal/return",   # Cambia por tu url
+            "cancel_url": "https://karuidol.onrender.com/paypal/cancel"    # Cambia por tu url
+        }
+    }
+
+    # AQUÍ EL ENDPOINT DE PRODUCCIÓN (NO SANDBOX)
+    resp = requests.post("https://api-m.paypal.com/v2/checkout/orders", headers=headers, json=order_data)
+    resp.raise_for_status()
+    order = resp.json()
+    # Devuelve el link para redirigir al usuario a PayPal
+    for link in order["links"]:
+        if link["rel"] == "approve":
+            return jsonify({"url": link["href"], "order_id": order["id"]})
+    return "No approve link", 400
+
+# ==== Endpoint para el webhook de PayPal (tienes que registrarlo en developer.paypal.com) ====
+@app.route("/paypal/webhook", methods=["POST"])
+def paypal_webhook():
+    data = request.json
+    print("Webhook recibido:", data)
+
+    if data["event_type"] == "CHECKOUT.ORDER.APPROVED":
+        order_id = data["resource"]["id"]
+        custom_id = data["resource"]["purchase_units"][0]["custom_id"]  # user_id de Telegram
+        # Aquí puedes marcar el pago como "en proceso" (esperando CAPTURE)
+    elif data["event_type"] == "PAYMENT.CAPTURE.COMPLETED":
+        order_id = data["resource"]["supplementary_data"]["related_ids"]["order_id"]
+        custom_id = data["resource"]["custom_id"]  # user_id de Telegram
+        # Aquí suma las gemas y notifica al usuario.
+        print(f"Pago confirmado para user_id={custom_id} - order_id={order_id}")
+
+    return "", 200  # Siempre responde 200 OK
+
+# ==== Endpoint para devolver al usuario tras pagar/cancelar ====
+@app.route("/paypal/return")
+def paypal_return():
+    return "¡Gracias por tu compra! Puedes volver a Telegram."
+
+@app.route("/paypal/cancel")
+def paypal_cancel():
+    return "Pago cancelado."
+#-----------------------------paypal_webhook----------------------------------------------------------------------------------------------------------------
+
+ADMIN_USER_ID = 1111798714  # <--- Cambia esto por tu Telegram user_id real
+
+@app.route("/paypal/webhook", methods=["POST"])
+def paypal_webhook():
+    data = request.json
+    print("Webhook recibido:", data)
+
+    if data.get("event_type") == "PAYMENT.CAPTURE.COMPLETED":
+        resource = data["resource"]
+        try:
+            # 1. Extraer user_id (custom_id) y monto
+            user_id = int(resource["custom_id"])
+            amount = resource["amount"]["value"]
+            pago_id = resource.get("id")  # ID único del pago
+
+            # 2. Mapear monto a gemas (ajusta según tus precios)
+            gemas_por_monto = {
+                "1.00": 50,
+                "2.00": 100,
+                "8.00": 500,
+                "13.00": 1000,
+                "60.00": 5000,
+                "100.00": 10000
+            }
+            cantidad_gemas = gemas_por_monto.get(str(amount))
+            if not cantidad_gemas:
+                print(f"❌ Monto no reconocido: {amount} USD")
+                return "", 200
+
+            # 3. Previene doble entrega
+            if db.historial_compras_gemas.find_one({"pago_id": pago_id}):
+                print("Ya entregado previamente.")
+                return "", 200
+
+            # 4. Suma gemas
+            col_usuarios.update_one(
+                {"user_id": user_id},
+                {"$inc": {"gemas": cantidad_gemas}},
+                upsert=True
+            )
+
+            # 5. Guarda historial
+            db.historial_compras_gemas.insert_one({
+                "pago_id": pago_id,
+                "user_id": user_id,
+                "cantidad_gemas": cantidad_gemas,
+                "monto_usd": amount,
+                "fecha": datetime.utcnow()
+            })
+
+            # 6. Notifica al usuario
+            try:
+                bot.send_message(
+                    chat_id=user_id,
+                    text=f"🎉 ¡Compra confirmada! Has recibido {cantidad_gemas} gemas en KaruKpop.\n¡Gracias por tu apoyo! 💎"
+                )
+            except Exception as e:
+                print("No se pudo notificar al usuario:", e)
+
+            # 7. Notifica al admin
+            try:
+                bot.send_message(
+                    chat_id=ADMIN_USER_ID,
+                    text=f"💸 Nuevo pago confirmado:\n• Usuario: <code>{user_id}</code>\n• Ganas: {cantidad_gemas}\n• Monto: ${amount} USD",
+                    parse_mode="HTML"
+                )
+            except Exception as e:
+                print("No se pudo notificar al admin:", e)
+
+            print(f"✅ Entregadas {cantidad_gemas} gemas a user_id={user_id} por {amount} USD")
+        except Exception as e:
+            print("❌ Error en webhook:", e)
+    return "", 200
+
+
+
+
+
+
+
+
+
+#-----------------------------------------
 def check_cooldown(update):
     now = time.time()
     uid = update.effective_user.id
