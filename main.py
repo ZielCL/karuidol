@@ -1286,21 +1286,30 @@ def manejador_callback_album(update, context):
     partes = data.split("_")
     usuario_id = query.from_user.id
 
-    # Extrae el user_id dueño del menú (2° elemento después de album_)
-    # Ej: album_pagina_123456_2_none_none_none  ->  user_id=123456
+    # Busca el primer valor largo (al menos 5 dígitos) que esté después de la palabra 'album'
+    dueño_id = None
     try:
-        # Busca el primer elemento después de 'album_' que sea un número largo (usualmente user_id)
-        dueño_id = None
-        for part in partes:
-            if part.isdigit() and len(part) >= 5:  # para evitar el número de página (usualmente 1 o 2)
-                dueño_id = int(part)
+        # Busca la posición de la palabra 'album' y empieza a buscar después de ahí
+        for idx, part in enumerate(partes):
+            if part == "album":
+                # Busca en las siguientes posiciones
+                for siguiente in partes[idx+1:]:
+                    if siguiente.isdigit() and len(siguiente) >= 5:
+                        dueño_id = int(siguiente)
+                        break
                 break
+        # Si no encontró con el método anterior, prueba con todos los elementos
+        if dueño_id is None:
+            for part in partes:
+                if part.isdigit() and len(part) >= 5:
+                    dueño_id = int(part)
+                    break
     except Exception:
         dueño_id = None
 
-    # Si el que aprieta NO es el dueño, bloquear
+    # Solo el dueño puede interactuar
     if dueño_id and usuario_id != dueño_id:
-        query.answer("Solo puedes interactuar con tu propio Albúm.", show_alert=True)
+        query.answer("Solo puedes interactuar con tu propio álbum.", show_alert=True)
         return
 
 
