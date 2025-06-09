@@ -753,6 +753,39 @@ def comando_idolday(update, context):
             context.bot.send_message(chat_id=chat_id, text=f"Ya usaste /idolday.")
         return
 
+    if not puede_tirar:
+        return
+
+    # --- Selección de cartas y armado de imagen ---
+    cartas_drop = get_dos_cartas_random()  # Cambia esto por tu función real
+    imagen_drop = generar_imagen_drop(cartas_drop)  # Cambia esto por tu función real
+
+    # --- Envía el drop SOLO si se envía OK, crea el drop en memoria ---
+    try:
+        msg = context.bot.send_photo(
+            chat_id=chat_id,
+            photo=imagen_drop,
+            caption=f"@{update.message.from_user.username or user_id} está dropeando 2 cartas!",
+            reply_to_message_id=update.message.message_id,
+            reply_markup=crear_markup_drop(cartas_drop)
+        )
+    except Exception as e:
+        print("[idolday] Error enviando drop:", e)
+        context.bot.send_message(chat_id=chat_id, text="❌ Error enviando el drop. Inténtalo de nuevo.")
+        return
+
+    # --- Ahora SÍ: solo si el mensaje se envió bien, crea el drop en memoria ---
+    mensaje_id = msg.message_id
+    drop_id = crear_drop_id(chat_id, mensaje_id)
+    DROPS_ACTIVOS[drop_id] = {
+        "cartas": cartas_drop,
+        "expirado": False,
+        "chat_id": chat_id,
+        "mensaje_id": mensaje_id,
+        "hora": time.time(),
+        "autor": user_id
+    }
+    
 
     # --- Actualiza el cooldown global ---
     COOLDOWN_GRUPO[chat_id] = ahora_ts
@@ -1022,21 +1055,30 @@ def manejador_reclamar(update, context):
     drop = DROPS_ACTIVOS.get(drop_id)
 
     ahora = time.time()
-    if not drop or drop["expirado"]:
+
+    # --- VERIFICA QUE EL DROP EXISTA Y SEA VÁLIDO ---
+    if not drop or drop.get("expirado"):
+        query.answer("Este drop ya expiró o no existe.", show_alert=True)
+        return
+
+    # --- TIEMPO DE EXPIRACIÓN (si quieres, ponlo aquí) ---
+    EXPIRA_SEGUNDOS = 60  # 1 minuto típico
+    if ahora - drop.get("inicio", drop.get("hora", ahora)) >= EXPIRA_SEGUNDOS:
+        drop["expirado"] = True
         query.answer("Este drop ya expiró o no existe.", show_alert=True)
         return
 
     carta = drop["cartas"][carta_idx]
-    if carta["reclamada"]:
+    if carta.get("reclamada"):
         query.answer("Esta carta ya fue reclamada.", show_alert=True)
         return
 
-    tiempo_desde_drop = ahora - drop["inicio"]
+    tiempo_desde_drop = ahora - drop.get("inicio", drop.get("hora", ahora))
 
     # --- CONTADOR DE INTENTOS ---
     if "intentos" not in carta:
         carta["intentos"] = 0
-    if usuario_click != drop["dueño"]:
+    if usuario_click != drop.get("dueño", drop.get("autor")):
         carta["intentos"] += 1
 
     user_doc = col_usuarios.find_one({"user_id": usuario_click}) or {}
@@ -1059,8 +1101,8 @@ def manejador_reclamar(update, context):
 
     puede_reclamar = False
 
-    # --- PRIMERA RECLAMO DEL DUEÑO ---
-    if usuario_click == drop["dueño"]:
+    # --- PRIMER RECLAMO DEL DUEÑO ---
+    if usuario_click == drop.get("dueño", drop.get("autor")):
         primer_reclamo = drop.get("primer_reclamo_dueño")
         if primer_reclamo is None:
             puede_reclamar = True
@@ -1164,6 +1206,12 @@ def manejador_reclamar(update, context):
 
     if not puede_reclamar:
         return
+
+    # --- MARCAR COMO RECLAMADA ---
+    carta["reclamada"] = True
+
+
+    
 
     # --- Aquí SÍ generamos id_unico, estado y estrellas ---
     nombre = carta['nombre']
@@ -1803,13 +1851,17 @@ def mostrar_mercado_pagina(chat_id, message_id, context, user_id, pagina=1, filt
         botones.append(paginacion)
 
     teclado = InlineKeyboardMarkup(botones)
-    context.bot.edit_message_text(
-        chat_id=chat_id,
-        message_id=message_id,
-        text=texto,
-        parse_mode="HTML",
-        reply_markup=teclado
-    )
+    try:
+        context.bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=texto,
+            reply_markup=teclado,
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        print("[mostrar_mercado_pagina][edit_message_text] Error:", e)
+
 
 
 
@@ -2511,20 +2563,27 @@ def mostrar_album_pagina(
 
     # Si estamos cambiando solo los botones (al entrar a filtros), editamos solo el teclado
     if solo_botones:
+    try:
         context.bot.edit_message_reply_markup(
             chat_id=chat_id, 
             message_id=message_id, 
             reply_markup=teclado
         )
+    except Exception as e:
+        print("[mostrar_album_pagina][edit_message_reply_markup] Error:", e)
         return
 
-    context.bot.edit_message_text(
-        chat_id=chat_id,
-        message_id=message_id,
-        text=texto,
-        parse_mode="HTML",
-        reply_markup=teclado
-    )
+    try:
+        context.bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=texto,
+            parse_mode="HTML",
+            reply_markup=teclado
+        )
+    except Exception as e:
+        print("[mostrar_album_pagina][edit_message_text] Error:", e)
+
 
 def mostrar_menu_filtros_album(user_id, pagina):
     botones = [
@@ -2825,10 +2884,14 @@ def callback_ampliar_vender(update, context):
     })
 
     query.answer("Carta puesta en el mercado.", show_alert=True)
-    query.edit_message_caption(
-        caption="📦 Carta puesta en el mercado.",
-        parse_mode='HTML'
-    )
+    try:
+        query.edit_message_caption(
+            caption="📦 Carta puesta en el mercado.",
+            parse_mode='HTML'
+        )
+    except Exception as e:
+        print("[callback_ampliar_vender][edit_message_caption] Error:", e)
+
 
 #-------------mostrar_menu_mercado------------
 
@@ -2938,11 +3001,14 @@ def manejador_callback_album(update, context):
     if data.startswith("album_filtro_estado_"):
         user_id = int(partes[-2])
         pagina = int(partes[-1])
+    try:
         context.bot.edit_message_reply_markup(
             chat_id=query.message.chat_id,
             message_id=query.message.message_id,
             reply_markup=mostrar_menu_estrellas_album(user_id, pagina)
         )
+    except Exception as e:
+        print("[manejador_callback_album][edit_message_reply_markup] Error:", e)
         return
 
     # --- Filtro aplicado por estrella ---
@@ -2963,11 +3029,14 @@ def manejador_callback_album(update, context):
         else:
             pagina = 1
         grupos = sorted({c.get("grupo", "") for c in col_cartas_usuario.find({"user_id": user_id}) if c.get("grupo")})
+    try:
         context.bot.edit_message_reply_markup(
             chat_id=query.message.chat_id,
             message_id=query.message.message_id,
-            reply_markup=mostrar_menu_grupos_album(user_id, pagina, grupos)
+            reply_markup=mostrar_menu_grupos_album(user_id, pagina)
         )
+    except Exception as e:
+        print("[manejador_callback_album][edit_message_reply_markup] Error:", e)
         return
 
 
@@ -2984,22 +3053,28 @@ def manejador_callback_album(update, context):
     if data.startswith("album_filtros_"):
         user_id = int(partes[2])
         pagina = int(partes[3])
+    try:
         context.bot.edit_message_reply_markup(
             chat_id=query.message.chat_id,
             message_id=query.message.message_id,
             reply_markup=mostrar_menu_filtros_album(user_id, pagina)
         )
+    except Exception as e:
+        print("[manejador_callback_album][edit_message_reply_markup] Error:", e)
         return
 
     # --- Filtro ordenar por número ---
     if data.startswith("album_filtro_numero_"):
         user_id = int(partes[3])
         pagina = int(partes[4])
+    try:
         context.bot.edit_message_reply_markup(
             chat_id=query.message.chat_id,
             message_id=query.message.message_id,
             reply_markup=mostrar_menu_ordenar_album(user_id, pagina)
         )
+    except Exception as e:
+        print("[manejador_callback_album][edit_message_reply_markup] Error:", e)
         return
 
     # --- Orden aplicado ---
@@ -3359,8 +3434,11 @@ def callback_mejorar_carta(update, context):
             InlineKeyboardButton("❌ Cancelar", callback_data="cancelarmejora")
         ]
     ]
-    query.edit_message_text(texto, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(botones))
-    query.answer()
+    try:
+        query.edit_message_text(texto, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(botones))
+    except Exception as e:
+        print("[algún_callback][edit_message_text] Error:", e)
+        query.answer()
 
 
 
