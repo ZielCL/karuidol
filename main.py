@@ -2563,26 +2563,26 @@ def mostrar_album_pagina(
 
     # Si estamos cambiando solo los botones (al entrar a filtros), editamos solo el teclado
     if solo_botones:
-    try:
-        context.bot.edit_message_reply_markup(
-            chat_id=chat_id, 
-            message_id=message_id, 
-            reply_markup=teclado
-        )
-    except Exception as e:
-        print("[mostrar_album_pagina][edit_message_reply_markup] Error:", e)
-        return
+        try:
+            context.bot.edit_message_reply_markup(
+                chat_id=chat_id, 
+                message_id=message_id, 
+                reply_markup=teclado
+            )
+        except Exception as e:
+            print("[mostrar_album_pagina][edit_message_reply_markup] Error:", e)
+            return
 
-    try:
-        context.bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=message_id,
-            text=texto,
-            parse_mode="HTML",
-            reply_markup=teclado
-        )
-    except Exception as e:
-        print("[mostrar_album_pagina][edit_message_text] Error:", e)
+        try:
+            context.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=texto,
+                parse_mode="HTML",
+                reply_markup=teclado
+            )
+        except Exception as e:
+            print("[mostrar_album_pagina][edit_message_text] Error:", e)
 
 
 def mostrar_menu_filtros_album(user_id, pagina):
