@@ -1448,6 +1448,7 @@ def mostrar_menu_grupos_album(user_id, pagina):
 # ----------- CALLBACK GENERAL para el menú de ALBUM -----------
 
 def manejador_callback_album(update, context):
+    print("Callback album recibido:", update.callback_query.data)
     query = update.callback_query
     data = query.data
     partes = data.split("_")
@@ -3584,6 +3585,7 @@ def comando_apodo(update, context):
 
 
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback_album, pattern="^album_"))
+dispatcher.add_handler(CallbackQueryHandler(manejador_callback_album, pattern="^reclamar"))
 dispatcher.add_handler(CallbackQueryHandler(callback_comprarobj, pattern="^comprarobj_"))
 dispatcher.add_handler(CallbackQueryHandler(callback_ampliar_vender, pattern="^ampliar_vender_"))
 dispatcher.add_handler(CallbackQueryHandler(callback_mejorar_carta, pattern="^mejorar_"))
@@ -3592,7 +3594,6 @@ dispatcher.add_handler(CallbackQueryHandler(manejador_callback, pattern="^mercad
 dispatcher.add_handler(CallbackQueryHandler(manejador_tienda_paypal, pattern=r"^tienda_paypal_"))
 # ESTOS GENERAL SIEMPRE AL FINAL (sin pattern)
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback))
-dispatcher.add_handler(CallbackQueryHandler(manejador_callback_album))
 # === HANDLERS de comandos ===
 dispatcher.add_handler(CommandHandler('mercado', comando_mercado))
 dispatcher.add_handler(CommandHandler('tiendagemas', tienda_gemas))
