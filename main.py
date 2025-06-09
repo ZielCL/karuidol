@@ -3590,7 +3590,10 @@ dispatcher.add_handler(CallbackQueryHandler(callback_mejorar_carta, pattern="^me
 dispatcher.add_handler(CallbackQueryHandler(callback_confirmar_mejora, pattern="^(confirmamejora_|cancelarmejora)"))
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback, pattern="^mercado_"))
 dispatcher.add_handler(CallbackQueryHandler(manejador_tienda_paypal, pattern=r"^tienda_paypal_"))
+# ESTOS GENERAL SIEMPRE AL FINAL (sin pattern)
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback))
+dispatcher.add_handler(CallbackQueryHandler(manejador_callback_album))
+# === HANDLERS de comandos ===
 dispatcher.add_handler(CommandHandler('mercado', comando_mercado))
 dispatcher.add_handler(CommandHandler('tiendagemas', tienda_gemas))
 dispatcher.add_handler(CommandHandler('darGemas', comando_darGemas))
