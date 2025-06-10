@@ -323,16 +323,7 @@ CATALOGO_OBJETOS = {
             "Permite hacer un /idolday adicional sin esperar el cooldown.\n"
             "Uso: /idolday si tienes bonos."
         ),
-        "precio": 1200
-    },
-    "ticket_intercambio": {
-        "nombre": "Ticket de Intercambio",
-        "emoji": "🎫",
-        "desc": (
-            "Requerido para hacer un trade/intercambio de cartas.\n"
-            "Se consume al usar /trade."
-        ),
-        "precio": 15000
+        "precio": 1600
     },
     "lightstick": {
         "nombre": "Lightstick",
@@ -353,7 +344,7 @@ CATALOGO_OBJETOS = {
             'Permite agregar un apodo personalizado a una carta usando /apodo <code>id_unico</code> "apodo"\n'
             'Máx 8 caracteres. Ejemplo: /apodo fghj7 "Mi bebe"'
         ),
-        "precio": 1800
+        "precio": 2600
     },
     "abrazo_de_bias": {
         "nombre": "Abrazo de Bias",
