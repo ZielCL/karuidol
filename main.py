@@ -784,13 +784,32 @@ def comando_idolday(update, context):
             horas = int(faltante // 3600)
             minutos = int((faltante % 3600) // 60)
             segundos = int(faltante % 60)
-            context.bot.send_message(
-                chat_id=chat_id,
-                text=f"Ya usaste /idolday. Intenta de nuevo en {horas}h {minutos}m {segundos}s."
-            )
+            try:
+                msg_cd = context.bot.send_message(
+                    chat_id=chat_id,
+                    text=f"Ya usaste /idolday. Intenta de nuevo en {horas}h {minutos}m {segundos}s."
+                )
+                def borrar_mensaje_cd(m):
+                    try:
+                        context.bot.delete_message(chat_id=chat_id, message_id=m.message_id)
+                    except Exception as e:
+                        print("[idolday] Error al borrar mensaje de cooldown usuario:", e)
+                threading.Timer(10, borrar_mensaje_cd, args=(msg_cd,)).start()
+            except Exception as e:
+                print("[idolday] Error al mandar mensaje cooldown usuario:", e)
         else:
-            context.bot.send_message(chat_id=chat_id, text=f"Ya usaste /idolday.")
+            try:
+                msg_cd = context.bot.send_message(chat_id=chat_id, text=f"Ya usaste /idolday.")
+                def borrar_mensaje_cd(m):
+                    try:
+                        context.bot.delete_message(chat_id=chat_id, message_id=m.message_id)
+                    except Exception as e:
+                        print("[idolday] Error al borrar mensaje cooldown usuario:", e)
+                threading.Timer(10, borrar_mensaje_cd, args=(msg_cd,)).start()
+            except Exception as e:
+                print("[idolday] Error al mandar mensaje cooldown usuario (sin tiempo):", e)
         return
+
 
     # --- Actualiza el cooldown global ---
     COOLDOWN_GRUPO[chat_id] = ahora_ts
