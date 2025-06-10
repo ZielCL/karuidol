@@ -2616,6 +2616,7 @@ def comando_giveidol(update, context):
         pass
 
 
+
 def mostrar_album_pagina(
     update,
     context,
@@ -2642,7 +2643,6 @@ def mostrar_album_pagina(
     elif orden == "mayor":
         cartas.sort(key=lambda x: -x.get("card_id", 0))
     else:
-        # Ordena por nombre y luego grupo, siempre
         cartas.sort(key=lambda x: (x.get("grupo", "").lower(), x.get("nombre", "").lower(), x.get("card_id", 0)))
 
     # === 3. Paginación ===
@@ -2675,34 +2675,51 @@ def mostrar_album_pagina(
 
     texto += '\n<i>Usa <b>/ampliar &lt;id_unico&gt;</b> para ver detalles de cualquier carta.</i>'
 
-
-
     # === 4. Botones ===
     botones = []
-    # Filtrar / Ordenar (si no estamos viendo los sub-menús de filtros)
     if not solo_botones:
-        botones.append([InlineKeyboardButton("🔎 Filtrar / Ordenar", callback_data=f"album_filtros_{user_id}_{pagina}")])
+        botones.append([telegram.InlineKeyboardButton("🔎 Filtrar / Ordenar", callback_data=f"album_filtros_{user_id}_{pagina}")])
 
-    # Paginación
     paginacion = []
     if pagina > 1:
-        paginacion.append(InlineKeyboardButton("⬅️", callback_data=f"album_pagina_{user_id}_{pagina-1}_{filtro or 'none'}_{valor_filtro or 'none'}_{orden or 'none'}"))
+        paginacion.append(telegram.InlineKeyboardButton("⬅️", callback_data=f"album_pagina_{user_id}_{pagina-1}_{filtro or 'none'}_{valor_filtro or 'none'}_{orden or 'none'}"))
     if pagina < total_paginas:
-        paginacion.append(InlineKeyboardButton("➡️", callback_data=f"album_pagina_{user_id}_{pagina+1}_{filtro or 'none'}_{valor_filtro or 'none'}_{orden or 'none'}"))
+        paginacion.append(telegram.InlineKeyboardButton("➡️", callback_data=f"album_pagina_{user_id}_{pagina+1}_{filtro or 'none'}_{valor_filtro or 'none'}_{orden or 'none'}"))
     if paginacion and not solo_botones:
         botones.append(paginacion)
 
-    teclado = InlineKeyboardMarkup(botones)
+    teclado = telegram.InlineKeyboardMarkup(botones) if botones else None
 
-    # Si estamos cambiando solo los botones (al entrar a filtros), editamos solo el teclado
+    # --- Cambia SOLO los botones (al entrar a filtros) ---
     if solo_botones:
-        context.bot.edit_message_reply_markup(
-            chat_id=chat_id, 
-            message_id=message_id, 
-            reply_markup=teclado
-        )
+        try:
+            context.bot.edit_message_reply_markup(
+                chat_id=chat_id, 
+                message_id=message_id, 
+                reply_markup=teclado
+            )
+        except telegram.error.RetryAfter as e:
+            if update and hasattr(update, 'callback_query'):
+                try:
+                    update.callback_query.answer(
+                        f"⚠️ ¡Calma! Debes esperar {int(e.retry_after)}s para cambiar de página (Telegram limita los cambios rápidos).",
+                        show_alert=True
+                    )
+                except Exception:
+                    pass
+        except Exception as ex:
+            print("[album] Otro error al cambiar botones:", ex)
+            if update and hasattr(update, 'callback_query'):
+                try:
+                    update.callback_query.answer(
+                        "Ocurrió un error inesperado al cambiar los botones.",
+                        show_alert=True
+                    )
+                except Exception:
+                    pass
         return
 
+    # --- Cambia texto + botones (página, filtro, etc) ---
     try:
         context.bot.edit_message_text(
             chat_id=chat_id,
@@ -2713,12 +2730,19 @@ def mostrar_album_pagina(
         )
     except telegram.error.RetryAfter as e:
         print(f"[album] Flood control: debes esperar {e.retry_after} segundos para editar mensaje.")
-    # Opcional: notifica al usuario por alerta
         if update and hasattr(update, 'callback_query'):
             try:
                 update.callback_query.answer(
                     f"⚠️ ¡Calma! Debes esperar {int(e.retry_after)}s para cambiar de página (Telegram limita los cambios rápidos).",
                     show_alert=True
+                )
+            except Exception:
+                pass
+        else:
+            try:
+                context.bot.send_message(
+                    chat_id=chat_id,
+                    text=f"⚠️ Telegram está saturado, intenta en {int(e.retry_after)} segundos."
                 )
             except Exception:
                 pass
@@ -2732,6 +2756,7 @@ def mostrar_album_pagina(
                 )
             except Exception:
                 pass
+
 
 def mostrar_menu_filtros_album(user_id, pagina):
     botones = [
