@@ -370,26 +370,6 @@ CATALOGO_OBJETOS = {
 #--------------------------------------------------------------
 
 
-def es_admin(update, context=None):
-    user_id = update.effective_user.id
-    chat_id = update.effective_chat.id
-
-    # Puedes poner aquí tu user_id para acceso total
-    SUPERADMINS = [1111798714]  # <-- reemplaza por tu ID real
-    if user_id in SUPERADMINS:
-        return True
-
-    try:
-        admins = context.bot.get_chat_administrators(chat_id)
-        admin_ids = [admin.user.id for admin in admins]
-        return user_id in admin_ids
-    except Exception as e:
-        print(f"[es_admin] Error: {e}")
-        return False
-
-
-
-
 def extraer_card_id_de_id_unico(id_unico):
     """
     Extrae el número de carta (card_id) del id_unico que termina con el número después de los 4 primeros caracteres.
