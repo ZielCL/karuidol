@@ -815,14 +815,11 @@ def comando_idolday(update, context):
         InlineKeyboardButton("1️⃣", callback_data=f"reclamar_{chat_id}_{msg_botones.message_id}_0"),
         InlineKeyboardButton("2️⃣", callback_data=f"reclamar_{chat_id}_{msg_botones.message_id}_1"),
     ]
-    try:
-        context.bot.edit_message_reply_markup(
-            chat_id=chat_id,
-            message_id=mensaje.message_id,
-            reply_markup=InlineKeyboardMarkup(botones_reclamar)
-        )
-    except Exception as e:
-        print("[edit_message_reply_markup] Error:", e)
+    context.bot.edit_message_reply_markup(
+        chat_id=chat_id,
+        message_id=msg_botones.message_id,
+        reply_markup=InlineKeyboardMarkup([botones_reclamar])
+    )
 
     drop_id = crear_drop_id(chat_id, msg_botones.message_id)
     DROPS_ACTIVOS[drop_id] = {
@@ -1025,9 +1022,22 @@ def manejador_reclamar(update, context):
     drop = DROPS_ACTIVOS.get(drop_id)
 
     ahora = time.time()
-    if not drop or drop["expirado"]:
+    if not drop:
+    # Intenta ver si el mensaje es reciente (recién dropeado)
+    # Puedes obtener el tiempo del mensaje desde update.callback_query.message.date (UTC)
+        mensaje_fecha = getattr(query.message, "date", None)
+        if mensaje_fecha:
+            segundos_desde_envio = (datetime.utcnow() - mensaje_fecha).total_seconds()
+            if segundos_desde_envio < 60:  # Si tu drop dura menos, cambia el valor
+                query.answer("⏳ El drop aún se está inicializando. Intenta reclamar de nuevo en unos segundos.", show_alert=True)
+                return
+    # Si no es reciente, realmente expiró
         query.answer("Este drop ya expiró o no existe.", show_alert=True)
         return
+    if drop["expirado"]:
+        query.answer("Este drop ya expiró o no existe.", show_alert=True)
+        return
+
 
     carta = drop["cartas"][carta_idx]
     if carta["reclamada"]:
