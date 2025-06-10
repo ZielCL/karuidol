@@ -1,6 +1,7 @@
 import os
 import threading
 import time
+import telegram
 from flask import Flask, request, jsonify, redirect
 from telegram.error import BadRequest, RetryAfter
 from telegram import ParseMode
