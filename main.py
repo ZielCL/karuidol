@@ -371,21 +371,10 @@ CATALOGO_OBJETOS = {
 
 
 def es_admin(update, context):
-    """Devuelve True si el usuario es admin del grupo."""
     user_id = update.effective_user.id
-    chat = update.effective_chat
-    if chat.type not in ["group", "supergroup"]:
-        return False
-    try:
-        admins = context.bot.get_chat_administrators(chat.id)
-        return any(admin.user.id == user_id for admin in admins)
-    except Exception as e:
-        print("[es_admin] Error:", e)
-        return False
-
-
-
-
+    chat_admins = context.bot.get_chat_administrators(update.effective_chat.id)
+    admin_ids = [admin.user.id for admin in chat_admins]
+    return user_id in admin_ids
 
 
 
@@ -3747,7 +3736,7 @@ dispatcher.add_handler(CommandHandler('mercado', comando_mercado))
 dispatcher.add_handler(CommandHandler('tiendagemas', tienda_gemas))
 dispatcher.add_handler(CommandHandler('darGemas', comando_darGemas))
 dispatcher.add_handler(CommandHandler('gemas', comando_gemas))
-dispatcher.add_handler(CommandHandler('estadisticasdrops', comando_estadisticasdrops))
+dispatcher.add_handler(CommandHandler('estadisticasdrops', comando_estadisticas_drops))
 dispatcher.add_handler(CommandHandler('usar', comando_usar))
 dispatcher.add_handler(CommandHandler('apodo', comando_apodo))
 dispatcher.add_handler(CommandHandler('inventario', comando_inventario))
