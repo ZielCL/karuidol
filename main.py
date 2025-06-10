@@ -3,6 +3,7 @@ import threading
 import time
 from flask import Flask, request, jsonify, redirect
 from telegram.error import BadRequest
+from telegram.constants import ParseMode
 from telegram import (
     Bot,
     Update,
@@ -367,6 +368,27 @@ CATALOGO_OBJETOS = {
 
 
 #--------------------------------------------------------------
+
+
+def es_admin(update, context):
+    """Devuelve True si el usuario es admin del grupo."""
+    user_id = update.effective_user.id
+    chat = update.effective_chat
+    if chat.type not in ["group", "supergroup"]:
+        return False
+    try:
+        admins = context.bot.get_chat_administrators(chat.id)
+        return any(admin.user.id == user_id for admin in admins)
+    except Exception as e:
+        print("[es_admin] Error:", e)
+        return False
+
+
+
+
+
+
+
 
 def extraer_card_id_de_id_unico(id_unico):
     """
@@ -885,6 +907,48 @@ FRASES_ESTADO = {
     "Muy mal estado": "¡Oh no!"
 }
 
+
+def comando_estadisticasdrops(update, context):
+    if not es_admin(update, context):
+        update.message.reply_text("Este comando solo puede ser usado por administradores del grupo.")
+        return
+
+    total_reclamados = col_drops_log.count_documents({"evento": "reclamado"})
+    total_expirados = col_drops_log.count_documents({"evento": "expirado"})
+
+    pipeline = [
+        {"$match": {"evento": "reclamado"}},
+        {"$group": {"_id": {"usuario_id": "$usuario_id", "username": "$username"}, "total": {"$sum": 1}}},
+        {"$sort": {"total": -1}},
+        {"$limit": 10}
+    ]
+    resultados = list(col_drops_log.aggregate(pipeline))
+
+    ranking_texto = ""
+    for i, r in enumerate(resultados, 1):
+        user = r['_id']
+        username = user.get('username')
+        if username:
+            user_text = f"@{username}"
+        else:
+            user_text = f"<code>{user['usuario_id']}</code>"
+        ranking_texto += f"{i}. {user_text} — {r['total']} cartas\n"
+
+    texto = (
+        f"📊 <b>Estadísticas de Drops</b>:\n"
+        f"• Drops reclamados: <b>{total_reclamados}</b>\n"
+        f"• Drops expirados: <b>{total_expirados}</b>\n"
+        f"\n<b>🏆 Top 10 usuarios con más cartas reclamadas:</b>\n"
+        f"{ranking_texto if ranking_texto else 'Sin datos.'}"
+    )
+
+    update.message.reply_text(texto, parse_mode=ParseMode.HTML)
+
+
+
+
+
+
 def comando_darGemas(update, context):
     TU_USER_ID = 1111798714  # <-- Reemplaza por tu verdadero ID de Telegram
     if update.message.from_user.id != TU_USER_ID:
@@ -1282,7 +1346,7 @@ def manejador_reclamar(update, context):
             "evento": "reclamado",
             "drop_id": drop_id,
             "user_id": usuario_click,
-            "username": query.from_user.username or "",
+            "username": query.from_user.username if hasattr(query.from_user, "username") else "",
             "nombre": carta['nombre'],
             "version": carta['version'],
             "grupo": carta.get('grupo', ''),
@@ -3683,6 +3747,7 @@ dispatcher.add_handler(CommandHandler('mercado', comando_mercado))
 dispatcher.add_handler(CommandHandler('tiendagemas', tienda_gemas))
 dispatcher.add_handler(CommandHandler('darGemas', comando_darGemas))
 dispatcher.add_handler(CommandHandler('gemas', comando_gemas))
+dispatcher.add_handler(CommandHandler('estadisticasdrops', comando_estadisticasdrops))
 dispatcher.add_handler(CommandHandler('usar', comando_usar))
 dispatcher.add_handler(CommandHandler('apodo', comando_apodo))
 dispatcher.add_handler(CommandHandler('inventario', comando_inventario))
