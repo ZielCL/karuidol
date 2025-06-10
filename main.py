@@ -1498,21 +1498,19 @@ def mostrar_lista_mejorables(update, context, user_id, cartas_mejorables, pagina
 def comando_album(update, context):
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
-
-    # Opcional: puedes poner un mensaje de "Cargando..." mientras genera el álbum
     msg = context.bot.send_message(chat_id=chat_id, text="Cargando álbum...")
-
-    # Ahora sí, llama con los argumentos en el orden correcto
     mostrar_album_pagina(
-        update,                 # <-- PRIMERO: update
-        context,                # <-- SEGUNDO: context
-        chat_id,                # <-- TERCERO: chat_id
-        msg.message_id,         # <-- CUARTO: message_id del mensaje base
-        user_id,                # <-- QUINTO: user_id
-        pagina=1                # <-- Puedes cambiarlo si quieres otra página
-        # Puedes pasar más argumentos si tu función los necesita, por ejemplo:
-        # filtro=None, valor_filtro=None, orden=None, solo_botones=False
-    )
+        update,
+        context,
+        chat_id, 
+        message_id,  
+        user_id, 
+        pagina=1, 
+        filtro=None, 
+        valor_filtro=None, 
+        orden=None, 
+        solo_botones=False,  # Para refrescar solo botones al abrir filtros
+    ):
 
 
 
@@ -3259,7 +3257,7 @@ def manejador_callback_album(update, context):
         filtro = partes[4] if len(partes) > 4 and partes[4] != "none" else None
         valor_filtro = partes[5] if len(partes) > 5 and partes[5] != "none" else None
         orden = partes[6] if len(partes) > 6 and partes[6] != "none" else None
-        mostrar_album_pagina(update, context, query.message.chat_id, query.message.message_id, context, user_id, int(pagina), filtro=None, valor_filtro=valor_filtro, orden=orden)
+        mostrar_album_pagina(update, context, query.message.chat_id, query.message.message_id, context, user_id, int(pagina), filtro=filtro, valor_filtro=valor_filtro, orden=orden)
         return
 
 
