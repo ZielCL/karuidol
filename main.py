@@ -1027,7 +1027,7 @@ def manejador_reclamar(update, context):
     # Puedes obtener el tiempo del mensaje desde update.callback_query.message.date (UTC)
         mensaje_fecha = getattr(query.message, "date", None)
         if mensaje_fecha:
-            segundos_desde_envio = (datetime.utcnow() - mensaje_fecha).total_seconds()
+            segundos_desde_envio = (datetime.utcnow() - mensaje_fecha.replace(tzinfo=None)).total_seconds()
             if segundos_desde_envio < 60:  # Si tu drop dura menos, cambia el valor
                 query.answer("⏳ El drop aún se está inicializando. Intenta reclamar de nuevo en unos segundos.", show_alert=True)
                 return
