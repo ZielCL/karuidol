@@ -1496,13 +1496,23 @@ def mostrar_lista_mejorables(update, context, user_id, cartas_mejorables, pagina
 # Aquí pego la versión adaptada de /album para usar id_unico, estrellas y letra pegada a la izquierda:
 @cooldown_critico
 def comando_album(update, context):
-    user_id = update.message.from_user.id
+    user_id = update.effective_user.id
     chat_id = update.effective_chat.id
-    msg = context.bot.send_message(
-        chat_id=chat_id,
-        text="Cargando tu álbum...",
+
+    # Opcional: puedes poner un mensaje de "Cargando..." mientras genera el álbum
+    msg = context.bot.send_message(chat_id=chat_id, text="Cargando álbum...")
+
+    # Ahora sí, llama con los argumentos en el orden correcto
+    mostrar_album_pagina(
+        update,                 # <-- PRIMERO: update
+        context,                # <-- SEGUNDO: context
+        chat_id,                # <-- TERCERO: chat_id
+        msg.message_id,         # <-- CUARTO: message_id del mensaje base
+        user_id,                # <-- QUINTO: user_id
+        pagina=1                # <-- Puedes cambiarlo si quieres otra página
+        # Puedes pasar más argumentos si tu función los necesita, por ejemplo:
+        # filtro=None, valor_filtro=None, orden=None, solo_botones=False
     )
-    mostrar_album_pagina(chat_id, msg.message_id, context, user_id, pagina=1)
 
 
 
