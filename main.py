@@ -1588,11 +1588,16 @@ def manejador_callback_setlist(update, context):
     mostrar_lista_set(update, context, pagina=pagina, mensaje=query.message, editar=True)
     query.answer()  # Elimina el "loading..." de Telegram
 
-
-
-
-
-
+def manejador_callback_setsprogreso(update, context):
+    query = update.callback_query
+    data = query.data  # Por ejemplo: 'setsprogreso_2'
+    partes = data.split("_")
+    if len(partes) != 2:
+        query.answer("Error en paginación", show_alert=True)
+        return
+    pagina = int(partes[1])
+    mostrar_setsprogreso(update, context, pagina=pagina, mensaje=query.message, editar=True)
+    query.answer()
 
 
 # ----------- CALLBACK GENERAL para el menú de ALBUM -----------
@@ -3741,6 +3746,7 @@ dispatcher.add_handler(CallbackQueryHandler(callback_ampliar_vender, pattern="^a
 dispatcher.add_handler(CallbackQueryHandler(callback_mejorar_carta, pattern="^mejorar_"))
 dispatcher.add_handler(CallbackQueryHandler(callback_confirmar_mejora, pattern="^(confirmamejora_|cancelarmejora)"))
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback_setlist, pattern=r"^setlist_"))
+dispatcher.add_handler(CallbackQueryHandler(manejador_callback_setsprogreso, pattern=r"^setsprogreso_"))
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback, pattern="^mercado_"))
 dispatcher.add_handler(CallbackQueryHandler(manejador_tienda_paypal, pattern=r"^tienda_paypal_"))
 # ESTOS GENERAL SIEMPRE AL FINAL (sin pattern)
