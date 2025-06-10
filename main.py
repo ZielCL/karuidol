@@ -610,7 +610,7 @@ def grupo_de_carta(nombre, version):
 def crear_drop_id(chat_id, mensaje_id):
     return f"{chat_id}_{mensaje_id}"
 
-def es_admin(update):
+def es_admin(update, context=None):
     chat = update.effective_chat
     user_id = update.effective_user.id
     if chat.type not in ["group", "supergroup"]:
