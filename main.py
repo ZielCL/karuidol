@@ -746,7 +746,7 @@ if ahora_ts - ultimo_drop < COOLDOWN_GRUPO_SEG:
             chat_id=chat_id,
             text=f"⏳ Espera {faltante} segundos antes de volver a dropear cartas en este grupo."
         )
-    return
+        return
 
 
     if update.effective_chat.type not in ["group", "supergroup"]:
