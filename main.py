@@ -723,34 +723,31 @@ def comando_idolday(update, context):
     last = user_doc.get('last_idolday')
     puede_tirar = False
 
-    # --- Cooldown global por grupo (30 seg) ---
-    ultimo_drop = COOLDOWN_GRUPO.get(chat_id, 0)
-    if ahora_ts - ultimo_drop < COOLDOWN_GRUPO_SEG:
-        faltante = int(COOLDOWN_GRUPO_SEG - (ahora_ts - ultimo_drop))
-        # Intenta borrar el mensaje del usuario
-        try:
-            update.message.delete()
-        except Exception as e:
-            print("[idolday] Error al borrar el mensaje:", e)
-        # Manda una alerta, NO mensaje en el chat
-        try:
-            context.bot.answer_callback_query(
-                callback_query_id=update._effective_message._id if hasattr(update, '_effective_message') else None,
-                text=f"⏳ Espera {faltante} segundos antes de volver a dropear cartas en este grupo.",
-                show_alert=True
-            )
-        except Exception:
-            # Fallback para comandos: usa send_message si no puedes mandar alerta
-            context.bot.send_message(
-                chat_id=chat_id,
-                text=f"⏳ Espera {faltante} segundos antes de volver a dropear cartas en este grupo."
-            )
-        return   # ← Ahora sí está dentro de la función
+# --- Cooldown global por grupo (30 seg) ---
+ultimo_drop = COOLDOWN_GRUPO.get(chat_id, 0)
+if ahora_ts - ultimo_drop < COOLDOWN_GRUPO_SEG:
+    faltante = int(COOLDOWN_GRUPO_SEG - (ahora_ts - ultimo_drop))
+    # Intenta borrar el mensaje del usuario
+    try:
+        update.message.delete()
+    except Exception as e:
+        print("[idolday] Error al borrar el mensaje:", e)
+    # Envía mensaje de cooldown y lo elimina después de 10 segundos
+    try:
+        msg_cooldown = context.bot.send_message(
+            chat_id=chat_id,
+            text=f"⏳ Espera {faltante} segundos antes de volver a dropear cartas en este grupo."
+        )
+        def borrar_mensaje(m):
+            try:
+                context.bot.delete_message(chat_id=chat_id, message_id=m.message_id)
+            except Exception as e:
+                print("[idolday] Error al borrar mensaje de cooldown:", e)
+        threading.Timer(10, borrar_mensaje, args=(msg_cooldown,)).start()
+    except Exception as e:
+        print("[idolday] Error al mandar mensaje de cooldown:", e)
+    return
 
-    # ... resto de tu función, igual que antes ...
-    if update.effective_chat.type not in ["group", "supergroup"]:
-        context.bot.send_message(chat_id=chat_id, text="Este comando solo se puede usar en grupos.")
-        return
 
     # --- Cooldown por usuario (6 horas o bono) ---
     cooldown_listo, bono_listo = puede_usar_idolday(user_id)
