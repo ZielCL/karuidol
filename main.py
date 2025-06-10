@@ -2622,8 +2622,7 @@ def comando_giveidol(update, context):
 
 
 def mostrar_album_pagina(
-    update,
-    context,
+    update, context,
     chat_id, 
     message_id,  
     user_id, 
@@ -3186,12 +3185,11 @@ def manejador_callback_album(update, context):
         user_id = int(partes[2])
         pagina = int(partes[3])
         estrellas = partes[4]
-        mostrar_album_pagina(update, context, query.message.chat_id, query.message.message_id, context, user_id, pagina, filtro="estrellas", valor_filtro=estrellas)
+        mostrar_album_pagina(update, context, query.message.chat_id, query.message.message_id, user_id, int(pagina), filtro="estrellas", valor_filtro=estrellas)
         return
 
     # --- Filtro por grupo ---
     if data.startswith("album_filtro_grupo_"):
-    # Extrae user_id y página correctamente aunque la callback tenga _ adicionales
         partes_split = data.split("_")
         user_id = int(partes_split[3])
         if len(partes_split) > 4:
@@ -3206,14 +3204,12 @@ def manejador_callback_album(update, context):
         )
         return
 
-
-
     # --- Filtro aplicado por grupo ---
     if data.startswith("album_filtragrupo_"):
         user_id = int(partes[2])
         pagina = int(partes[3])
         grupo = "_".join(partes[4:])
-        mostrar_album_pagina(update, context, query.message.chat_id, query.message.message_id, context, user_id, pagina, filtro="grupo", valor_filtro=grupo)
+        mostrar_album_pagina(update, context, query.message.chat_id, query.message.message_id, user_id, int(pagina), filtro="grupo", valor_filtro=grupo)
         return
 
     # --- Menú de filtros principal ---
@@ -3243,7 +3239,7 @@ def manejador_callback_album(update, context):
         user_id = int(partes[2])
         pagina = int(partes[3])
         orden = partes[4]
-        mostrar_album_pagina(update, context, query.message.chat_id, query.message.message_id, context, user_id, pagina, orden=orden)
+        mostrar_album_pagina(update, context, query.message.chat_id, query.message.message_id, user_id, int(pagina), orden=orden)
         return
 
     # --- Volver al álbum completo (sin filtros) ---
@@ -3253,8 +3249,9 @@ def manejador_callback_album(update, context):
         filtro = partes[4] if len(partes) > 4 and partes[4] != "none" else None
         valor_filtro = partes[5] if len(partes) > 5 and partes[5] != "none" else None
         orden = partes[6] if len(partes) > 6 and partes[6] != "none" else None
-        mostrar_album_pagina(update, context, query.message.chat_id, query.message.message_id, context, user_id, int(pagina), filtro=filtro, valor_filtro=valor_filtro, orden=orden)
+        mostrar_album_pagina(update, context, query.message.chat_id, query.message.message_id, user_id, int(pagina), filtro=filtro, valor_filtro=valor_filtro, orden=orden)
         return
+
 
 
    
