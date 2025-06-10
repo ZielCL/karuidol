@@ -3,7 +3,7 @@ import threading
 import time
 from flask import Flask, request, jsonify, redirect
 from telegram.error import BadRequest
-from telegram.constants import ParseMode
+from telegram import ParseMode
 from telegram import (
     Bot,
     Update,
