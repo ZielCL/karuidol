@@ -3259,7 +3259,7 @@ def manejador_callback_album(update, context):
         filtro = partes[4] if len(partes) > 4 and partes[4] != "none" else None
         valor_filtro = partes[5] if len(partes) > 5 and partes[5] != "none" else None
         orden = partes[6] if len(partes) > 6 and partes[6] != "none" else None
-        mostrar_album_pagina(update, context, query.message.chat_id, query.message.message_id, context, user_id, int(pagina), filtro=none, valor_filtro=valor_filtro, orden=orden)
+        mostrar_album_pagina(update, context, query.message.chat_id, query.message.message_id, context, user_id, int(pagina), filtro=None, valor_filtro=valor_filtro, orden=orden)
         return
 
 
