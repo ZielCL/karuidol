@@ -1510,7 +1510,7 @@ def comando_album(update, context):
         valor_filtro=None, 
         orden=None, 
         solo_botones=False,  # Para refrescar solo botones al abrir filtros
-    ):
+    )
 
 
 
