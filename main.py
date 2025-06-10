@@ -675,7 +675,30 @@ def expira_drop(drop_id):
     except Exception:
         pass
     drop["expirado"] = True
-    
+
+def desbloquear_drop(drop_id):
+    time.sleep(60)  # O el tiempo que dure tu drop
+    drop = DROPS_ACTIVOS.get(drop_id)
+    if drop and not drop.get("expirado"):
+        drop["expirado"] = True
+        # --- REGISTRO DE DROP EXPIRADO EN AUDITORÍA ---
+        if "col_drops_log" in globals():
+            col_drops_log.insert_one({
+                "evento": "expirado",
+                "drop_id": drop_id,
+                "cartas": drop.get("cartas", []),
+                "dueño": drop.get("dueño"),
+                "chat_id": drop.get("chat_id"),
+                "mensaje_id": drop.get("mensaje_id"),
+                "fecha": datetime.utcnow(),
+                "usuarios_reclamaron": drop.get("usuarios_reclamaron", []),
+            })
+        # (Opcional) Borra de RAM si quieres
+        # del DROPS_ACTIVOS[drop_id]
+
+
+
+
 def carta_estado(nombre, version, estado):
     for c in cartas:
         if c['nombre'] == nombre and c['version'] == version and c.get('estado') == estado:
@@ -753,7 +776,6 @@ def comando_idolday(update, context):
             context.bot.send_message(chat_id=chat_id, text=f"Ya usaste /idolday.")
         return
 
-
     # --- Actualiza el cooldown global ---
     COOLDOWN_GRUPO[chat_id] = ahora_ts
 
@@ -770,7 +792,6 @@ def comando_idolday(update, context):
         version = carta['version']
         grupo = carta.get('grupo', '')
         imagen_url = carta.get('imagen')
-        # RESERVA EL NÚMERO DE CARTA AQUÍ
         doc_cont = col_contadores.find_one_and_update(
             {"nombre": nombre, "version": version},
             {"$inc": {"contador": 1}},
@@ -795,11 +816,10 @@ def comando_idolday(update, context):
             "card_id": nuevo_id
         })
 
+    # Envía el grupo de imágenes de las cartas
     msgs = context.bot.send_media_group(chat_id=chat_id, media=media_group)
-    # main_msg = msgs[0]  # ← Ya no se usa el mensaje de imagen para el ID
 
     texto_drop = f"@{update.effective_user.username or update.effective_user.first_name} está dropeando 2 cartas!"
-    # Primero manda el mensaje de los botones, lo guardamos en variable para usar su message_id
     msg_botones = context.bot.send_message(
         chat_id=chat_id,
         text=texto_drop,
@@ -810,19 +830,23 @@ def comando_idolday(update, context):
             ]
         ])
     )
+
     # AHORA sí: actualizamos los callback_data con el message_id correcto (el del mensaje de botones)
     botones_reclamar = [
         InlineKeyboardButton("1️⃣", callback_data=f"reclamar_{chat_id}_{msg_botones.message_id}_0"),
         InlineKeyboardButton("2️⃣", callback_data=f"reclamar_{chat_id}_{msg_botones.message_id}_1"),
     ]
-    context.bot.edit_message_reply_markup(
-        chat_id=chat_id,
-        message_id=msg_botones.message_id,
-        reply_markup=InlineKeyboardMarkup([botones_reclamar])
-    )
+    try:
+        context.bot.edit_message_reply_markup(
+            chat_id=chat_id,
+            message_id=msg_botones.message_id,
+            reply_markup=InlineKeyboardMarkup([botones_reclamar])
+        )
+    except Exception as e:
+        print("[edit_message_reply_markup] Error:", e)
 
     drop_id = crear_drop_id(chat_id, msg_botones.message_id)
-    DROPS_ACTIVOS[drop_id] = {
+    drop_data = {
         "cartas": cartas_info,
         "dueño": user_id,
         "chat_id": chat_id,
@@ -834,6 +858,15 @@ def comando_idolday(update, context):
         "primer_reclamo_dueño": None,
     }
 
+    # Guarda el drop en RAM y en MongoDB (persistente ante caídas)
+    DROPS_ACTIVOS[drop_id] = drop_data
+    if "col_drops" in globals():
+        col_drops.update_one(
+            {"drop_id": drop_id},
+            {"$set": {**drop_data, "drop_id": drop_id}},
+            upsert=True
+        )
+
     col_usuarios.update_one(
         {"user_id": user_id},
         {"$set": {
@@ -843,9 +876,8 @@ def comando_idolday(update, context):
         upsert=True
     )
 
-    threading.Thread(target=desbloquear_drop, args=(drop_id, ), daemon=True).start()
-
-
+    threading.Thread(target=desbloquear_drop, args=(drop_id,), daemon=True).start()
+    
 FRASES_ESTADO = {
     "Excelente estado": "Genial!",
     "Buen estado": "Nada mal.",
@@ -1019,28 +1051,36 @@ def manejador_reclamar(update, context):
     mensaje_id = int(mensaje_id)
     carta_idx = int(idx)
     drop_id = crear_drop_id(chat_id, mensaje_id)
+
+    # --- Busca en RAM, si no en MongoDB ---
     drop = DROPS_ACTIVOS.get(drop_id)
+    if not drop and "col_drops" in globals():
+        drop = col_drops.find_one({"drop_id": drop_id})
+        if drop:
+            DROPS_ACTIVOS[drop_id] = drop
 
     ahora = time.time()
+
+    # --- Drop ausente completamente ---
     if not drop:
-    # Intenta ver si el mensaje es reciente (recién dropeado)
-    # Puedes obtener el tiempo del mensaje desde update.callback_query.message.date (UTC)
         mensaje_fecha = getattr(query.message, "date", None)
         if mensaje_fecha:
             segundos_desde_envio = (datetime.utcnow() - mensaje_fecha.replace(tzinfo=None)).total_seconds()
-            if segundos_desde_envio < 60:  # Si tu drop dura menos, cambia el valor
+            if segundos_desde_envio < 60:
                 query.answer("⏳ El drop aún se está inicializando. Intenta reclamar de nuevo en unos segundos.", show_alert=True)
                 return
-    # Si no es reciente, realmente expiró
         query.answer("Este drop ya expiró o no existe.", show_alert=True)
         return
-    if drop["expirado"]:
+
+    # --- Drop ya marcado como expirado ---
+    if drop.get("expirado"):
         query.answer("Este drop ya expiró o no existe.", show_alert=True)
         return
 
 
+    # --- Trabaja como de costumbre ---
     carta = drop["cartas"][carta_idx]
-    if carta["reclamada"]:
+    if carta.get("reclamada"):
         query.answer("Esta carta ya fue reclamada.", show_alert=True)
         return
 
@@ -1194,7 +1234,7 @@ def manejador_reclamar(update, context):
 
     # CALCULAR EL PRECIO FINAL SOLO TEMPORALMENTE
     intentos = carta.get("intentos", 0)
-    precio = precio_carta_karuta(nombre, version, estado, id_unico=id_unico, card_id=nuevo_id) + 200 * max(0, intentos - 1) # -1 para no contar el intento del dueño real (primer click de reclamo)
+    precio = precio_carta_karuta(nombre, version, estado, id_unico=id_unico, card_id=nuevo_id) + 200 * max(0, intentos - 1)
 
     existente = col_cartas_usuario.find_one({
         "user_id": usuario_click,
@@ -1222,22 +1262,56 @@ def manejador_reclamar(update, context):
                 "count": 1,
                 "id_unico": id_unico,
                 "estado_estrella": estrellas.count("★"),
-                # NOTA: NO guardamos el campo intentos en la base de datos
             }
         )
     revisar_sets_completados(usuario_click, context)
     carta["reclamada"] = True
     carta["usuario"] = usuario_click
     carta["hora_reclamada"] = ahora
+    drop.setdefault("usuarios_reclamaron", []).append(usuario_click)
+
+    revisar_sets_completados(usuario_click, context)
+    carta["reclamada"] = True
+    carta["usuario"] = usuario_click
+    carta["hora_reclamada"] = ahora
     drop["usuarios_reclamaron"].append(usuario_click)
+
+    # --- REGISTRO DE RECLAMO EN AUDITORÍA ---
+    if "col_drops_log" in globals():
+        col_drops_log.insert_one({
+            "evento": "reclamado",
+            "drop_id": drop_id,
+            "user_id": usuario_click,
+            "username": query.from_user.username or "",
+            "nombre": carta['nombre'],
+            "version": carta['version'],
+            "grupo": carta.get('grupo', ''),
+            "card_id": carta.get("card_id"),
+            "estado": estado,
+            "estrellas": estrellas,
+            "fecha": datetime.utcnow(),
+            "intentos": carta.get("intentos", 0),
+            "expirado": drop.get("expirado", False),
+            "chat_id": chat_id,
+            "mensaje_id": mensaje_id,
+        })
+
+
+
+
+    
+    # --- Actualiza el drop en RAM y MongoDB
+    DROPS_ACTIVOS[drop_id] = drop
+    if "col_drops" in globals():
+        col_drops.update_one({"drop_id": drop_id}, {"$set": drop})
 
     teclado = []
     for i, c in enumerate(drop["cartas"]):
-        if c["reclamada"]:
+        if c.get("reclamada"):
             teclado.append(InlineKeyboardButton("❌", callback_data="reclamada", disabled=True))
         else:
             teclado.append(InlineKeyboardButton(f"{i+1}️⃣", callback_data=f"reclamar_{chat_id}_{mensaje_id}_{i}"))
-    bot.edit_message_reply_markup(
+    context.bot.edit_message_reply_markup(
         chat_id=drop["chat_id"],
         message_id=drop["mensaje_id"],
         reply_markup=InlineKeyboardMarkup([teclado])
@@ -1252,9 +1326,7 @@ def manejador_reclamar(update, context):
     }
     frase_estado = FRASES_ESTADO.get(estado, "")
 
-    # Construir el mensaje, solo si hubo intentos reales de otros usuarios
     mensaje_extra = ""
-    # intentos incluye todos los clicks de no dueños, pero el último es el click de quien reclamó
     intentos_otros = max(0, intentos - 1)
     if intentos_otros > 0:
         mensaje_extra = f"\n💸 Esta carta fue disputada con <b>{intentos_otros}</b> intentos de otros usuarios."
@@ -1266,7 +1338,6 @@ def manejador_reclamar(update, context):
         parse_mode='HTML'
     )
 
-    # ----------- FAVORITOS DE ESTA CARTA -------------
     favoritos = list(col_usuarios.find({
         "favoritos": {"$elemMatch": {"nombre": nombre, "version": version}}
     }))
