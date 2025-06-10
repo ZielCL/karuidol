@@ -2701,13 +2701,35 @@ def mostrar_album_pagina(
         )
         return
 
+try:
     context.bot.edit_message_text(
         chat_id=chat_id,
         message_id=message_id,
         text=texto,
-        parse_mode="HTML",
-        reply_markup=teclado
+        reply_markup=teclado,
+        parse_mode="HTML"
     )
+except telegram.error.RetryAfter as e:
+    print(f"[album] Flood control: debes esperar {e.retry_after} segundos para editar mensaje.")
+    # Opcional: notifica al usuario por alerta
+    if update and hasattr(update, 'callback_query'):
+        try:
+            update.callback_query.answer(
+                f"⚠️ ¡Calma! Debes esperar {int(e.retry_after)}s para cambiar de página (Telegram limita los cambios rápidos).",
+                show_alert=True
+            )
+        except Exception:
+            pass
+except Exception as ex:
+    print("[album] Otro error al editar mensaje:", ex)
+    if update and hasattr(update, 'callback_query'):
+        try:
+            update.callback_query.answer(
+                "Ocurrió un error inesperado al cambiar de página.",
+                show_alert=True
+            )
+        except Exception:
+            pass
 
 def mostrar_menu_filtros_album(user_id, pagina):
     botones = [
