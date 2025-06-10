@@ -815,11 +815,14 @@ def comando_idolday(update, context):
         InlineKeyboardButton("1️⃣", callback_data=f"reclamar_{chat_id}_{msg_botones.message_id}_0"),
         InlineKeyboardButton("2️⃣", callback_data=f"reclamar_{chat_id}_{msg_botones.message_id}_1"),
     ]
-    context.bot.edit_message_reply_markup(
-        chat_id=chat_id,
-        message_id=msg_botones.message_id,
-        reply_markup=InlineKeyboardMarkup([botones_reclamar])
-    )
+    try:
+        context.bot.edit_message_reply_markup(
+            chat_id=chat_id,
+            message_id=mensaje.message_id,
+            reply_markup=InlineKeyboardMarkup(botones_reclamar)
+        )
+    except Exception as e:
+        print("[edit_message_reply_markup] Error:", e)
 
     drop_id = crear_drop_id(chat_id, msg_botones.message_id)
     DROPS_ACTIVOS[drop_id] = {
