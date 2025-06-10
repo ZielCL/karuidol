@@ -1502,14 +1502,10 @@ def comando_album(update, context):
     mostrar_album_pagina(
         update,
         context,
-        chat_id, 
-        message_id,  
-        user_id, 
-        pagina=1, 
-        filtro=None, 
-        valor_filtro=None, 
-        orden=None, 
-        solo_botones=False,  # Para refrescar solo botones al abrir filtros
+        chat_id,
+        msg.message_id,
+        user_id,
+        pagina=1
     )
 
 
