@@ -52,6 +52,7 @@ col_cartas_usuario.create_index("id_unico", unique=True)
 col_cartas_usuario.create_index("user_id")
 col_mercado.create_index("vendedor_id")
 col_usuarios.create_index("user_id", unique=True)
+col_drops_log = db['drops_log']
 # TTL para cartas en mercado (ejemplo: 7 días)
 from pymongo import ASCENDING
 col_mercado.create_index(
