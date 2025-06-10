@@ -373,7 +373,12 @@ CATALOGO_OBJETOS = {
 def es_admin(update, context=None):
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
-    # Solo para grupos/supergrupos, NO funciona en privados
+
+    # Puedes poner aquí tu user_id para acceso total
+    SUPERADMINS = [1111798714]  # <-- reemplaza por tu ID real
+    if user_id in SUPERADMINS:
+        return True
+
     try:
         admins = context.bot.get_chat_administrators(chat_id)
         admin_ids = [admin.user.id for admin in admins]
@@ -381,6 +386,7 @@ def es_admin(update, context=None):
     except Exception as e:
         print(f"[es_admin] Error: {e}")
         return False
+
 
 
 
