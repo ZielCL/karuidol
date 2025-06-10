@@ -724,31 +724,30 @@ def comando_idolday(update, context):
     puede_tirar = False
 
     # --- Cooldown global por grupo (30 seg) ---
-# --- Cooldown global por grupo (30 seg) ---
-ultimo_drop = COOLDOWN_GRUPO.get(chat_id, 0)
-if ahora_ts - ultimo_drop < COOLDOWN_GRUPO_SEG:
-    faltante = int(COOLDOWN_GRUPO_SEG - (ahora_ts - ultimo_drop))
-    # Intenta borrar el mensaje del usuario
-    try:
-        update.message.delete()
-    except Exception as e:
-        print("[idolday] Error al borrar el mensaje:", e)
-    # Manda una alerta, NO mensaje en el chat
-    try:
-        context.bot.answer_callback_query(
-            callback_query_id=update._effective_message._id if hasattr(update, '_effective_message') else None,
-            text=f"⏳ Espera {faltante} segundos antes de volver a dropear cartas en este grupo.",
-            show_alert=True
-        )
-    except Exception:
-        # Fallback para comandos: usa send_message si no puedes mandar alerta
-        context.bot.send_message(
-            chat_id=chat_id,
-            text=f"⏳ Espera {faltante} segundos antes de volver a dropear cartas en este grupo."
-        )
-    return
+    ultimo_drop = COOLDOWN_GRUPO.get(chat_id, 0)
+    if ahora_ts - ultimo_drop < COOLDOWN_GRUPO_SEG:
+        faltante = int(COOLDOWN_GRUPO_SEG - (ahora_ts - ultimo_drop))
+        # Intenta borrar el mensaje del usuario
+        try:
+            update.message.delete()
+        except Exception as e:
+            print("[idolday] Error al borrar el mensaje:", e)
+        # Manda una alerta, NO mensaje en el chat
+        try:
+            context.bot.answer_callback_query(
+                callback_query_id=update._effective_message._id if hasattr(update, '_effective_message') else None,
+                text=f"⏳ Espera {faltante} segundos antes de volver a dropear cartas en este grupo.",
+                show_alert=True
+            )
+        except Exception:
+            # Fallback para comandos: usa send_message si no puedes mandar alerta
+            context.bot.send_message(
+                chat_id=chat_id,
+                text=f"⏳ Espera {faltante} segundos antes de volver a dropear cartas en este grupo."
+            )
+        return   # ← Ahora sí está dentro de la función
 
-
+    # ... resto de tu función, igual que antes ...
     if update.effective_chat.type not in ["group", "supergroup"]:
         context.bot.send_message(chat_id=chat_id, text="Este comando solo se puede usar en grupos.")
         return
