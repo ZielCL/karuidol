@@ -719,12 +719,10 @@ def comando_idolday(update, context):
     ultimo_drop = COOLDOWN_GRUPO.get(chat_id, 0)
     if ahora_ts - ultimo_drop < COOLDOWN_GRUPO_SEG:
         faltante = int(COOLDOWN_GRUPO_SEG - (ahora_ts - ultimo_drop))
-        # Intenta borrar el mensaje del usuario
         try:
             update.message.delete()
         except Exception as e:
             print("[idolday] Error al borrar el mensaje:", e)
-        # Envía mensaje de cooldown y lo elimina después de 10 segundos
         try:
             msg_cooldown = context.bot.send_message(
                 chat_id=chat_id,
@@ -742,14 +740,34 @@ def comando_idolday(update, context):
 
     # --- Cooldown por usuario (6 horas o bono) ---
     cooldown_listo, bono_listo = puede_usar_idolday(user_id)
+    mision_completada = False
 
-    if cooldown_listo:
+    if cooldown_listo or bono_listo:
         puede_tirar = True
-        col_usuarios.update_one(
-            {"user_id": user_id},
-            {"$set": {"last_idolday": ahora}},
-            upsert=True
-        )
+
+        # Actualiza último uso si fue por cooldown
+        if cooldown_listo:
+            col_usuarios.update_one(
+                {"user_id": user_id},
+                {"$set": {"last_idolday": ahora}},
+                upsert=True
+            )
+        # Gasta bono si corresponde
+        elif bono_listo:
+            objetos = user_doc.get('objetos', {})
+            bonos_inventario = objetos.get('bono_idolday', 0)
+            if bonos_inventario and bonos_inventario > 0:
+                col_usuarios.update_one(
+                    {"user_id": user_id},
+                    {"$inc": {"objetos.bono_idolday": -1}},
+                    upsert=True
+                )
+            else:
+                col_usuarios.update_one(
+                    {"user_id": user_id},
+                    {"$inc": {"bono": -1}},
+                    upsert=True
+                )
 
         # --- MISIÓN DIARIA: 3 /idolday en el día ---
         hoy_str = ahora.strftime('%Y-%m-%d')
@@ -776,6 +794,7 @@ def comando_idolday(update, context):
                 {"user_id": user_id},
                 {"$inc": {"kponey": kponey_ganado}}
             )
+            mision_completada = True
             try:
                 context.bot.send_message(
                     chat_id=chat_id,
@@ -784,27 +803,9 @@ def comando_idolday(update, context):
             except Exception:
                 pass
 
-    elif bono_listo:
-        puede_tirar = True
-        objetos = user_doc.get('objetos', {})
-        bonos_inventario = objetos.get('bono_idolday', 0)
-        if bonos_inventario and bonos_inventario > 0:
-            # Gasta del inventario
-            col_usuarios.update_one(
-                {"user_id": user_id},
-                {"$inc": {"objetos.bono_idolday": -1}},
-                upsert=True
-            )
-        else:
-            # Gasta del campo legacy (admin)
-            col_usuarios.update_one(
-                {"user_id": user_id},
-                {"$inc": {"bono": -1}},
-                upsert=True
-            )
     else:
         try:
-            update.message.delete()  # Borra el mensaje del usuario al instante
+            update.message.delete()
         except Exception as e:
             print("[idolday] Error al borrar el mensaje del usuario (cooldown usuario):", e)
         if last:
@@ -837,6 +838,7 @@ def comando_idolday(update, context):
             except Exception as e:
                 print("[idolday] Error al mandar mensaje cooldown usuario (sin tiempo):", e)
         return
+
 
 
     # --- Actualiza el cooldown global ---
