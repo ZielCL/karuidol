@@ -797,7 +797,7 @@ def comando_idolday(update, context):
             mision_completada = True
             try:
                 context.bot.send_message(
-                    chat_id=chat_id,
+                    chat_id=user_id,
                     text=f"🎉 ¡Has completado la misión diaria de 3 /idolday! Ganaste {kponey_ganado} Kponey."
                 )
             except Exception:
