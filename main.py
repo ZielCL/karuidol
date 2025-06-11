@@ -740,8 +740,6 @@ def comando_idolday(update, context):
             print("[idolday] Error al mandar mensaje de cooldown:", e)
         return
 
-
-
     # --- Cooldown por usuario (6 horas o bono) ---
     cooldown_listo, bono_listo = puede_usar_idolday(user_id)
 
@@ -752,6 +750,40 @@ def comando_idolday(update, context):
             {"$set": {"last_idolday": ahora}},
             upsert=True
         )
+
+        # --- MISIÓN DIARIA: 3 /idolday en el día ---
+        hoy_str = ahora.strftime('%Y-%m-%d')
+        user_doc = col_usuarios.find_one({"user_id": user_id}) or {}
+        mision = user_doc.get('misiones', {})
+        idolday_hoy = mision.get('idolday_hoy', 0)
+        ultima_fecha = mision.get('ultima_mision_idolday', "")
+
+        if ultima_fecha != hoy_str:
+            idolday_hoy = 0  # Resetea si es otro día
+
+        idolday_hoy += 1
+        col_usuarios.update_one(
+            {"user_id": user_id},
+            {"$set": {
+                "misiones.idolday_hoy": idolday_hoy,
+                "misiones.ultima_mision_idolday": hoy_str
+            }}
+        )
+
+        if idolday_hoy == 3:
+            kponey_ganado = 150
+            col_usuarios.update_one(
+                {"user_id": user_id},
+                {"$inc": {"kponey": kponey_ganado}}
+            )
+            try:
+                context.bot.send_message(
+                    chat_id=chat_id,
+                    text=f"🎉 ¡Has completado la misión diaria de 3 /idolday! Ganaste {kponey_ganado} Kponey."
+                )
+            except Exception:
+                pass
+
     elif bono_listo:
         puede_tirar = True
         objetos = user_doc.get('objetos', {})
@@ -789,7 +821,7 @@ def comando_idolday(update, context):
                     try:
                         context.bot.delete_message(chat_id=chat_id, message_id=m.message_id)
                     except Exception as e:
-                        print("[idolday] Error al borrar mensaje de cooldown usuario:", e)
+                        print("[idolday] Error al borrar mensaje cooldown usuario:", e)
                 threading.Timer(10, borrar_mensaje_cd, args=(msg_cd,)).start()
             except Exception as e:
                 print("[idolday] Error al mandar mensaje cooldown usuario:", e)
@@ -805,7 +837,6 @@ def comando_idolday(update, context):
             except Exception as e:
                 print("[idolday] Error al mandar mensaje cooldown usuario (sin tiempo):", e)
         return
-
 
 
     # --- Actualiza el cooldown global ---
