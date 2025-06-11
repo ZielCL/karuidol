@@ -1923,7 +1923,17 @@ def comando_comprarobjeto(update, context):
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-def mostrar_mercado_pagina(chat_id, message_id, context, user_id, pagina=1, filtro=None, valor_filtro=None, orden=None):
+def mostrar_mercado_pagina(
+    update,
+    context,
+    chat_id,
+    message_id,
+    user_id,
+    pagina=1,
+    filtro=None,
+    valor_filtro=None,
+    orden=None
+):
     # --- FILTRO DE CARTAS ---
     query_mercado = {}
     if filtro == "estrellas":
@@ -1939,7 +1949,6 @@ def mostrar_mercado_pagina(chat_id, message_id, context, user_id, pagina=1, filt
     elif orden == "mayor":
         cartas.sort(key=lambda x: -x.get("card_id", 0))
     else:
-        # Orden default: grupo, nombre, card_id
         cartas.sort(key=lambda x: (x.get("grupo", "").lower(), x.get("nombre", "").lower(), x.get("card_id", 0)))
 
     # --- PAGINACIÓN ---
@@ -1991,13 +2000,37 @@ def mostrar_mercado_pagina(chat_id, message_id, context, user_id, pagina=1, filt
         botones.append(paginacion)
 
     teclado = InlineKeyboardMarkup(botones)
-    context.bot.edit_message_text(
-        chat_id=chat_id,
-        message_id=message_id,
-        text=texto,
-        parse_mode="HTML",
-        reply_markup=teclado
-    )
+
+    # -- INTENTA EDITAR MENSAJE (protegido) --
+    try:
+        context.bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=texto,
+            parse_mode="HTML",
+            reply_markup=teclado
+        )
+    except telegram.error.RetryAfter as e:
+        print(f"[mercado] Flood control: debes esperar {e.retry_after} segundos para editar mensaje.")
+        # Si tienes callback_query (vía update), muestra alerta amigable
+        if update and hasattr(update, 'callback_query'):
+            try:
+                update.callback_query.answer(
+                    f"⚠️ ¡Calma! Espera {int(e.retry_after)}s para cambiar de página (Telegram limita los cambios rápidos).",
+                    show_alert=True
+                )
+            except Exception:
+                pass
+    except Exception as ex:
+        print("[mercado] Otro error al editar mensaje:", ex)
+        if update and hasattr(update, 'callback_query'):
+            try:
+                update.callback_query.answer(
+                    "Ocurrió un error inesperado al cambiar de página.",
+                    show_alert=True
+                )
+            except Exception:
+                pass
 
 
 
@@ -3071,94 +3104,108 @@ def callback_ampliar_vender(update, context):
 
 
 
-def manejador_callback(update, context):
-    query = update.callback_query
-    data = query.data
-    user_id = query.from_user.id
+def mostrar_mercado_pagina(
+    chat_id, message_id, context, user_id, pagina=1, filtro=None, valor_filtro=None, orden=None
+):
+    # --- FILTRO DE CARTAS ---
+    query_mercado = {}
+    if filtro == "estrellas":
+        query_mercado["estrellas"] = valor_filtro
+    elif filtro == "grupo":
+        query_mercado["grupo"] = valor_filtro
 
-    # Sólo para callbacks que inician con mercado_
-    if data.startswith("mercado"):
-        partes = data.split("_")
+    cartas = list(col_mercado.find(query_mercado))
+
+    # --- ORDEN ---
+    if orden == "menor":
+        cartas.sort(key=lambda x: x.get("card_id", 0))
+    elif orden == "mayor":
+        cartas.sort(key=lambda x: -x.get("card_id", 0))
+    else:
+        cartas.sort(key=lambda x: (x.get("grupo", "").lower(), x.get("nombre", "").lower(), x.get("card_id", 0)))
+
+    # --- PAGINACIÓN ---
+    cartas_por_pagina = 10
+    total_paginas = max(1, ((len(cartas) - 1) // cartas_por_pagina) + 1)
+    pagina = max(1, min(pagina, total_paginas))
+    inicio = (pagina - 1) * cartas_por_pagina
+    fin = inicio + cartas_por_pagina
+    cartas_pagina = cartas[inicio:fin]
+
+    # --- PREPARA FAVORITOS DEL USUARIO ---
+    usuario = col_usuarios.find_one({"user_id": user_id}) or {}
+    favoritos = usuario.get("favoritos", [])
+
+    # --- TEXTO LISTA ---
+    texto = "<b>🛒 Mercado</b>\n"
+    for c in cartas_pagina:
+        estrellas = f"[{c.get('estrellas', '?')}]"
+        num = f"#{c.get('card_id', '?')}"
+        ver = f"[{c.get('version', '?')}]"
+        nom = c.get('nombre', '?')
+        grp = c.get('grupo', '?')
+        precio = f"{c.get('precio', '?'):,}"
+        idu = c.get('id_unico', '')
+
+        es_fav = any(
+            fav.get("nombre") == c.get("nombre") and fav.get("version") == c.get("version")
+            for fav in favoritos
+        )
+        estrella_fav = " ⭐" if es_fav else ""
+
+        texto += (
+            f"{estrellas} · {num} · {ver} · {nom} · {grp}{estrella_fav}\n"
+            f"💲{precio}\n"
+            f"<code>/comprar {idu}</code>\n\n"
+        )
+    if not cartas_pagina:
+        texto += "\n(No hay cartas para mostrar con este filtro)"
+
+    # --- BOTONES ---
+    botones = []
+    botones.append([InlineKeyboardButton("🔎 Filtrar / Ordenar", callback_data=f"mercado_filtros_{user_id}_{pagina}")])
+    paginacion = []
+    if pagina > 1:
+        paginacion.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_pagina_{user_id}_{pagina-1}_{filtro or 'none'}_{valor_filtro or 'none'}_{orden or 'none'}"))
+    if pagina < total_paginas:
+        paginacion.append(InlineKeyboardButton("➡️", callback_data=f"mercado_pagina_{user_id}_{pagina+1}_{filtro or 'none'}_{valor_filtro or 'none'}_{orden or 'none'}"))
+    if paginacion:
+        botones.append(paginacion)
+    teclado = InlineKeyboardMarkup(botones)
+
+    # --- Protege contra Flood control y otros errores ---
+    import telegram
+    try:
+        context.bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=texto,
+            parse_mode="HTML",
+            reply_markup=teclado
+        )
+    except telegram.error.RetryAfter as e:
+        print(f"[mercado] Flood control: debes esperar {e.retry_after} segundos para editar mensaje.")
+        # Intenta notificar al usuario por alerta si viene de callback
         try:
-            dueño_id = None
-            for part in partes:
-                if part.isdigit() and len(part) >= 5:
-                    dueño_id = int(part)
-                    break
+            if hasattr(context, 'bot') and hasattr(context, 'update') and hasattr(context.update, 'callback_query'):
+                context.update.callback_query.answer(
+                    f"⚠️ ¡Calma! Debes esperar {int(e.retry_after)}s para cambiar de página (Telegram limita los cambios rápidos).",
+                    show_alert=True
+                )
         except Exception:
-            dueño_id = None
-
-        if dueño_id and user_id != dueño_id:
-            query.answer("Solo puedes interactuar con tu propio mercado.", show_alert=True)
-            return
-
-    # Solo manejar callbacks del mercado
-    if not data.startswith("mercado"):
-        # ...deja el resto de tus callbacks aquí
-        return
-
-    partes = data.split("_")
-
-    if data.startswith("mercado_filtros_"):
-        user_id = int(partes[2])
-        pagina = int(partes[3])
-        query.edit_message_reply_markup(reply_markup=mostrar_menu_filtros(user_id, pagina))
-        return
-
-    elif data.startswith("mercado_filtro_estado_"):
-        user_id = int(partes[3])
-        pagina = int(partes[4])
-        query.edit_message_reply_markup(reply_markup=mostrar_menu_estrellas(user_id, pagina))
-        return
-
-    elif data.startswith("mercado_filtraestrella_"):
-        user_id = int(partes[2])
-        pagina = int(partes[3])
-        estrellas = partes[4]
-        mostrar_mercado_pagina(query.message.chat_id, query.message.message_id, context, user_id, pagina, filtro="estrellas", valor_filtro=estrellas)
-        return
-
-    elif data.startswith("mercado_filtro_grupo_"):
-        partes = data.split("_")
-        user_id = int(partes[-2])
-        pagina = int(partes[-1])
-        grupos = obtener_grupos_del_mercado()  # Pon aquí tu función para obtener los grupos
+            pass
+    except Exception as ex:
+        print("[mercado] Otro error al editar mensaje:", ex)
+        # Intenta alertar al usuario si viene de callback
         try:
-            query.edit_message_reply_markup(reply_markup=mostrar_menu_grupos(user_id, pagina, grupos))
-        except BadRequest as e:
-            if "Message is not modified" not in str(e):
-                print("Error en menu grupos:", e)
-        return
+            if hasattr(context, 'bot') and hasattr(context, 'update') and hasattr(context.update, 'callback_query'):
+                context.update.callback_query.answer(
+                    "Ocurrió un error inesperado al cambiar de página.",
+                    show_alert=True
+                )
+        except Exception:
+            pass
 
-
-    elif data.startswith("mercado_filtragrupo_"):
-        user_id = int(partes[2])
-        pagina = int(partes[3])
-        grupo = "_".join(partes[4:])
-        mostrar_mercado_pagina(query.message.chat_id, query.message.message_id, context, user_id, pagina, filtro="grupo", valor_filtro=grupo)
-        return
-
-    elif data.startswith("mercado_filtro_numero_"):
-        user_id = int(partes[3])
-        pagina = int(partes[4])
-        query.edit_message_reply_markup(reply_markup=mostrar_menu_ordenar(user_id, pagina))
-        return
-
-    elif data.startswith("mercado_ordennum_"):
-        user_id = int(partes[2])
-        pagina = int(partes[3])
-        orden = partes[4]
-        mostrar_mercado_pagina(query.message.chat_id, query.message.message_id, context, user_id, pagina, orden=orden)
-        return
-
-    elif data.startswith("mercado_pagina_"):
-        user_id = int(partes[2])
-        pagina = int(partes[3])
-        filtro = partes[4] if partes[4] != "none" else None
-        valor_filtro = partes[5] if partes[5] != "none" else None
-        orden = partes[6] if len(partes) > 6 and partes[6] != "none" else None
-        mostrar_mercado_pagina(query.message.chat_id, query.message.message_id, context, user_id, int(pagina), filtro=filtro, valor_filtro=valor_filtro, orden=orden)
-        return
 
 
     #----------Album--------------
