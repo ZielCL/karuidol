@@ -2273,15 +2273,24 @@ def comando_comprar(update, context):
         parse_mode="HTML"
     )
 
-    # Notificar al vendedor (opcional)
+    # Notificar al vendedor (privado, incluye nombre de comprador)
     try:
+        comprador = update.message.from_user
+        comprador_txt = f"<b>{comprador.full_name}</b>"
+        if comprador.username:
+            comprador_txt += f" (<code>{comprador.username}</code>)"
         context.bot.send_message(
             chat_id=carta["vendedor_id"],
-            text=f"💸 ¡Vendiste la carta <b>{carta['nombre']} [{carta['version']}]</b> y ganaste <b>{precio} Kponey</b>!",
+            text=(
+                f"💸 ¡Vendiste la carta <b>{carta['nombre']} [{carta['version']}]</b>!\n"
+                f"Ganaste <b>{precio} Kponey</b>.\n"
+                f"Comprador: {comprador_txt}"
+            ),
             parse_mode="HTML"
         )
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[AVISO] No se pudo notificar al vendedor: {e}")
+
 
 
 
