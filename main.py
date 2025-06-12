@@ -544,41 +544,33 @@ def obtener_grupos_del_mercado():
 
 def precio_carta_karuta(nombre, version, estado, id_unico=None, card_id=None):
     """
-    Calcula el precio de una carta al estilo Karuta (Discord):
-    Solo depende del número de carta (print), no importa el estado ni el total de copias.
-    Si en el futuro agregas rarezas (versiones), aquí puedes multiplicar el precio base.
+    Calcula el precio de una carta al estilo Karuta (Discord) según #n y estado.
     """
-    # Determina card_id
     if card_id is None and id_unico:
         card_id = extraer_card_id_de_id_unico(id_unico)
+    if card_id is None:
+        return 0
 
-    # SOLO versión común (V1)
-    precio_base = 0
+    precios_por_estado = {
+        "★★★": [37500, 10000, 5000, 2500],
+        "★★☆": [15000, 4000, 2000, 1000],
+        "★☆☆": [9000, 2400, 1200, 600],
+        "☆☆☆": [6000, 1600, 800, 400],
+    }
+    # Por defecto si no está el estado
+    precios = precios_por_estado.get(estado, [1000, 500, 250, 100])
+
     if card_id == 1:
-        precio_base = 12000
-    elif card_id == 2:
-        precio_base = 7000
-    elif card_id == 3:
-        precio_base = 4500
-    elif card_id == 4:
-        precio_base = 3000
-    elif card_id == 5:
-        precio_base = 2250
-    elif 6 <= card_id <= 10:
-        precio_base = 1500
+        return precios[0]
+    elif 2 <= card_id <= 10:
+        return precios[1]
     elif 11 <= card_id <= 100:
-        precio_base = 600
+        return precios[2]
     else:
-        precio_base = 500
+        return precios[3]
 
-    # Si más adelante agregas versiones raras, aplica aquí:
-    # if version == "V2":
-    #     precio_base *= 2
-    # elif version == "V3":
-    #     precio_base *= 4
-    # ... (etc)
+        return base[3]
 
-    return precio_base
 
 
 
@@ -1996,8 +1988,16 @@ def mostrar_mercado_pagina(
         ver = f"[{c.get('version', '?')}]"
         nom = c.get('nombre', '?')
         grp = c.get('grupo', '?')
-        precio = f"{c.get('precio', '?'):,}"
         idu = c.get('id_unico', '')
+
+        # Calcula el precio real en cada render
+        precio = precio_carta_karuta(
+            nom,
+            c.get('version', ''),
+            c.get('estrellas', ''),
+            card_id=c.get('card_id'),
+            id_unico=c.get('id_unico')
+        )
 
         es_fav = any(
             fav.get("nombre") == c.get("nombre") and fav.get("version") == c.get("version")
@@ -2007,7 +2007,7 @@ def mostrar_mercado_pagina(
 
         texto += (
             f"{estrellas} · {num} · {ver} · {nom} · {grp}{estrella_fav}\n"
-            f"💲{precio}\n"
+            f"💲{precio:,}\n"
             f"<code>/comprar {idu}</code>\n\n"
         )
     if not cartas_pagina:
@@ -2037,7 +2037,6 @@ def mostrar_mercado_pagina(
         )
     except telegram.error.RetryAfter as e:
         print(f"[mercado] Flood control: debes esperar {e.retry_after} segundos para editar mensaje.")
-        # Intenta notificar al usuario por alerta si viene de callback
         try:
             if hasattr(context, 'bot') and hasattr(context, 'update') and hasattr(context.update, 'callback_query'):
                 context.update.callback_query.answer(
@@ -2048,7 +2047,6 @@ def mostrar_mercado_pagina(
             pass
     except Exception as ex:
         print("[mercado] Otro error al editar mensaje:", ex)
-        # Intenta alertar al usuario si viene de callback
         try:
             if hasattr(context, 'bot') and hasattr(context, 'update') and hasattr(context.update, 'callback_query'):
                 context.update.callback_query.answer(
@@ -2057,6 +2055,7 @@ def mostrar_mercado_pagina(
                 )
         except Exception:
             pass
+
 
 
 
@@ -2184,22 +2183,35 @@ def comando_precio(update, context):
         update.message.reply_text("Usa: /precio <id_unico>\nEjemplo: /precio f4fg1")
         return
     id_unico = context.args[0].strip()
+    
+    # Buscar en inventario primero
     carta = col_cartas_usuario.find_one({"id_unico": id_unico})
+    if not carta:
+        # Si no está en inventario, buscar en el mercado
+        carta = col_mercado.find_one({"id_unico": id_unico})
     if not carta:
         update.message.reply_text("No se encontró la carta con ese ID único en la base de datos.")
         return
+
     nombre = carta['nombre']
     version = carta['version']
     estado = carta['estado']
-    # EXTRA: saca el card_id desde id_unico, para el precio especial
-    precio = precio_carta_karuta(nombre, version, estado, id_unico=id_unico)
+    estrellas = carta.get('estrellas', '★??')
+    # Obtén el card_id correctamente
+    card_id = carta.get('card_id')
+    if not card_id:
+        card_id = extraer_card_id_de_id_unico(id_unico)
+    
+    precio = precio_carta_karuta(nombre, version, estado, id_unico=id_unico, card_id=card_id)
     total_copias = col_cartas_usuario.count_documents({"nombre": nombre, "version": version})
+
     texto = (
         f"🖼️ <b>Información de carta [{id_unico}]</b>\n"
         f"• Nombre: <b>{nombre}</b>\n"
         f"• Versión: <b>{version}</b>\n"
-        f"• Estado: <b>{estado}</b>\n"
-        f"• Precio: <code>{precio} Kponey</code>\n"
+        f"• Estado: <b>{estrellas}</b>\n"
+        f"• Nº de carta: <b>#{card_id}</b>\n"
+        f"• Precio actual: <code>{precio} Kponey</code>\n"
         f"• Copias globales: <b>{total_copias}</b>"
     )
     update.message.reply_text(texto, parse_mode='HTML')
@@ -2224,7 +2236,13 @@ def comando_vender(update, context):
     version = carta['version']
     estado = carta['estado']
     id_unico = carta.get("id_unico", "")
-    precio = precio_carta_karuta(nombre, version, estado, id_unico=id_unico)
+
+    # 👇 --- CORRECCIÓN AQUÍ: card_id se extrae seguro --- 👇
+    card_id = carta.get('card_id', extraer_card_id_de_id_unico(id_unico))
+    # ------------------------------------------------------
+
+    # Calcula SIEMPRE el precio en base a la lógica vigente
+    precio = precio_carta_karuta(nombre, version, estado, id_unico=id_unico, card_id=card_id)
 
     # Verifica si ya está en mercado
     ya = col_mercado.find_one({"id_unico": id_unico})
@@ -2245,10 +2263,6 @@ def comando_vender(update, context):
                 estrellas = c.get('estado_estrella', "★??")
                 break
 
-    # --- 👇 CORRECCIÓN AQUÍ: Obtén card_id seguro 👇 ---
-    card_id = carta.get('card_id', extraer_card_id_de_id_unico(id_unico))
-    # -----------------------------------------------
-
     col_mercado.insert_one({
        "id_unico": id_unico,
        "vendedor_id": user_id,
@@ -2256,15 +2270,15 @@ def comando_vender(update, context):
        "version": version,
        "estado": estado,
        "estrellas": estrellas,
-       "precio": precio,
-       "card_id": card_id,  # <---- ¡Ahora siempre se guarda!
+       "precio": precio,  # <---- AQUÍ lo guardas, aunque luego en el mercado SIEMPRE lo recalculas
+       "card_id": card_id,
        "fecha": datetime.utcnow(),
        "imagen": carta.get("imagen"),
        "grupo": carta.get("grupo", "")
     })
     
     update.message.reply_text(
-        f"📦 Carta <b>{nombre} [{version}]</b> puesta en el mercado por <b>{precio} Kponey</b>.",
+        f"📦 Carta <b>{nombre} [{version}]</b> puesta en el mercado por <b>{precio:,} Kponey</b>.",
         parse_mode='HTML'
     )
 
@@ -2289,10 +2303,20 @@ def comando_comprar(update, context):
 
     usuario = col_usuarios.find_one({"user_id": user_id}) or {}
     saldo = usuario.get("kponey", 0)
-    precio = carta["precio"]
+
+    # SIEMPRE calcula el precio actualizado
+    precio = precio_carta_karuta(
+        carta['nombre'],
+        carta['version'],
+        carta.get('estrellas', ''),  # O carta['estado'] según tu función
+        card_id=carta.get('card_id'),
+        id_unico=carta.get('id_unico')
+    )
 
     if saldo < precio:
-        update.message.reply_text(f"No tienes suficiente Kponey. Precio: {precio}, tu saldo: {saldo}")
+        update.message.reply_text(
+            f"No tienes suficiente Kponey. Precio: {precio:,}, tu saldo: {saldo:,}"
+        )
         # Devuelve la carta al mercado si el usuario no tiene saldo suficiente
         col_mercado.insert_one(carta)
         return
@@ -2327,7 +2351,7 @@ def comando_comprar(update, context):
     revisar_sets_completados(user_id, context)
     
     update.message.reply_text(
-        f"✅ Compraste la carta <b>{carta['nombre']} [{carta['version']}]</b> por <b>{precio} Kponey</b>.",
+        f"✅ Compraste la carta <b>{carta['nombre']} [{carta['version']}]</b> por <b>{precio:,} Kponey</b>.",
         parse_mode="HTML"
     )
 
@@ -2335,7 +2359,7 @@ def comando_comprar(update, context):
     try:
         context.bot.send_message(
             chat_id=carta["vendedor_id"],
-            text=f"💸 ¡Vendiste la carta <b>{carta['nombre']} [{carta['version']}]</b> y ganaste <b>{precio} Kponey</b>!",
+            text=f"💸 ¡Vendiste la carta <b>{carta['nombre']} [{carta['version']}]</b> y ganaste <b>{precio:,} Kponey</b>!",
             parse_mode="HTML"
         )
     except Exception:
@@ -2531,7 +2555,13 @@ def comando_ampliar(update, context):
     grupo = grupo_de_carta(nombre, version)
     estrellas = carta.get('estrellas', '★??')
     estado = carta.get('estado', '')
-    card_id = carta.get('card_id', '')
+
+    # --- CORREGIDO: asegúrate de tener el card_id correcto ---
+    card_id = carta.get('card_id')
+    if not card_id:
+        card_id = extraer_card_id_de_id_unico(id_unico)
+    # ---------------------------------------------------------
+
     total_copias = col_cartas_usuario.count_documents({"nombre": nombre, "version": version})
 
     # Saber si es favorita (solo si está en el álbum)
@@ -2540,8 +2570,8 @@ def comando_ampliar(update, context):
     es_fav = any(fav.get("nombre") == nombre and fav.get("version") == version for fav in favoritos)
     estrella_fav = "⭐ " if es_fav else ""
 
-    # --- Corrige aquí: usa el precio guardado si está en mercado ---
-    precio = precio_carta_karuta(nombre, version, estado, id_unico=id_unico)
+    # SIEMPRE usa la función de precio dinámica:
+    precio = precio_carta_karuta(nombre, version, estado, id_unico=id_unico, card_id=card_id)
 
     # Texto bonito
     texto = (
@@ -2569,6 +2599,7 @@ def comando_ampliar(update, context):
         parse_mode='HTML',
         reply_markup=teclado
     )
+
 
 
 @cooldown_critico
@@ -3089,12 +3120,14 @@ def callback_ampliar_vender(update, context):
         query.answer("No tienes esa carta en tu álbum.", show_alert=True)
         return
 
-    # Realiza venta igual que el comando /vender
     nombre = carta['nombre']
     version = carta['version']
     estado = carta['estado']
-    precio = precio_carta_karuta(nombre, version, estado, id_unico=id_unico)
+    # --- Asegura card_id correcto
     card_id = carta.get("card_id", extraer_card_id_de_id_unico(id_unico))
+    # --- Calcula el precio actualizado
+    precio = precio_carta_karuta(nombre, version, estado, id_unico=id_unico, card_id=card_id)
+    estrellas = carta.get('estrellas', '★??')
 
     # Ya está en mercado?
     ya = col_mercado.find_one({"id_unico": id_unico})
@@ -3103,7 +3136,7 @@ def callback_ampliar_vender(update, context):
         return
 
     col_cartas_usuario.delete_one({"user_id": user_id, "id_unico": id_unico})
-    estrellas = carta.get('estrellas', '★??')
+
     col_mercado.insert_one({
        "id_unico": id_unico,
        "vendedor_id": user_id,
@@ -3111,7 +3144,7 @@ def callback_ampliar_vender(update, context):
        "version": version,
        "estado": estado,
        "estrellas": estrellas,
-       "precio": precio,
+       "precio": precio,  # Guardas el precio de acuerdo al sistema vigente
        "card_id": card_id,
        "fecha": datetime.utcnow(),
        "imagen": carta.get("imagen"),
@@ -3120,9 +3153,10 @@ def callback_ampliar_vender(update, context):
 
     query.answer("Carta puesta en el mercado.", show_alert=True)
     query.edit_message_caption(
-        caption="📦 Carta puesta en el mercado.",
+        caption=f"📦 Carta puesta en el mercado por <b>{precio:,} Kponey</b>.",
         parse_mode='HTML'
     )
+
 
 #-------------mostrar_menu_mercado------------
 
