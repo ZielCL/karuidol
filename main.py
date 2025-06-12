@@ -1637,23 +1637,17 @@ def mostrar_menu_grupos_album(user_id, pagina):
 
 def manejador_callback_setdet(update, context):
     query = update.callback_query
-    data = query.data  # Ejemplo: 'setdet_TWICE_123456_2'
-    partes = data.split("_")
-    if len(partes) < 4:
-        query.answer("Error en paginación.", show_alert=True)
+    data = query.data  # Ejemplo: 'setdet_TWICE_123456789_2'
+    partes = data.split("_", 3)
+    if len(partes) != 4:
+        query.answer("Error en paginación", show_alert=True)
         return
-    set_name = "_".join(partes[1:-2])
-    user_id = int(partes[-2])
-    pagina = int(partes[-1])
-    usuario_id = query.from_user.id
-
-    # Bloquea a quien no es el dueño
-    if usuario_id != user_id:
-        query.answer("Solo puedes interactuar con tu propio set.", show_alert=True)
-        return
-
+    set_name = partes[1]
+    user_id = int(partes[2])
+    pagina = int(partes[3])
     mostrar_detalle_set(update, context, set_name, user_id, pagina=pagina, mensaje=query.message, editar=True)
     query.answer()
+
 
 
 
@@ -2990,7 +2984,7 @@ def comando_set_detalle(update, context):
     if not set_match:
         mostrar_lista_set(update, context, pagina=1, error=nombre_set)
         return
-    mostrar_detalle_set(update, context, set_match, pagina=1)
+    mostrar_detalle_set(update, context, set_match, user_id, pagina=1)
 
 def mostrar_lista_set(update, context, pagina=1, mensaje=None, editar=False, error=None):
     sets = obtener_sets_disponibles()
