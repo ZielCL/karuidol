@@ -246,6 +246,55 @@ def paypal_cancel():
 
 
 
+def actualizar_mision_diaria_idolday(user_id, context):
+    """
+    Suma el contador de drops de misión diaria y da recompensa SOLO si corresponde.
+    Envía notificación por privado si completa la misión.
+    """
+    hoy_str = datetime.utcnow().strftime('%Y-%m-%d')
+    user_doc = col_usuarios.find_one({"user_id": user_id}) or {}
+    misiones = user_doc.get("misiones", {})
+    ultima_mision = misiones.get("ultima_mision_idolday", "")
+    if ultima_mision != hoy_str:
+        misiones["idolday_hoy"] = 0
+        misiones["mision_completada"] = False  # Solo entrega una vez por día
+
+    misiones["idolday_hoy"] = misiones.get("idolday_hoy", 0) + 1
+    misiones["ultima_mision_idolday"] = hoy_str
+
+    recompensa_entregada = False
+    if (
+        misiones["idolday_hoy"] >= 3
+        and not misiones.get("mision_completada", False)
+    ):
+        # Suma recompensa y marca como entregada
+        col_usuarios.update_one(
+            {"user_id": user_id},
+            {"$inc": {"kponey": 150}}
+        )
+        misiones["mision_completada"] = True
+        recompensa_entregada = True
+
+    # Guarda misiones
+    col_usuarios.update_one(
+        {"user_id": user_id},
+        {"$set": {"misiones": misiones}}
+    )
+
+    # Notifica por privado si completó la misión
+    if recompensa_entregada:
+        try:
+            context.bot.send_message(
+                chat_id=user_id,
+                text=(
+                    "🎉 <b>¡Misión diaria completada!</b>\n"
+                    "Has recibido <b>150 Kponey</b> por hacer 3 drops hoy.\n"
+                    "¡Sigue coleccionando!"
+                ),
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            print("No se pudo notificar misión diaria:", e)
 
 
 
@@ -746,12 +795,10 @@ def comando_idolday(update, context):
     ultimo_drop = COOLDOWN_GRUPO.get(chat_id, 0)
     if ahora_ts - ultimo_drop < COOLDOWN_GRUPO_SEG:
         faltante = int(COOLDOWN_GRUPO_SEG - (ahora_ts - ultimo_drop))
-        # Intenta borrar el mensaje del usuario
         try:
             update.message.delete()
         except Exception as e:
             print("[idolday] Error al borrar el mensaje:", e)
-        # Envía mensaje de cooldown y lo elimina después de 10 segundos
         try:
             msg_cooldown = context.bot.send_message(
                 chat_id=chat_id,
@@ -769,6 +816,41 @@ def comando_idolday(update, context):
 
     # --- Cooldown por usuario (6 horas o bono) ---
     cooldown_listo, bono_listo = puede_usar_idolday(user_id)
+    mision_completada_hoy = False
+    premio_entregado = False
+
+    # === Función para gestionar misión diaria ===
+    def actualiza_mision_diaria(user_id):
+        user_doc = col_usuarios.find_one({"user_id": user_id}) or {}
+        misiones = user_doc.get("misiones", {})
+        hoy_str = datetime.utcnow().strftime('%Y-%m-%d')
+        ultima_mision = misiones.get("ultima_mision_idolday", "")
+        entregada = misiones.get("idolday_entregada", "")
+        if ultima_mision != hoy_str:
+            misiones["idolday_hoy"] = 0
+            misiones["idolday_entregada"] = ""  # reset entregada también
+        misiones["idolday_hoy"] = misiones.get("idolday_hoy", 0) + 1
+        misiones["ultima_mision_idolday"] = hoy_str
+
+        # Chequea misión y entrega premio solo si no fue entregado hoy
+        mision_completada = misiones["idolday_hoy"] >= 3
+        premio_dado = False
+        if mision_completada and misiones.get("idolday_entregada", "") != hoy_str:
+            col_usuarios.update_one({"user_id": user_id}, {"$inc": {"kponey": 150}})
+            # Notificación privada
+            try:
+                context.bot.send_message(
+                    chat_id=user_id,
+                    text="🎉 ¡Misión diaria completada!\n\nHas recibido <b>150 Kponey</b> por hacer 3 drops hoy.",
+                    parse_mode="HTML"
+                )
+            except Exception as e:
+                print("[idolday] No se pudo notificar la misión completada:", e)
+            misiones["idolday_entregada"] = hoy_str
+            premio_dado = True
+        # Guarda misión
+        col_usuarios.update_one({"user_id": user_id}, {"$set": {"misiones": misiones}})
+        return mision_completada, premio_dado
 
     if cooldown_listo:
         puede_tirar = True
@@ -778,18 +860,7 @@ def comando_idolday(update, context):
             upsert=True
         )
         # === ACTUALIZA MISIÓN DIARIA DE DROPS ===
-        hoy_str = datetime.utcnow().strftime('%Y-%m-%d')
-        user_doc = col_usuarios.find_one({"user_id": user_id}) or {}
-        misiones = user_doc.get("misiones", {})
-        ultima_mision = misiones.get("ultima_mision_idolday", "")
-        if ultima_mision != hoy_str:
-            misiones["idolday_hoy"] = 0
-        misiones["idolday_hoy"] = misiones.get("idolday_hoy", 0) + 1
-        misiones["ultima_mision_idolday"] = hoy_str
-        col_usuarios.update_one(
-            {"user_id": user_id},
-            {"$set": {"misiones": misiones}}
-        )
+        mision_completada_hoy, premio_entregado = actualiza_mision_diaria(user_id)
     elif bono_listo:
         puede_tirar = True
         objetos = user_doc.get('objetos', {})
@@ -807,21 +878,10 @@ def comando_idolday(update, context):
                 upsert=True
             )
         # === ACTUALIZA MISIÓN DIARIA DE DROPS TAMBIÉN AQUÍ ===
-        hoy_str = datetime.utcnow().strftime('%Y-%m-%d')
-        user_doc = col_usuarios.find_one({"user_id": user_id}) or {}
-        misiones = user_doc.get("misiones", {})
-        ultima_mision = misiones.get("ultima_mision_idolday", "")
-        if ultima_mision != hoy_str:
-            misiones["idolday_hoy"] = 0
-        misiones["idolday_hoy"] = misiones.get("idolday_hoy", 0) + 1
-        misiones["ultima_mision_idolday"] = hoy_str
-        col_usuarios.update_one(
-            {"user_id": user_id},
-            {"$set": {"misiones": misiones}}
-        )
+        mision_completada_hoy, premio_entregado = actualiza_mision_diaria(user_id)
     else:
         try:
-            update.message.delete()  # Borra el mensaje del usuario al instante
+            update.message.delete()
         except Exception as e:
             print("[idolday] Error al borrar el mensaje del usuario (cooldown usuario):", e)
         if last:
@@ -904,13 +964,12 @@ def comando_idolday(update, context):
         text=texto_drop,
         reply_markup=InlineKeyboardMarkup([
             [
-                InlineKeyboardButton("1️⃣", callback_data=f"reclamar_{chat_id}_{0}_0"),  # temporal, se corregirá abajo
+                InlineKeyboardButton("1️⃣", callback_data=f"reclamar_{chat_id}_{0}_0"),
                 InlineKeyboardButton("2️⃣", callback_data=f"reclamar_{chat_id}_{0}_1"),
             ]
         ])
     )
 
-    # AHORA sí: actualizamos los callback_data con el message_id correcto (el del mensaje de botones)
     botones_reclamar = [
         InlineKeyboardButton("1️⃣", callback_data=f"reclamar_{chat_id}_{msg_botones.message_id}_0"),
         InlineKeyboardButton("2️⃣", callback_data=f"reclamar_{chat_id}_{msg_botones.message_id}_1"),
@@ -937,7 +996,6 @@ def comando_idolday(update, context):
         "primer_reclamo_dueño": None,
     }
 
-    # Guarda el drop en RAM y en MongoDB (persistente ante caídas)
     DROPS_ACTIVOS[drop_id] = drop_data
     if "col_drops" in globals():
         col_drops.update_one(
@@ -1006,14 +1064,16 @@ def comando_kkp(update, context):
     idolday_hoy = misiones.get("idolday_hoy", 0)
     ultima_mision_idolday = misiones.get("ultima_mision_idolday", "")
 
+    # Si la misión ya está reseteada hoy pero el contador no, reinícialo solo para mostrar
+    if ultima_mision_idolday != hoy_str:
+        idolday_hoy = 0
+
     # Calcula tiempo restante para resetear misión diaria
     ahora = datetime.utcnow()
-    if ultima_mision_idolday == hoy_str:
-        # Próximo reset es a medianoche UTC
-        hoy_dt = datetime.strptime(hoy_str, "%Y-%m-%d")
-        reset_dt = hoy_dt + timedelta(days=1)
-        falta_reset = (reset_dt - ahora).total_seconds()
-    else:
+    hoy_dt = datetime.strptime(hoy_str, "%Y-%m-%d")
+    reset_dt = hoy_dt + timedelta(days=1)
+    falta_reset = (reset_dt - ahora).total_seconds()
+    if falta_reset < 0:
         falta_reset = 0
 
     # Mensaje bonito estilo Karuta
@@ -1025,7 +1085,7 @@ def comando_kkp(update, context):
         texto += "<b>¡Disponible ahora!</b>\n"
 
     texto += (
-        f"📝 <b>Misión diaria:</b> Haz 3 drops hoy ({idolday_hoy}/3)\n"
+        f"📝 <b>Misión diaria:</b> Haz 3 drops hoy (<b>{idolday_hoy}</b>/3)\n"
         f"⏳ Tiempo restante para misión: <b>{format_tiempo(falta_reset)}</b>\n"
     )
 
@@ -1035,6 +1095,7 @@ def comando_kkp(update, context):
         texto += "🔔 ¡Aún puedes completar la misión de hoy!\n"
 
     update.message.reply_text(texto, parse_mode="HTML")
+
 
 
 
