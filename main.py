@@ -767,8 +767,6 @@ def comando_idolday(update, context):
             print("[idolday] Error al mandar mensaje de cooldown:", e)
         return
 
-
-
     # --- Cooldown por usuario (6 horas o bono) ---
     cooldown_listo, bono_listo = puede_usar_idolday(user_id)
 
@@ -779,24 +777,48 @@ def comando_idolday(update, context):
             {"$set": {"last_idolday": ahora}},
             upsert=True
         )
+        # === ACTUALIZA MISIÓN DIARIA DE DROPS ===
+        hoy_str = datetime.utcnow().strftime('%Y-%m-%d')
+        user_doc = col_usuarios.find_one({"user_id": user_id}) or {}
+        misiones = user_doc.get("misiones", {})
+        ultima_mision = misiones.get("ultima_mision_idolday", "")
+        if ultima_mision != hoy_str:
+            misiones["idolday_hoy"] = 0
+        misiones["idolday_hoy"] = misiones.get("idolday_hoy", 0) + 1
+        misiones["ultima_mision_idolday"] = hoy_str
+        col_usuarios.update_one(
+            {"user_id": user_id},
+            {"$set": {"misiones": misiones}}
+        )
     elif bono_listo:
         puede_tirar = True
         objetos = user_doc.get('objetos', {})
         bonos_inventario = objetos.get('bono_idolday', 0)
         if bonos_inventario and bonos_inventario > 0:
-            # Gasta del inventario
             col_usuarios.update_one(
                 {"user_id": user_id},
                 {"$inc": {"objetos.bono_idolday": -1}},
                 upsert=True
             )
         else:
-            # Gasta del campo legacy (admin)
             col_usuarios.update_one(
                 {"user_id": user_id},
                 {"$inc": {"bono": -1}},
                 upsert=True
             )
+        # === ACTUALIZA MISIÓN DIARIA DE DROPS TAMBIÉN AQUÍ ===
+        hoy_str = datetime.utcnow().strftime('%Y-%m-%d')
+        user_doc = col_usuarios.find_one({"user_id": user_id}) or {}
+        misiones = user_doc.get("misiones", {})
+        ultima_mision = misiones.get("ultima_mision_idolday", "")
+        if ultima_mision != hoy_str:
+            misiones["idolday_hoy"] = 0
+        misiones["idolday_hoy"] = misiones.get("idolday_hoy", 0) + 1
+        misiones["ultima_mision_idolday"] = hoy_str
+        col_usuarios.update_one(
+            {"user_id": user_id},
+            {"$set": {"misiones": misiones}}
+        )
     else:
         try:
             update.message.delete()  # Borra el mensaje del usuario al instante
@@ -832,8 +854,6 @@ def comando_idolday(update, context):
             except Exception as e:
                 print("[idolday] Error al mandar mensaje cooldown usuario (sin tiempo):", e)
         return
-
-
 
     # --- Actualiza el cooldown global ---
     COOLDOWN_GRUPO[chat_id] = ahora_ts
