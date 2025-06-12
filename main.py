@@ -1667,65 +1667,32 @@ def manejador_callback_album(update, context):
     partes = data.split("_")
     usuario_id = query.from_user.id
 
-    # DEBUG LOG
-    print("query.data:", data)
-    print("partes:", partes)
+    # === 1. Extrae el dueño del álbum (el user_id de los botones) ===
+    # Siempre está en una posición conocida según el callback_data:
+    def extraer_dueño_id(data, partes):
+        if data.startswith("album_pagina_"):
+            return int(partes[2])
+        if data.startswith("album_filtros_"):
+            return int(partes[2])
+        if data.startswith("album_filtro_estado_") or data.startswith("album_filtro_grupo_") or data.startswith("album_filtro_numero_"):
+            return int(partes[-2])
+        if data.startswith("album_filtraestrella_") or data.startswith("album_filtragrupo_") or data.startswith("album_ordennum_"):
+            return int(partes[2])
+        if data.startswith("album_sin_filtro_"):
+            return int(partes[2])
+        if data.startswith("album_fav_"):
+            return int(partes[2])
+        return None
+
+    dueño_id = extraer_dueño_id(data, partes)
+    print("dueño_id detectado:", dueño_id)
     print("usuario_id que presionó:", usuario_id)
 
-    # Busca user_id explícitamente en cada tipo de callback_data del álbum
-    dueño_id = None
-    for p in partes:
-        if p.isdigit() and len(p) > 5:  # asume user_id >= 100000
-            dueño_id = int(p)
-            break
-
-    print("dueño_id detectado:", dueño_id)
-
+    # --- Si el usuario NO es el dueño, alerta y no hace nada ---
     if dueño_id and usuario_id != dueño_id:
         query.answer("Solo puedes interactuar con tu propio álbum.", show_alert=True)
         return
 
-    # === 1. Determina el tipo de callback y la posición del user_id ===
-    dueño_id = None
-    try:
-        if data.startswith("album_pagina_"):
-            # album_pagina_userid_pagina_filtro_valor_orden
-            if len(partes) >= 4 and partes[2].isdigit():
-                dueño_id = int(partes[2])
-        elif data.startswith("album_filtros_"):
-            # album_filtros_userid_pagina
-            if len(partes) >= 3 and partes[2].isdigit():
-                dueño_id = int(partes[2])
-        elif data.startswith("album_filtro_estado_") or data.startswith("album_filtro_grupo_") or data.startswith("album_filtro_numero_"):
-            # album_filtro_estado_userid_pagina
-            if len(partes) >= 4 and partes[2].isdigit():
-                dueño_id = int(partes[2])
-        elif data.startswith("album_filtraestrella_") or data.startswith("album_filtragrupo_") or data.startswith("album_ordennum_"):
-            # album_filtraestrella_userid_pagina_valor
-            if len(partes) >= 3 and partes[2].isdigit():
-                dueño_id = int(partes[2])
-        elif data.startswith("album_sin_filtro_"):
-            # album_sin_filtro_userid
-            if len(partes) >= 3 and partes[2].isdigit():
-                dueño_id = int(partes[2])
-        elif data.startswith("album_fav_"):
-            if len(partes) >= 3 and partes[2].isdigit():
-                dueño_id = int(partes[2])
-        else:
-            # Fallback: busca el primer número largo de la lista
-            for part in partes:
-                if part.isdigit() and len(part) >= 5:
-                    dueño_id = int(part)
-                    break
-    except Exception:
-        dueño_id = None
-
-    # === 2. Si el que aprieta NO es el dueño, bloquear ===
-    if dueño_id and usuario_id != dueño_id:
-        query.answer("Solo puedes interactuar con tu propio álbum.", show_alert=True)
-        return
-
-  
     # --- Filtro por estrellas (estado) ---
     if data.startswith("album_filtro_estado_"):
         user_id = int(partes[-2])
@@ -1742,7 +1709,7 @@ def manejador_callback_album(update, context):
         user_id = int(partes[2])
         pagina = int(partes[3])
         estrellas = partes[4]
-        mostrar_album_pagina(update, context, query.message.chat_id, query.message.message_id, context, user_id, pagina, filtro="estrellas", valor_filtro=estrellas)
+        mostrar_album_pagina(update, context, query.message.chat_id, query.message.message_id, user_id, pagina, filtro="estrellas", valor_filtro=estrellas)
         return
 
     # --- Filtro por grupo ---
@@ -1762,7 +1729,7 @@ def manejador_callback_album(update, context):
         user_id = int(partes[2])
         pagina = int(partes[3])
         grupo = "_".join(partes[4:])
-        mostrar_album_pagina(update, context, query.message.chat_id, query.message.message_id, context, user_id, pagina, filtro="grupo", valor_filtro=grupo)
+        mostrar_album_pagina(update, context, query.message.chat_id, query.message.message_id, user_id, pagina, filtro="grupo", valor_filtro=grupo)
         return
 
     # --- Menú de filtros principal ---
@@ -1792,7 +1759,7 @@ def manejador_callback_album(update, context):
         user_id = int(partes[2])
         pagina = int(partes[3])
         orden = partes[4]
-        mostrar_album_pagina(update, context, query.message.chat_id, query.message.message_id, context, user_id, pagina, orden=orden)
+        mostrar_album_pagina(update, context, query.message.chat_id, query.message.message_id, user_id, pagina, orden=orden)
         return
 
     # --- Volver al álbum completo (sin filtros) ---
@@ -1802,8 +1769,9 @@ def manejador_callback_album(update, context):
         filtro = partes[4] if len(partes) > 4 and partes[4] != "none" else None
         valor_filtro = partes[5] if len(partes) > 5 and partes[5] != "none" else None
         orden = partes[6] if len(partes) > 6 and partes[6] != "none" else None
-        mostrar_album_pagina(update, context, query.message.chat_id, query.message.message_id, context, user_id, int(pagina), filtro=filtro, valor_filtro=valor_filtro, orden=orden)
+        mostrar_album_pagina(update, context, query.message.chat_id, query.message.message_id, user_id, int(pagina), filtro=filtro, valor_filtro=valor_filtro, orden=orden)
         return
+
 
 
 
