@@ -48,6 +48,7 @@ col_usuarios = db['usuarios']
 col_cartas_usuario = db['cartas_usuario']
 col_contadores = db['contadores']
 col_mercado = db['mercado_cartas']
+col_historial_ventas = db['historial_ventas']
 col_mercado.create_index("id_unico", unique=True)
 col_cartas_usuario.create_index("id_unico", unique=True)
 col_cartas_usuario.create_index("user_id")
@@ -2257,6 +2258,20 @@ def comando_comprar(update, context):
     col_usuarios.update_one({"user_id": user_id}, {"$inc": {"kponey": -precio}}, upsert=True)
     col_usuarios.update_one({"user_id": carta["vendedor_id"]}, {"$inc": {"kponey": precio}}, upsert=True)
 
+    # Guardar historial de venta (nuevo para el ranking)
+    col_historial_ventas.insert_one({
+        "carta": {
+            "nombre": carta.get('nombre'),
+            "version": carta.get('version'),
+            "card_id": card_id,
+            "estrellas": estrellas,
+        },
+        "precio": precio,
+        "comprador_id": user_id,
+        "vendedor_id": carta["vendedor_id"],
+        "fecha": datetime.utcnow()
+    })
+
     # Preparar carta para el inventario del usuario
     carta['user_id'] = user_id
     for key in ['_id', 'vendedor_id', 'precio', 'fecha']:
@@ -2274,7 +2289,7 @@ def comando_comprar(update, context):
         parse_mode="HTML"
     )
 
-    # Notificar al vendedor (privado, incluye nombre de comprador)
+    # Notificar al vendedor (privado, incluye nombre y username de comprador)
     try:
         comprador = update.message.from_user
         comprador_txt = f"<b>{comprador.full_name}</b>"
@@ -2291,6 +2306,49 @@ def comando_comprar(update, context):
         )
     except Exception as e:
         print(f"[AVISO] No se pudo notificar al vendedor: {e}")
+
+
+
+
+def comando_rankingmercado(update, context):
+    # Ranking de vendedores (top 10)
+    pipeline_v = [
+        {"$group": {"_id": "$vendedor_id", "ventas": {"$sum": 1}}},
+        {"$sort": {"ventas": -1}},
+        {"$limit": 10}
+    ]
+    top_vendedores = list(col_historial_ventas.aggregate(pipeline_v))
+
+    # Ranking de compradores (top 10)
+    pipeline_c = [
+        {"$group": {"_id": "$comprador_id", "compras": {"$sum": 1}}},
+        {"$sort": {"compras": -1}},
+        {"$limit": 10}
+    ]
+    top_compradores = list(col_historial_ventas.aggregate(pipeline_c))
+
+    texto = "<b>🏆 Ranking Mercado</b>\n"
+    texto += "\n<b>🔹 Top 10 Vendedores:</b>\n"
+    for i, v in enumerate(top_vendedores, 1):
+        if not v["_id"]: continue  # omite ventas anónimas (por si acaso)
+        user = col_usuarios.find_one({"user_id": v["_id"]}) or {}
+        username = user.get("username") or f"ID:{v['_id']}"
+        texto += f"{i}. <code>{username}</code> — {v['ventas']} ventas\n"
+
+    texto += "\n<b>🔸 Top 10 Compradores:</b>\n"
+    for i, c in enumerate(top_compradores, 1):
+        if not c["_id"]: continue
+        user = col_usuarios.find_one({"user_id": c["_id"]}) or {}
+        username = user.get("username") or f"ID:{c['_id']}"
+        texto += f"{i}. <code>{username}</code> — {c['compras']} compras\n"
+
+    update.message.reply_text(texto, parse_mode="HTML")
+
+
+
+
+
+
 
 
 
@@ -3842,6 +3900,7 @@ dispatcher.add_handler(CallbackQueryHandler(manejador_tienda_paypal, pattern=r"^
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback))
 # === HANDLERS de comandos ===
 dispatcher.add_handler(CommandHandler('mercado', comando_mercado))
+dispatcher.add_handler(CommandHandler('rankingmercado', comando_rankingmercado))
 dispatcher.add_handler(CommandHandler('tiendagemas', tienda_gemas))
 dispatcher.add_handler(CommandHandler('darGemas', comando_darGemas))
 dispatcher.add_handler(CommandHandler('gemas', comando_gemas))
