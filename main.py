@@ -1980,7 +1980,6 @@ def mostrar_mercado_pagina(
     usuario = col_usuarios.find_one({"user_id": user_id}) or {}
     favoritos = usuario.get("favoritos", [])
 
-    # --- TEXTO LISTA ---
     texto = "<b>🛒 Mercado</b>\n"
     for c in cartas_pagina:
         estrellas = f"[{c.get('estrellas', '?')}]"
@@ -1990,7 +1989,6 @@ def mostrar_mercado_pagina(
         grp = c.get('grupo', '?')
         idu = c.get('id_unico', '')
 
-        # Calcula el precio real en cada render (según la tabla)
         precio = precio_carta_tabla(
             c.get('estrellas', '☆☆☆'),
             c.get('card_id', 0)
@@ -2002,9 +2000,19 @@ def mostrar_mercado_pagina(
         )
         estrella_fav = " ⭐" if es_fav else ""
 
+        # --- Mostrar vendedor ---
+        vendedor_id = c.get("vendedor_id")
+        vendedor_linea = ""
+        if vendedor_id:
+            vendedor_doc = col_usuarios.find_one({"user_id": vendedor_id}) or {}
+            username = vendedor_doc.get("username")
+            if username:
+                vendedor_linea = f'👤 Vendedor: <a href="https://t.me/{username}">@{username}</a>\n'
+        
         texto += (
             f"{estrellas} · {num} · {ver} · {nom} · {grp}{estrella_fav}\n"
             f"💲{precio:,}\n"
+            f"{vendedor_linea}"
             f"<code>/comprar {idu}</code>\n\n"
         )
     if not cartas_pagina:
@@ -2029,7 +2037,7 @@ def mostrar_mercado_pagina(
             chat_id=chat_id,
             message_id=message_id,
             text=texto,
-            parse_mode="HTML",
+            parse_mode="HTML",  # Importante para enlaces
             reply_markup=teclado
         )
     except telegram.error.RetryAfter as e:
@@ -2052,6 +2060,7 @@ def mostrar_mercado_pagina(
                 )
         except Exception:
             pass
+
 
 
 
