@@ -1635,6 +1635,30 @@ def mostrar_menu_grupos_album(user_id, pagina):
 
 
 
+def manejador_callback_setdet(update, context):
+    query = update.callback_query
+    data = query.data  # Ejemplo: 'setdet_TWICE_123456_2'
+    partes = data.split("_")
+    if len(partes) < 4:
+        query.answer("Error en paginación.", show_alert=True)
+        return
+    set_name = "_".join(partes[1:-2])
+    user_id = int(partes[-2])
+    pagina = int(partes[-1])
+    usuario_id = query.from_user.id
+
+    # Bloquea a quien no es el dueño
+    if usuario_id != user_id:
+        query.answer("Solo puedes interactuar con tu propio set.", show_alert=True)
+        return
+
+    mostrar_detalle_set(update, context, set_name, user_id, pagina=pagina, mensaje=query.message, editar=True)
+    query.answer()
+
+
+
+
+
 def manejador_callback_setlist(update, context):
     query = update.callback_query
     data = query.data  # Ejemplo: 'setlist_2'
@@ -2997,13 +3021,10 @@ def mostrar_lista_set(update, context, pagina=1, mensaje=None, editar=False, err
     else:
         context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML")
 
-def mostrar_detalle_set(update, context, set_name, pagina=1, mensaje=None, editar=False):
-    user_id = update.effective_user.id
+def mostrar_detalle_set(update, context, set_name, user_id, pagina=1, mensaje=None, editar=False):
     chat_id = update.effective_chat.id
 
-    # Todas las cartas del set (puede haber repetidas por estado)
     cartas_set = [c for c in cartas if (c.get("set") == set_name or c.get("grupo") == set_name)]
-    # Solo (nombre, version) únicas
     cartas_set_unicas = []
     vistos = set()
     for c in cartas_set:
@@ -3020,11 +3041,9 @@ def mostrar_detalle_set(update, context, set_name, pagina=1, mensaje=None, edita
     inicio = (pagina - 1) * por_pagina
     fin = min(inicio + por_pagina, total)
 
-    # Cartas únicas que tiene el usuario (SIN importar el estado)
     cartas_usuario = list(col_cartas_usuario.find({"user_id": user_id}))
     cartas_usuario_unicas = set((c["nombre"], c["version"]) for c in cartas_usuario)
 
-    # Trae favoritos del usuario
     user_doc = col_usuarios.find_one({"user_id": user_id}) or {}
     favoritos = user_doc.get("favoritos", [])
 
@@ -3039,33 +3058,26 @@ def mostrar_detalle_set(update, context, set_name, pagina=1, mensaje=None, edita
         nombre = carta["nombre"]
         version = carta["version"]
         nombre_version = f"[{version}] {nombre}"
-
-        # ¿Es favorito?
         es_fav = any(fav.get("nombre") == nombre and fav.get("version") == version for fav in favoritos)
         icono_fav = " ⭐" if es_fav else ""
-
-        # ¿El usuario tiene la carta?
         if key in cartas_usuario_unicas:
             texto += f"✅ <code>{nombre_version}</code>{icono_fav}\n"
         else:
             texto += f"❌ <code>{nombre_version}</code>{icono_fav}\n"
 
-    # Mensaje de ayuda para favoritos
     texto += (
         "\n<i>Para añadir una carta a favoritos:</i>\n"
         "Copia el nombre (incluyendo los corchetes) y usa:\n"
         "<code>/fav [V1] Tzuyu</code>\n"
     )
-
     if usuario_tiene == total and total > 0:
         texto += "\n🎉 <b>¡Completaste este set!</b> 🎉"
 
-    # Botones de paginación
     botones = []
     if pagina > 1:
-        botones.append(InlineKeyboardButton("⬅️", callback_data=f"setdet_{set_name}_{pagina-1}"))
+        botones.append(InlineKeyboardButton("⬅️", callback_data=f"setdet_{set_name}_{user_id}_{pagina-1}"))
     if pagina < paginas:
-        botones.append(InlineKeyboardButton("➡️", callback_data=f"setdet_{set_name}_{pagina+1}"))
+        botones.append(InlineKeyboardButton("➡️", callback_data=f"setdet_{set_name}_{user_id}_{pagina+1}"))
     teclado = InlineKeyboardMarkup([botones]) if botones else None
 
     if editar and mensaje:
@@ -3894,6 +3906,7 @@ dispatcher.add_handler(CallbackQueryHandler(callback_mejorar_carta, pattern="^me
 dispatcher.add_handler(CallbackQueryHandler(callback_confirmar_mejora, pattern="^(confirmamejora_|cancelarmejora)"))
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback_setlist, pattern=r"^setlist_"))
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback_setsprogreso, pattern=r"^setsprogreso_"))
+dispatcher.add_handler(CallbackQueryHandler(manejador_callback_setdet, pattern=r"^setdet_"))
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback, pattern="^mercado_"))
 dispatcher.add_handler(CallbackQueryHandler(manejador_tienda_paypal, pattern=r"^tienda_paypal_"))
 # ESTOS GENERAL SIEMPRE AL FINAL (sin pattern)
