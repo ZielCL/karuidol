@@ -2007,7 +2007,8 @@ def mostrar_mercado_pagina(
             vendedor_doc = col_usuarios.find_one({"user_id": vendedor_id}) or {}
             username = vendedor_doc.get("username")
             if username:
-                vendedor_linea = f'👤 Vendedor: <a href="https://t.me/{username}">@{username}</a>\n'
+                vendedor_linea = f'👤 Vendedor: <code>{username}</code>\n'
+
         
         texto += (
             f"{estrellas} · {num} · {ver} · {nom} · {grp}{estrella_fav}\n"
