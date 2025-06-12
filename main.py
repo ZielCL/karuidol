@@ -2186,11 +2186,11 @@ def comando_vender(update, context):
 
     nombre = carta['nombre']
     version = carta['version']
-    # Usamos estado_estrella siempre, como pediste
-    estrellas = carta.get('estrellas', '☆☆☆')
+    estado = carta['estado']
+    estrellas = carta.get('estrellas')
     id_unico = carta.get("id_unico", "")
     card_id = carta.get('card_id', extraer_card_id_de_id_unico(id_unico))
-    precio = precio_carta_tabla(estrellas, card_id)  # NUEVA FUNCIÓN DE PRECIOS
+    precio = precio_carta_tabla(estrellas, card_id)
 
     # Verifica si ya está en mercado
     ya = col_mercado.find_one({"id_unico": id_unico})
@@ -2202,23 +2202,24 @@ def comando_vender(update, context):
     col_cartas_usuario.delete_one({"user_id": user_id, "id_unico": id_unico})
 
     col_mercado.insert_one({
-       "id_unico": id_unico,
-       "vendedor_id": user_id,
-       "nombre": nombre,
-       "version": version,
-       "estado": carta.get('estado', ''),
-       "estrellas": estrellas,
-       "precio": precio,
-       "card_id": card_id,
-       "fecha": datetime.utcnow(),
-       "imagen": carta.get("imagen"),
-       "grupo": carta.get("grupo", "")
+        "id_unico": id_unico,
+        "vendedor_id": user_id,     # ← SIEMPRE lo guarda aquí
+        "nombre": nombre,
+        "version": version,
+        "estado": estado,
+        "estrellas": estrellas,
+        "precio": precio,
+        "card_id": card_id,
+        "fecha": datetime.utcnow(),
+        "imagen": carta.get("imagen"),
+        "grupo": carta.get("grupo", "")
     })
 
     update.message.reply_text(
         f"📦 Carta <b>{nombre} [{version}]</b> puesta en el mercado por <b>{precio} Kponey</b>.",
         parse_mode='HTML'
     )
+
 
 
 #----------Comprar carta del mercado------------------
@@ -3043,12 +3044,11 @@ def callback_ampliar_vender(update, context):
 
     nombre = carta['nombre']
     version = carta['version']
-    estrellas = carta.get('estrellas', '☆☆☆')
-    estado = carta.get('estado', '')
-    card_id = carta.get("card_id", extraer_card_id_de_id_unico(id_unico))
+    estado = carta['estado']
+    estrellas = carta.get('estrellas', '★??')
+    card_id = carta.get('card_id', extraer_card_id_de_id_unico(id_unico))
     precio = precio_carta_tabla(estrellas, card_id)
 
-    # Ya está en mercado?
     ya = col_mercado.find_one({"id_unico": id_unico})
     if ya:
         query.answer("Esta carta ya está en el mercado.", show_alert=True)
@@ -3057,7 +3057,7 @@ def callback_ampliar_vender(update, context):
     col_cartas_usuario.delete_one({"user_id": user_id, "id_unico": id_unico})
     col_mercado.insert_one({
         "id_unico": id_unico,
-        "vendedor_id": user_id,
+        "vendedor_id": user_id,     # ← SIEMPRE lo guarda aquí
         "nombre": nombre,
         "version": version,
         "estado": estado,
