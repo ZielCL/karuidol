@@ -948,61 +948,72 @@ FRASES_ESTADO = {
 
 
 def comando_kkp(update, context):
+    from datetime import datetime, timedelta
+    import time
+
     user_id = update.message.from_user.id
     user_doc = col_usuarios.find_one({"user_id": user_id}) or {}
+    misiones = user_doc.get("misiones", {})
 
-    # Cooldown (6 horas)
-    COOLDOWN_HORAS = 6
-    COOLDOWN_SEGUNDOS = COOLDOWN_HORAS * 3600
-
-    # --- Último idolday ---
-    last_idolday = user_doc.get('last_idolday', 0)
-    if isinstance(last_idolday, datetime):
-        last_dt = last_idolday
-        last_ts = int(last_dt.timestamp())
-    else:
-        try:
-            last_ts = int(float(last_idolday))
-            last_dt = datetime.fromtimestamp(last_ts)
-        except Exception:
-            last_dt = datetime.utcfromtimestamp(0)
-            last_ts = 0
-
-    ahora = int(datetime.utcnow().timestamp())
-    restante = last_ts + COOLDOWN_SEGUNDOS - ahora
-
-    if restante <= 0:
-        cooldown_text = "✨ <b>¡Puedes usar <code>/idolday</code> ahora!</b>"
-    else:
-        t = timedelta(seconds=restante)
-        cooldown_text = f"⏳ Siguiente <code>/idolday</code> disponible en: <b>{str(t)}</b>"
-
-    # --- Misión diaria: 3 drops ---
-    # Guardado: 'mision_idolday': {'fecha': '2024-06-11', 'count': 2}
-    hoy_str = datetime.utcnow().strftime('%Y-%m-%d')
-    mision = user_doc.get('mision_idolday', {})
-    mision_fecha = mision.get('fecha')
-    mision_count = mision.get('count', 0)
-
-    if mision_fecha == hoy_str:
-        faltan = max(0, 3 - mision_count)
-        mision_text = f"📝 Progreso misión diaria: <b>{mision_count}/3 drops</b>"
-        if faltan == 0:
-            mision_text += "\n✅ <b>¡Misión diaria completada!</b>"
+    # Cooldown /idolday (6 horas)
+    last_idolday = user_doc.get("last_idolday")
+    if last_idolday:
+        if isinstance(last_idolday, datetime):
+            last_ts = last_idolday.timestamp()
         else:
-            # Calcula cuánto falta para que termine el día (horario UTC)
-            ahora_dt = datetime.utcnow()
-            fin_dia = ahora_dt.replace(hour=23, minute=59, second=59)
-            tiempo_restante = fin_dia - ahora_dt
-            mision_text += f"\n⏳ Tiempo restante para completar: <b>{str(tiempo_restante).split('.')[0]}</b>"
+            try:
+                last_ts = float(last_idolday)
+            except Exception:
+                last_ts = 0
+        restante = max(0, 6 * 3600 - (time.time() - last_ts))
     else:
-        mision_text = "📝 Progreso misión diaria: <b>0/3 drops</b>\n⏳ Tienes todo el día para completarla."
+        restante = 0
 
-    texto = (
-        "🎀 <b>Tu estado en KaruKpop:</b>\n\n"
-        f"{cooldown_text}\n\n"
-        f"{mision_text}"
+    # Formatea el cooldown como hh:mm:ss
+    def format_tiempo(segundos):
+        horas = int(segundos // 3600)
+        minutos = int((segundos % 3600) // 60)
+        segundos = int(segundos % 60)
+        if horas > 0:
+            return f"{horas}h {minutos}m {segundos}s"
+        elif minutos > 0:
+            return f"{minutos}m {segundos}s"
+        else:
+            return f"{segundos}s"
+
+    # Progreso misión diaria de drops
+    hoy_str = datetime.utcnow().strftime('%Y-%m-%d')
+    idolday_hoy = misiones.get("idolday_hoy", 0)
+    ultima_mision_idolday = misiones.get("ultima_mision_idolday", "")
+
+    # Calcula tiempo restante para resetear misión diaria
+    ahora = datetime.utcnow()
+    if ultima_mision_idolday == hoy_str:
+        # Próximo reset es a medianoche UTC
+        hoy_dt = datetime.strptime(hoy_str, "%Y-%m-%d")
+        reset_dt = hoy_dt + timedelta(days=1)
+        falta_reset = (reset_dt - ahora).total_seconds()
+    else:
+        falta_reset = 0
+
+    # Mensaje bonito estilo Karuta
+    texto = "<b>⏰ Recordatorio KaruKpop</b>\n"
+    texto += f"🎲 <b>/idolday</b>: "
+    if restante > 0:
+        texto += f"Disponible en <b>{format_tiempo(restante)}</b>\n"
+    else:
+        texto += "<b>¡Disponible ahora!</b>\n"
+
+    texto += (
+        f"📝 <b>Misión diaria:</b> Haz 3 drops hoy ({idolday_hoy}/3)\n"
+        f"⏳ Tiempo restante para misión: <b>{format_tiempo(falta_reset)}</b>\n"
     )
+
+    if idolday_hoy >= 3:
+        texto += "✅ <b>¡Misión diaria completada!</b>\n"
+    else:
+        texto += "🔔 ¡Aún puedes completar la misión de hoy!\n"
+
     update.message.reply_text(texto, parse_mode="HTML")
 
 
