@@ -55,6 +55,7 @@ col_cartas_usuario.create_index("user_id")
 col_mercado.create_index("vendedor_id")
 col_usuarios.create_index("user_id", unique=True)
 col_drops_log = db['drops_log']
+
 # TTL para cartas en mercado (ejemplo: 7 días)
 from pymongo import ASCENDING
 col_mercado.create_index(
@@ -942,6 +943,86 @@ FRASES_ESTADO = {
     "Mal estado": "Podría estar mejor...",
     "Muy mal estado": "¡Oh no!"
 }
+
+
+
+
+
+
+COOLDOWN_IDOLDAY = 6 * 60 * 60  # 6 horas en segundos
+MISION_DIARIA_DROPS = 3
+
+def comando_kkp(update, context):
+    user_id = update.message.from_user.id
+    ahora = datetime.utcnow()
+    hoy = ahora.date()
+
+    # --- Trae usuario ---
+    user_doc = col_usuarios.find_one({"user_id": user_id}) or {}
+
+    # --- 1. Cooldown de /idolday ---
+    last_idolday = user_doc.get("last_idolday")
+    bono = user_doc.get("bono", 0)
+    # Si tienes /bonoidolday disponible también puedes mostrarlo aquí
+    if last_idolday:
+        last_dt = datetime.fromtimestamp(last_idolday)
+        elapsed = (ahora - last_dt).total_seconds()
+        if elapsed >= COOLDOWN_IDOLDAY:
+            idolday_status = "✨ <b>/idolday:</b> <b>¡Listo!</b> Puedes usarlo ahora."
+        else:
+            faltante = COOLDOWN_IDOLDAY - elapsed
+            horas = int(faltante // 3600)
+            minutos = int((faltante % 3600) // 60)
+            idolday_status = f"⏳ <b>/idolday:</b> Disponible en <b>{horas}h {minutos}m</b>."
+    else:
+        idolday_status = "✨ <b>/idolday:</b> <b>¡Listo!</b> Puedes usarlo ahora."
+    # Mostrar si hay bonus drops activos
+    bonus_status = ""
+    if bono > 0:
+        bonus_status = f"💠 <b>Bono Drops:</b> <b>{bono}</b> disponibles"
+
+    # --- 2. Misión diaria (progreso y si está completada) ---
+    mision_doc = user_doc.get("mision_diaria", {})
+    fecha_mision = mision_doc.get("fecha")
+    drops_hoy = mision_doc.get("drops", 0)
+    if fecha_mision == str(hoy):
+        faltan = max(0, MISION_DIARIA_DROPS - drops_hoy)
+        if faltan == 0:
+            mision_txt = "🏆 <b>Misión diaria:</b> <b>¡Completada!</b> 🎉"
+        else:
+            mision_txt = f"🔥 <b>Progreso misión:</b> <b>{drops_hoy}/{MISION_DIARIA_DROPS}</b> (te faltan <b>{faltan}</b>)"
+    else:
+        mision_txt = f"🔥 <b>Progreso misión:</b> <b>0/{MISION_DIARIA_DROPS}</b> (te faltan <b>{MISION_DIARIA_DROPS}</b>)"
+
+    # --- 3. Tiempo para completar misión diaria (hasta medianoche) ---
+    fin_dia = datetime(ahora.year, ahora.month, ahora.day, 23, 59, 59)
+    tiempo_restante = fin_dia - ahora
+    horas_rest = int(tiempo_restante.total_seconds() // 3600)
+    mins_rest = int((tiempo_restante.total_seconds() % 3600) // 60)
+    tiempo_mision_txt = f"⏰ <b>Tiempo restante de misión:</b> <b>{horas_rest}h {mins_rest}m</b>"
+
+    # --- 4. Panel final tipo Karuta ---
+    texto = (
+        "<b>🕒 Panel de Recordatorios KaruKpop</b>\n\n"
+        f"{idolday_status}\n"
+        f"{bonus_status}\n" if bonus_status else "" +
+        f"{mision_txt}\n"
+        f"{tiempo_mision_txt}\n"
+        "\n🔹 Usa <code>/idolday</code> para dropear cartas.\n"
+        "🔹 ¡Haz tus drops antes de la medianoche para completar la misión diaria!"
+    )
+    update.message.reply_text(texto, parse_mode='HTML')
+
+
+
+
+
+
+
+
+
+
+
 
 
 def comando_estadisticasdrops(update, context):
@@ -3906,6 +3987,7 @@ dispatcher.add_handler(CallbackQueryHandler(manejador_tienda_paypal, pattern=r"^
 # ESTOS GENERAL SIEMPRE AL FINAL (sin pattern)
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback))
 # === HANDLERS de comandos ===
+dispatcher.add_handler(CommandHandler('kkp', comando_kkp))
 dispatcher.add_handler(CommandHandler('mercado', comando_mercado))
 dispatcher.add_handler(CommandHandler('rankingmercado', comando_rankingmercado))
 dispatcher.add_handler(CommandHandler('tiendagemas', tienda_gemas))
