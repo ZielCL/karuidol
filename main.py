@@ -842,6 +842,7 @@ def estados_disponibles_para_carta(nombre, version):
 def comando_idolday(update, context):
     user_id = update.message.from_user.id
     chat_id = update.effective_chat.id
+    thread_id = getattr(update.message, "message_thread_id", None)   # <--- thread_id aquí
     ahora = datetime.utcnow()
     ahora_ts = time.time()
     user_doc = col_usuarios.find_one({"user_id": user_id}) or {}
@@ -860,7 +861,8 @@ def comando_idolday(update, context):
         try:
             msg_cooldown = context.bot.send_message(
                 chat_id=chat_id,
-                text=f"⏳ Espera {faltante} segundos antes de volver a dropear cartas en este grupo."
+                text=f"⏳ Espera {faltante} segundos antes de volver a dropear cartas en este grupo.",
+                message_thread_id=thread_id   # <--- Cambiado!
             )
             def borrar_mensaje(m):
                 try:
@@ -877,7 +879,6 @@ def comando_idolday(update, context):
     mision_completada_hoy = False
     premio_entregado = False
 
-    # === Función para gestionar misión diaria ===
     def actualiza_mision_diaria(user_id):
         user_doc = col_usuarios.find_one({"user_id": user_id}) or {}
         misiones = user_doc.get("misiones", {})
@@ -890,12 +891,10 @@ def comando_idolday(update, context):
         misiones["idolday_hoy"] = misiones.get("idolday_hoy", 0) + 1
         misiones["ultima_mision_idolday"] = hoy_str
 
-        # Chequea misión y entrega premio solo si no fue entregado hoy
         mision_completada = misiones["idolday_hoy"] >= 3
         premio_dado = False
         if mision_completada and misiones.get("idolday_entregada", "") != hoy_str:
             col_usuarios.update_one({"user_id": user_id}, {"$inc": {"kponey": 150}})
-            # Notificación privada
             try:
                 context.bot.send_message(
                     chat_id=user_id,
@@ -906,7 +905,6 @@ def comando_idolday(update, context):
                 print("[idolday] No se pudo notificar la misión completada:", e)
             misiones["idolday_entregada"] = hoy_str
             premio_dado = True
-        # Guarda misión
         col_usuarios.update_one({"user_id": user_id}, {"$set": {"misiones": misiones}})
         return mision_completada, premio_dado
 
@@ -917,7 +915,6 @@ def comando_idolday(update, context):
             {"$set": {"last_idolday": ahora}},
             upsert=True
         )
-        # === ACTUALIZA MISIÓN DIARIA DE DROPS ===
         mision_completada_hoy, premio_entregado = actualiza_mision_diaria(user_id)
     elif bono_listo:
         puede_tirar = True
@@ -935,7 +932,6 @@ def comando_idolday(update, context):
                 {"$inc": {"bono": -1}},
                 upsert=True
             )
-        # === ACTUALIZA MISIÓN DIARIA DE DROPS TAMBIÉN AQUÍ ===
         mision_completada_hoy, premio_entregado = actualiza_mision_diaria(user_id)
     else:
         try:
@@ -950,7 +946,8 @@ def comando_idolday(update, context):
             try:
                 msg_cd = context.bot.send_message(
                     chat_id=chat_id,
-                    text=f"Ya usaste /idolday. Intenta de nuevo en {horas}h {minutos}m {segundos}s."
+                    text=f"Ya usaste /idolday. Intenta de nuevo en {horas}h {minutos}m {segundos}s.",
+                    message_thread_id=thread_id   # <--- Cambiado!
                 )
                 def borrar_mensaje_cd(m):
                     try:
@@ -962,7 +959,11 @@ def comando_idolday(update, context):
                 print("[idolday] Error al mandar mensaje cooldown usuario:", e)
         else:
             try:
-                msg_cd = context.bot.send_message(chat_id=chat_id, text=f"Ya usaste /idolday.")
+                msg_cd = context.bot.send_message(
+                    chat_id=chat_id,
+                    text=f"Ya usaste /idolday.",
+                    message_thread_id=thread_id   # <--- Cambiado!
+                )
                 def borrar_mensaje_cd(m):
                     try:
                         context.bot.delete_message(chat_id=chat_id, message_id=m.message_id)
@@ -1013,8 +1014,12 @@ def comando_idolday(update, context):
             "card_id": nuevo_id
         })
 
-    # Envía el grupo de imágenes de las cartas
-    msgs = context.bot.send_media_group(chat_id=chat_id, media=media_group)
+    # Envía el grupo de imágenes de las cartas en el thread correcto
+    msgs = context.bot.send_media_group(
+        chat_id=chat_id,
+        media=media_group,
+        message_thread_id=thread_id    # <--- Cambiado!
+    )
 
     texto_drop = f"@{update.effective_user.username or update.effective_user.first_name} está dropeando 2 cartas!"
     msg_botones = context.bot.send_message(
@@ -1025,7 +1030,8 @@ def comando_idolday(update, context):
                 InlineKeyboardButton("1️⃣", callback_data=f"reclamar_{chat_id}_{0}_0"),
                 InlineKeyboardButton("2️⃣", callback_data=f"reclamar_{chat_id}_{0}_1"),
             ]
-        ])
+        ]),
+        message_thread_id=thread_id   # <--- Cambiado!
     )
 
     botones_reclamar = [
@@ -1072,6 +1078,7 @@ def comando_idolday(update, context):
     )
 
     threading.Thread(target=desbloquear_drop, args=(drop_id,), daemon=True).start()
+
     
 FRASES_ESTADO = {
     "Excelente estado": "Genial!",
@@ -1398,6 +1405,9 @@ def manejador_reclamar(update, context):
 
     ahora = time.time()
 
+    # Si existe, toma el thread_id, si no, None
+    thread_id = drop.get("thread_id") if drop else None
+
     # --- Drop ausente completamente ---
     if not drop:
         mensaje_fecha = getattr(query.message, "date", None)
@@ -1413,7 +1423,6 @@ def manejador_reclamar(update, context):
     if drop.get("expirado"):
         query.answer("Este drop ya expiró o no existe.", show_alert=True)
         return
-
 
     # --- Trabaja como de costumbre ---
     carta = drop["cartas"][carta_idx]
@@ -1489,7 +1498,6 @@ def manejador_reclamar(update, context):
                         upsert=True
                     )
             else:
-                # No puede reclamar
                 if last:
                     faltante = 6*3600 - (ahora_dt - last).total_seconds()
                     horas = int(faltante // 3600)
@@ -1554,6 +1562,48 @@ def manejador_reclamar(update, context):
 
     if not puede_reclamar:
         return
+
+    # --- Marcar carta como reclamada ---
+    carta["reclamada"] = True
+    carta["usuario"] = usuario_click
+    carta["hora_reclamada"] = ahora
+
+    # --- Actualiza en Mongo si usas col_drops ---
+    if "col_drops" in globals():
+        col_drops.update_one(
+            {"drop_id": drop_id},
+            {"$set": {"cartas": drop["cartas"]}}
+        )
+
+    # --- Edita botones del mensaje drop (en el mismo thread!) ---
+    try:
+        context.bot.edit_message_reply_markup(
+            chat_id=chat_id,
+            message_id=mensaje_id,
+            reply_markup=None,
+            message_thread_id=thread_id
+        )
+    except Exception as e:
+        print("[manejador_reclamar] No se pudieron editar los botones:", e)
+
+    # --- Enviar mensaje de éxito también en el mismo thread ---
+    usuario_info = context.bot.get_chat_member(chat_id, usuario_click)
+    username_mostrar = (
+        f"@{usuario_info.user.username}"
+        if usuario_info.user.username else usuario_info.user.full_name
+    )
+    try:
+        context.bot.send_message(
+            chat_id=chat_id,
+            text=f"🎉 {username_mostrar} reclamó la carta {carta.get('nombre', '')} [{carta.get('version', '')}]",
+            message_thread_id=thread_id
+        )
+    except Exception as e:
+        print("[manejador_reclamar] Error enviando mensaje de éxito:", e)
+
+    # --- Actualiza el drop en memoria ---
+    DROPS_ACTIVOS[drop_id] = drop
+
 
     # --- Aquí SÍ generamos id_unico, estado y estrellas ---
     nombre = carta['nombre']
