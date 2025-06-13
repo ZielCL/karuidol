@@ -131,7 +131,8 @@ import time
 
 
 # Configura aquí tu chat general y frases clave (en minúsculas para comparar)
-ID_CHAT_GENERAL = -1002636853982_1  # El chat general
+ID_CHAT_GENERAL = -1002636853982
+THREAD_ID_CHAT_GENERAL = 1 # El chat general
 FRASES_PERMITIDAS = [
     "está dropeando",
     "tomaste la carta",
@@ -142,31 +143,22 @@ FRASES_PERMITIDAS = [
 
 def borrar_mensajes_no_idolday(update, context):
     msg = update.effective_message
-    print("Mensaje en chat:", msg.chat_id)
 
-    # SOLO borra si está en el chat general
+    # SOLO si es en el chat y thread correctos
     if msg.chat_id != ID_CHAT_GENERAL:
         return
-
-    # Permitir /idolday
-    if msg.text and msg.text.startswith('/idolday'):
+    if getattr(msg, "message_thread_id", None) != THREAD_ID_CHAT_GENERAL:
+        return
+        
+    texto = msg.text or msg.caption or ""
+    if any(frase in texto for frase in FRASES_PERMITIDAS):
         return
 
-    # Permitir frases clave del drop
-    if msg.text and any(frase in msg.text for frase in FRASES_PERMITIDAS):
-        return
-
-    # Permitir botones del drop
-    if getattr(msg, "reply_markup", None):
-        pass
-
-    # Borra TODO lo demás tras 3 segundos
+    # Borra todo lo demás
     try:
-        import threading
-        threading.Timer(3, lambda: context.bot.delete_message(chat_id=msg.chat_id, message_id=msg.message_id)).start()
+        context.job_queue.run_once(lambda ctx: msg.delete(), 3)  # borra a los 3 segundos
     except Exception as e:
-        print(f"Error borrando mensaje: {e}")
-
+        print("[Borrador mensajes] Error al borrar:", e)
 
 
 
@@ -4354,10 +4346,7 @@ dispatcher.add_handler(CommandHandler('comprar', comando_comprar))
 dispatcher.add_handler(CommandHandler('retirar', comando_retirar))
 dispatcher.add_handler(CommandHandler('mejorar', comando_mejorar))
 dispatcher.add_handler(
-    MessageHandler(
-        Filters.chat(ID_CHAT_GENERAL) & Filters.all,
-        borrar_mensajes_no_idolday
-    ),
+    MessageHandler(Filters.chat(ID_CHAT_GENERAL) & Filters.all, borrar_mensajes_no_idolday),
     group=99
 )
 
