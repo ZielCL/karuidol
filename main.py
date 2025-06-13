@@ -142,8 +142,9 @@ FRASES_PERMITIDAS = [
 
 def borrar_mensajes_no_idolday(update, context):
     msg = update.effective_message
+    print("Mensaje en chat:", msg.chat_id)
 
-    # Solo en el chat general
+    # SOLO borra si está en el chat general
     if msg.chat_id != ID_CHAT_GENERAL:
         return
 
@@ -151,7 +152,7 @@ def borrar_mensajes_no_idolday(update, context):
     if msg.text and msg.text.startswith('/idolday'):
         return
 
-    # Permitir frases del drop
+    # Permitir frases clave del drop
     if msg.text and any(frase in msg.text for frase in FRASES_PERMITIDAS):
         return
 
@@ -159,12 +160,13 @@ def borrar_mensajes_no_idolday(update, context):
     if getattr(msg, "reply_markup", None):
         pass
 
-    # Borra todo lo demás tras 3 segundos
+    # Borra TODO lo demás tras 3 segundos
     try:
         import threading
         threading.Timer(3, lambda: context.bot.delete_message(chat_id=msg.chat_id, message_id=msg.message_id)).start()
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Error borrando mensaje: {e}")
+
 
 
 
