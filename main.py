@@ -142,37 +142,39 @@ FRASES_NO_BORRAR_BOT = [
     # Agrega cualquier otra frase clave
 ]
 
-def borrar_mensajes_no_idolday(update, context):
+# Configura aquí tu chat general y frases clave (en minúsculas para comparar)
+ID_CHAT_GENERAL = -1002636853982  # SOLO el número, sin "_1" ni "_2"
+FRASES_PERMITIDAS = [
+    "está dropeando",
+    "tomaste la carta",
+    "reclamó la carta",
+    "favoritos de esta carta"
+    # Agrega aquí más frases si usas otras
+]
+
+def borrar_si_no_es_idolday(update, context):
     mensaje = update.message
     if not mensaje:
         return
 
-    # SOLO en chat general (y thread si aplica)
-    if mensaje.chat_id != ID_CHAT_GENERAL:
-        return
-    if THREAD_ID_GENERAL is not None and getattr(mensaje, "message_thread_id", None) != THREAD_ID_GENERAL:
+    # Solo actúa en el chat general
+    if mensaje.chat.id != ID_CHAT_GENERAL:
         return
 
-    # Si es /idolday, NO borrar
-    if mensaje.text and mensaje.text.startswith('/idolday'):
-        return
+    texto = mensaje.text or mensaje.caption or ""
+    texto_lower = texto.lower()
 
-    # Si es un mensaje del bot con frase fija, NO borrar
-    if mensaje.from_user and mensaje.from_user.is_bot:
-        if mensaje.text and any(frase in mensaje.text for frase in FRASES_NO_BORRAR_BOT):
-            return
+    # Si NO contiene ninguna de las frases clave, borra tras 3 segundos
+    if not any(frase in texto_lower for frase in FRASES_PERMITIDAS):
+        def borrar():
+            time.sleep(3)
+            try:
+                mensaje.delete()
+            except Exception:
+                pass  # Puede que el mensaje ya esté borrado o sin permisos
 
-    # Si quieres excluir stickers, imágenes o buttons del bot, puedes agregar más condiciones aquí
+        threading.Thread(target=borrar).start()
 
-    # Si llegó aquí, lo borra en 3 segundos
-    def borrar():
-        time.sleep(3)
-        try:
-            context.bot.delete_message(chat_id=mensaje.chat_id, message_id=mensaje.message_id)
-        except Exception:
-            pass
-
-    threading.Thread(target=borrar).start()
 
 
 
@@ -4349,7 +4351,7 @@ dispatcher.add_handler(CommandHandler('comandos', comando_comandos))
 dispatcher.add_handler(CommandHandler('giveidol', comando_giveidol))
 dispatcher.add_handler(CommandHandler('setsprogreso', comando_setsprogreso))
 dispatcher.add_handler(CommandHandler('set', comando_set_detalle))
-dispatcher.add_handler(MessageHandler(Filters.all, borrar_mensajes_no_idolday), group=99)
+dispatcher.add_handler(MessageHandler(Filters.chat(ID_CHAT_GENERAL) & Filters.all, borrar_mensajes_no_idolday),group=99)
 dispatcher.add_handler(MessageHandler(Filters.text & (~Filters.command), handler_regalo_respuesta))
 dispatcher.add_handler(CommandHandler('ampliar', comando_ampliar))
 dispatcher.add_handler(CommandHandler('kponey', comando_saldo))
