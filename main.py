@@ -1404,9 +1404,7 @@ def manejador_reclamar(update, context):
             DROPS_ACTIVOS[drop_id] = drop
 
     ahora = time.time()
-
-    # Si existe, toma el thread_id, si no, None
-    thread_id = drop.get("thread_id") if drop else None
+    thread_id = drop.get("thread_id") if drop else getattr(query.message, "message_thread_id", None)
 
     # --- Drop ausente completamente ---
     if not drop:
@@ -1419,12 +1417,10 @@ def manejador_reclamar(update, context):
         query.answer("Este drop ya expiró o no existe.", show_alert=True)
         return
 
-    # --- Drop ya marcado como expirado ---
     if drop.get("expirado"):
         query.answer("Este drop ya expiró o no existe.", show_alert=True)
         return
 
-    # --- Trabaja como de costumbre ---
     carta = drop["cartas"][carta_idx]
     if carta.get("reclamada"):
         query.answer("Esta carta ya fue reclamada.", show_alert=True)
@@ -1432,7 +1428,6 @@ def manejador_reclamar(update, context):
 
     tiempo_desde_drop = ahora - drop["inicio"]
 
-    # --- CONTADOR DE INTENTOS ---
     if "intentos" not in carta:
         carta["intentos"] = 0
     if usuario_click != drop["dueño"]:
@@ -1458,14 +1453,13 @@ def manejador_reclamar(update, context):
 
     puede_reclamar = False
 
-    # --- PRIMERA RECLAMO DEL DUEÑO ---
+    # --- Lógica para el dueño del drop ---
     if usuario_click == drop["dueño"]:
         primer_reclamo = drop.get("primer_reclamo_dueño")
         if primer_reclamo is None:
             puede_reclamar = True
             drop["primer_reclamo_dueño"] = ahora
         else:
-            # Reclama la segunda carta (o más)
             tiempo_faltante = 15 - (ahora - drop["primer_reclamo_dueño"])
             if tiempo_faltante > 0:
                 segundos_faltantes = int(round(tiempo_faltante))
@@ -1474,7 +1468,6 @@ def manejador_reclamar(update, context):
                     show_alert=True
                 )
                 return
-            # --- chequea cooldown o bono (igual que para cualquier usuario) ---
             if cooldown_listo:
                 puede_reclamar = True
                 col_usuarios.update_one(
@@ -1484,7 +1477,6 @@ def manejador_reclamar(update, context):
                 )
             elif bono_listo:
                 puede_reclamar = True
-                # Gasta primero del inventario, luego legacy
                 if bonos_inventario and bonos_inventario > 0:
                     col_usuarios.update_one(
                         {"user_id": usuario_click},
@@ -1513,7 +1505,6 @@ def manejador_reclamar(update, context):
                         show_alert=True
                     )
                 return
-    # --- NO ES DUEÑO DEL DROP ---
     else:
         if tiempo_desde_drop < 15:
             segundos_faltantes = int(round(15 - tiempo_desde_drop))
@@ -1568,25 +1559,30 @@ def manejador_reclamar(update, context):
     carta["usuario"] = usuario_click
     carta["hora_reclamada"] = ahora
 
-    # --- Actualiza en Mongo si usas col_drops ---
     if "col_drops" in globals():
         col_drops.update_one(
             {"drop_id": drop_id},
             {"$set": {"cartas": drop["cartas"]}}
         )
 
-    # --- Edita botones del mensaje drop (NO uses message_thread_id aquí) ---
+    # ----------- ACTUALIZA LOS BOTONES SOLO EN EL THREAD -----------
+    teclado = []
+    for i, c in enumerate(drop["cartas"]):
+        if c.get("reclamada"):
+            teclado.append(InlineKeyboardButton("❌", callback_data="reclamada", disabled=True))
+        else:
+            teclado.append(InlineKeyboardButton(f"{i+1}️⃣", callback_data=f"reclamar_{chat_id}_{mensaje_id}_{i}"))
     try:
         context.bot.edit_message_reply_markup(
             chat_id=chat_id,
             message_id=mensaje_id,
-            reply_markup=None
-            # No pongas message_thread_id aquí
+            reply_markup=InlineKeyboardMarkup([teclado])
+            # No incluyas message_thread_id aquí, Telegram no lo permite para editar botones
         )
     except Exception as e:
         print("[manejador_reclamar] No se pudieron editar los botones:", e)
 
-    # --- Enviar mensaje de éxito también en el mismo thread ---
+    # ------ ENVIAR MENSAJES EN EL MISMO TEMA -------
     try:
         usuario_info = context.bot.get_chat_member(chat_id, usuario_click)
         username_mostrar = (
@@ -1596,29 +1592,23 @@ def manejador_reclamar(update, context):
         context.bot.send_message(
             chat_id=chat_id,
             text=f"🎉 {username_mostrar} reclamó la carta {carta.get('nombre', '')} [{carta.get('version', '')}]",
-            message_thread_id=thread_id  # Aquí SÍ se usa, sale el mensaje en el tema
+            message_thread_id=thread_id if thread_id else None
         )
     except Exception as e:
         print("[manejador_reclamar] Error enviando mensaje de éxito:", e)
 
-    # --- Actualiza el drop en memoria ---
-    DROPS_ACTIVOS[drop_id] = drop
-
-    # --- Aquí SÍ generamos id_unico, estado y estrellas ---
+    # --- ENTREGA DE CARTA, ESTADO, PRECIO ---
     nombre = carta['nombre']
     version = carta['version']
     grupo = carta['grupo']
 
     nuevo_id = carta.get("card_id", 1)
     id_unico = random_id_unico(nuevo_id)
-
     posibles_estados = estados_disponibles_para_carta(nombre, version)
     carta_entregada = random.choice(posibles_estados)
     estado = carta_entregada['estado']
     estrellas = carta_entregada.get('estado_estrella', '★??')
     imagen_url = carta_entregada['imagen']
-
-    # CALCULAR EL PRECIO FINAL SOLO TEMPORALMENTE
     intentos = carta.get("intentos", 0)
     precio = precio_carta_karuta(nombre, version, estado, id_unico=id_unico, card_id=nuevo_id) + 200 * max(0, intentos - 1)
 
@@ -1656,12 +1646,6 @@ def manejador_reclamar(update, context):
     carta["hora_reclamada"] = ahora
     drop.setdefault("usuarios_reclamaron", []).append(usuario_click)
 
-    revisar_sets_completados(usuario_click, context)
-    carta["reclamada"] = True
-    carta["usuario"] = usuario_click
-    carta["hora_reclamada"] = ahora
-    drop["usuarios_reclamaron"].append(usuario_click)
-
     # --- REGISTRO DE RECLAMO EN AUDITORÍA ---
     if "col_drops_log" in globals():
         col_drops_log.insert_one({
@@ -1680,10 +1664,8 @@ def manejador_reclamar(update, context):
             "expirado": drop.get("expirado", False),
             "chat_id": chat_id,
             "mensaje_id": mensaje_id,
-            "thread_id": thread_id
         })
 
-    # --- Actualiza el drop en RAM y MongoDB
     DROPS_ACTIVOS[drop_id] = drop
     if "col_drops" in globals():
         col_drops.update_one({"drop_id": drop_id}, {"$set": drop})
@@ -1694,12 +1676,14 @@ def manejador_reclamar(update, context):
             teclado.append(InlineKeyboardButton("❌", callback_data="reclamada", disabled=True))
         else:
             teclado.append(InlineKeyboardButton(f"{i+1}️⃣", callback_data=f"reclamar_{chat_id}_{mensaje_id}_{i}"))
-    context.bot.edit_message_reply_markup(
-        chat_id=drop["chat_id"],
-        message_id=drop["mensaje_id"],
-        reply_markup=InlineKeyboardMarkup([teclado]),
-        message_thread_id=thread_id
-    )
+    try:
+        context.bot.edit_message_reply_markup(
+            chat_id=drop["chat_id"],
+            message_id=drop["mensaje_id"],
+            reply_markup=InlineKeyboardMarkup([teclado])
+        )
+    except Exception as e:
+        print("[manejador_reclamar] No se pudieron editar los botones (2):", e)
 
     user_mention = f"@{query.from_user.username or query.from_user.first_name}"
     FRASES_ESTADO = {
@@ -1715,14 +1699,16 @@ def manejador_reclamar(update, context):
     if intentos_otros > 0:
         mensaje_extra = f"\n💸 Esta carta fue disputada con <b>{intentos_otros}</b> intentos de otros usuarios."
 
+    # --- Mensaje de carta reclamada (en el mismo tema) ---
     context.bot.send_message(
         chat_id=drop["chat_id"],
         text=f"{user_mention} tomaste la carta <code>{id_unico}</code> #{nuevo_id} [{version}] {nombre} - {grupo}, {frase_estado} está en <b>{estado.lower()}</b>!\n"
              f"{mensaje_extra}",
         parse_mode='HTML',
-        message_thread_id=thread_id
+        message_thread_id=thread_id if thread_id else None
     )
 
+    # --- Mensaje de favoritos (en el mismo tema) ---
     favoritos = list(col_usuarios.find({
         "favoritos": {"$elemMatch": {"nombre": nombre, "version": version}}
     }))
@@ -1736,10 +1722,11 @@ def manejador_reclamar(update, context):
             chat_id=drop["chat_id"],
             text=texto_favs,
             parse_mode='HTML',
-            message_thread_id=thread_id
+            message_thread_id=thread_id if thread_id else None
         )
 
     query.answer("¡Carta reclamada!", show_alert=True)
+
 
 
 
