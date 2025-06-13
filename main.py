@@ -1782,15 +1782,22 @@ def comando_album(update, context):
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
     thread_id = getattr(update.message, "message_thread_id", None)
-    msg = context.bot.send_message(chat_id=chat_id, text="Cargando álbum...")
+    # El mensaje inicial de "Cargando álbum..." se envía en el thread
+    msg = context.bot.send_message(
+        chat_id=chat_id,
+        text="Cargando álbum...",
+        message_thread_id=thread_id
+    )
     mostrar_album_pagina(
         update,
         context,
         chat_id,
         msg.message_id,
         user_id,
-        pagina=1
+        pagina=1,
+        thread_id=thread_id  # <== pásalo aquí
     )
+
 
 
 
