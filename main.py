@@ -91,8 +91,8 @@ def grupo_oficial(func):
 # === Temas por comando ===
 # Cambia los números por los message_thread_id REALES de tus temas
 COMANDOS_POR_TEMA = {
-    "album": [5],        # IDs de los temas donde sí funciona /reclamos
-    
+    "album": [5],        
+    "mercado": [706]
 }
 
 from functools import wraps
@@ -2908,7 +2908,9 @@ def comando_comandos(update, context):
         "/bonoidolday <code>user_id</code> <code>cantidad</code> — (Admin) Dar bonos de tiradas extra\n"
     )
     update.message.reply_text(texto, parse_mode='HTML')
-
+    
+@solo_en_temas_permitidos("mercado")
+@cooldown_critico
 def comando_mercado(update, context):
     user_id = update.message.from_user.id
     chat_id = update.effective_chat.id
@@ -3439,90 +3441,121 @@ def manejador_callback(update, context):
     query = update.callback_query
     data = query.data
     user_id = query.from_user.id
-
-    # Sólo para callbacks que inician con mercado_
-    if data.startswith("mercado"):
-        partes = data.split("_")
-        try:
-            dueño_id = None
-            for part in partes:
-                if part.isdigit() and len(part) >= 5:
-                    dueño_id = int(part)
-                    break
-        except Exception:
-            dueño_id = None
-
-        if dueño_id and user_id != dueño_id:
-            query.answer("Solo puedes interactuar con tu propio mercado.", show_alert=True)
-            return
-
-    # Solo manejar callbacks del mercado
-    if not data.startswith("mercado"):
-        # ...deja el resto de tus callbacks aquí
-        return
-
     partes = data.split("_")
 
+    # === Recuperar thread_id si está en callback_data o desde el mensaje ===
+    def obtener_thread_id():
+        if partes and partes[-1].isdigit():
+            return int(partes[-1])
+        return getattr(query.message, "message_thread_id", None)
+
+    thread_id = obtener_thread_id()
+
+    # Solo callbacks del mercado
+    if not data.startswith("mercado"):
+        return
+
+    # Control de dueño (opcional)
+    try:
+        dueño_id = None
+        for part in partes:
+            if part.isdigit() and len(part) >= 5:
+                dueño_id = int(part)
+                break
+    except Exception:
+        dueño_id = None
+    if dueño_id and user_id != dueño_id:
+        query.answer("Solo puedes interactuar con tu propio mercado.", show_alert=True)
+        return
+
+    # --- MENÚ PRINCIPAL FILTROS ---
     if data.startswith("mercado_filtros_"):
         user_id = int(partes[2])
         pagina = int(partes[3])
-        query.edit_message_reply_markup(reply_markup=mostrar_menu_filtros(user_id, pagina))
+        query.edit_message_reply_markup(
+            reply_markup=mostrar_menu_filtros(user_id, pagina, thread_id)
+        )
         return
 
-    elif data.startswith("mercado_filtro_estado_"):
+    # --- MENÚ FILTRAR POR ESTRELLAS (ESTADO) ---
+    if data.startswith("mercado_filtro_estado_"):
         user_id = int(partes[3])
         pagina = int(partes[4])
-        query.edit_message_reply_markup(reply_markup=mostrar_menu_estrellas(user_id, pagina))
+        query.edit_message_reply_markup(
+            reply_markup=mostrar_menu_estrellas(user_id, pagina, thread_id)
+        )
         return
 
-    elif data.startswith("mercado_filtraestrella_"):
+    # --- FILTRO APLICADO POR ESTRELLAS ---
+    if data.startswith("mercado_filtraestrella_"):
         user_id = int(partes[2])
         pagina = int(partes[3])
         estrellas = partes[4]
-        mostrar_mercado_pagina(query.message.chat_id, query.message.message_id, context, user_id, pagina, filtro="estrellas", valor_filtro=estrellas)
+        mostrar_mercado_pagina(
+            query.message.chat_id, query.message.message_id, context, user_id, int(pagina),
+            filtro="estrellas", valor_filtro=estrellas, thread_id=thread_id
+        )
         return
 
-    elif data.startswith("mercado_filtro_grupo_"):
-        partes = data.split("_")
+    # --- MENÚ FILTRAR POR GRUPO ---
+    if data.startswith("mercado_filtro_grupo_"):
         user_id = int(partes[-2])
         pagina = int(partes[-1])
-        grupos = obtener_grupos_del_mercado()  # Pon aquí tu función para obtener los grupos
+        grupos = obtener_grupos_del_mercado()
         try:
-            query.edit_message_reply_markup(reply_markup=mostrar_menu_grupos(user_id, pagina, grupos))
+            query.edit_message_reply_markup(
+                reply_markup=mostrar_menu_grupos(user_id, pagina, grupos, thread_id)
+            )
         except BadRequest as e:
             if "Message is not modified" not in str(e):
                 print("Error en menu grupos:", e)
         return
 
-
-    elif data.startswith("mercado_filtragrupo_"):
+    # --- FILTRO APLICADO POR GRUPO ---
+    if data.startswith("mercado_filtragrupo_"):
         user_id = int(partes[2])
         pagina = int(partes[3])
-        grupo = "_".join(partes[4:])
-        mostrar_mercado_pagina(query.message.chat_id, query.message.message_id, context, user_id, pagina, filtro="grupo", valor_filtro=grupo)
+        grupo = "_".join(partes[4:-1]) if partes[-1].isdigit() else "_".join(partes[4:])
+        mostrar_mercado_pagina(
+            query.message.chat_id, query.message.message_id, context, user_id, int(pagina),
+            filtro="grupo", valor_filtro=grupo, thread_id=thread_id
+        )
         return
 
-    elif data.startswith("mercado_filtro_numero_"):
+    # --- MENÚ ORDENAR POR NÚMERO ---
+    if data.startswith("mercado_filtro_numero_"):
         user_id = int(partes[3])
         pagina = int(partes[4])
-        query.edit_message_reply_markup(reply_markup=mostrar_menu_ordenar(user_id, pagina))
+        query.edit_message_reply_markup(
+            reply_markup=mostrar_menu_ordenar(user_id, pagina, thread_id)
+        )
         return
 
-    elif data.startswith("mercado_ordennum_"):
+    # --- ORDEN APLICADO ---
+    if data.startswith("mercado_ordennum_"):
         user_id = int(partes[2])
         pagina = int(partes[3])
         orden = partes[4]
-        mostrar_mercado_pagina(query.message.chat_id, query.message.message_id, context, user_id, pagina, orden=orden)
+        mostrar_mercado_pagina(
+            query.message.chat_id, query.message.message_id, context, user_id, int(pagina),
+            orden=orden, thread_id=thread_id
+        )
         return
 
-    elif data.startswith("mercado_pagina_"):
+    # --- CAMBIO DE PÁGINA ---
+    if data.startswith("mercado_pagina_"):
         user_id = int(partes[2])
         pagina = int(partes[3])
         filtro = partes[4] if partes[4] != "none" else None
         valor_filtro = partes[5] if partes[5] != "none" else None
         orden = partes[6] if len(partes) > 6 and partes[6] != "none" else None
-        mostrar_mercado_pagina(query.message.chat_id, query.message.message_id, context, user_id, int(pagina), filtro=filtro, valor_filtro=valor_filtro, orden=orden)
+        mostrar_mercado_pagina(
+            query.message.chat_id, query.message.message_id, context, user_id, int(pagina),
+            filtro=filtro, valor_filtro=valor_filtro, orden=orden, thread_id=thread_id
+        )
         return
+
+
 
 
     #----------Album--------------
