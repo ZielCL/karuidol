@@ -125,40 +125,36 @@ def solo_en_chat_general(func):
     return wrapper
 
 
-from telegram.ext import MessageHandler, Filters
-import threading
-import time
-
-
-# Configura aquí tu chat general y frases clave (en minúsculas para comparar)
-ID_CHAT_GENERAL = -1002636853982
-THREAD_ID_CHAT_GENERAL = None # El chat general
-FRASES_PERMITIDAS = [
-    "está dropeando",
-    "tomaste la carta",
-    "reclamó la carta",
-    "favoritos de esta carta"
-    # Agrega aquí más frases si usas otras
-]
+ID_CHAT_GENERAL = -1002636853982  # tu grupo
+THREAD_ID_CHAT_GENERAL = 1        # tu thread, ajusta según print()
 
 def borrar_mensajes_no_idolday(update, context):
     msg = update.effective_message
 
-    # SOLO si es en el chat y thread correctos
     if msg.chat_id != ID_CHAT_GENERAL:
         return
     if getattr(msg, "message_thread_id", None) != THREAD_ID_CHAT_GENERAL:
         return
-        
+
+    FRASES_PERMITIDAS = [
+        "/idolday",
+        "está dropeando",
+        "tomaste la carta",
+        "reclamó la carta",
+        "Favoritos de esta carta"
+    ]
     texto = msg.text or msg.caption or ""
     if any(frase in texto for frase in FRASES_PERMITIDAS):
         return
 
-    # Borra todo lo demás
-    try:
-        context.job_queue.run_once(lambda ctx: msg.delete(), 3)  # borra a los 3 segundos
-    except Exception as e:
-        print("[Borrador mensajes] Error al borrar:", e)
+    # Borra a los 3 segundos en un hilo aparte
+    def borrar():
+        time.sleep(3)
+        try:
+            msg.delete()
+        except Exception as e:
+            print("[Borrador mensajes] Error al borrar:", e)
+    threading.Thread(target=borrar).start()
 
 
 
