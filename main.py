@@ -2995,8 +2995,10 @@ def mostrar_album_pagina(
     filtro=None, 
     valor_filtro=None, 
     orden=None, 
-    solo_botones=False
+    solo_botones=False,
+    thread_id=None
 ):
+
 
     # === 1. Consulta cartas del usuario y aplica filtro ===
     query_album = {"user_id": user_id}
