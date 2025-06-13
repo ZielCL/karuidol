@@ -1580,7 +1580,6 @@ def manejador_reclamar(update, context):
             chat_id=chat_id,
             message_id=mensaje_id,
             reply_markup=None,
-            message_thread_id=thread_id
         )
     except Exception as e:
         print("[manejador_reclamar] No se pudieron editar los botones:", e)
