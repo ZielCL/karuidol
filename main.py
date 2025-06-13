@@ -125,6 +125,62 @@ def solo_en_chat_general(func):
     return wrapper
 
 
+from telegram.ext import MessageHandler, Filters
+import threading
+import time
+
+# REEMPLAZA estos valores por los de tu grupo y tema
+ID_CHAT_GENERAL = TU_CHAT_ID_GENERAL  # int del chat general, ej: -1001234567890
+THREAD_ID_GENERAL = None  # o el thread id si usas tema, sino déjalo en None
+
+# FRASES QUE IDENTIFICAN MENSAJES DEL DROP O DEL BOT QUE NO SE DEBEN BORRAR
+FRASES_NO_BORRAR_BOT = [
+    "está dropeando",       # Mensaje del drop, ej: "@ZaelSpace está dropeando 2 cartas!"
+    "tomaste la carta",     # Mensaje al reclamar carta
+    "reclamó la carta",     # Otra variante posible
+    "Favoritos de esta carta", # Por si usas este mensaje
+    # Agrega cualquier otra frase clave
+]
+
+def borrar_mensajes_no_idolday(update, context):
+    mensaje = update.message
+    if not mensaje:
+        return
+
+    # SOLO en chat general (y thread si aplica)
+    if mensaje.chat_id != ID_CHAT_GENERAL:
+        return
+    if THREAD_ID_GENERAL is not None and getattr(mensaje, "message_thread_id", None) != THREAD_ID_GENERAL:
+        return
+
+    # Si es /idolday, NO borrar
+    if mensaje.text and mensaje.text.startswith('/idolday'):
+        return
+
+    # Si es un mensaje del bot con frase fija, NO borrar
+    if mensaje.from_user and mensaje.from_user.is_bot:
+        if mensaje.text and any(frase in mensaje.text for frase in FRASES_NO_BORRAR_BOT):
+            return
+
+    # Si quieres excluir stickers, imágenes o buttons del bot, puedes agregar más condiciones aquí
+
+    # Si llegó aquí, lo borra en 3 segundos
+    def borrar():
+        time.sleep(3)
+        try:
+            context.bot.delete_message(chat_id=mensaje.chat_id, message_id=mensaje.message_id)
+        except Exception:
+            pass
+
+    threading.Thread(target=borrar).start()
+
+
+
+
+
+
+
+
 
 
 
@@ -4293,6 +4349,7 @@ dispatcher.add_handler(CommandHandler('comandos', comando_comandos))
 dispatcher.add_handler(CommandHandler('giveidol', comando_giveidol))
 dispatcher.add_handler(CommandHandler('setsprogreso', comando_setsprogreso))
 dispatcher.add_handler(CommandHandler('set', comando_set_detalle))
+dispatcher.add_handler(MessageHandler(Filters.all, borrar_mensajes_no_idolday), group=99)
 dispatcher.add_handler(MessageHandler(Filters.text & (~Filters.command), handler_regalo_respuesta))
 dispatcher.add_handler(CommandHandler('ampliar', comando_ampliar))
 dispatcher.add_handler(CommandHandler('kponey', comando_saldo))
