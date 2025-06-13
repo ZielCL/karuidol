@@ -2911,12 +2911,30 @@ def comando_comandos(update, context):
 def comando_mercado(update, context):
     user_id = update.message.from_user.id
     chat_id = update.effective_chat.id
-    # Mensaje inicial, muestra la primera página
+    message_thread_id = getattr(update.message, "message_thread_id", None)
+    
+    # Si no está en un tema, muestra advertencia y sale
+    if not message_thread_id:
+        update.message.reply_text("Debes usar /mercado dentro de el tema "Mercado de cartas").")
+        return
+
+    # Envía mensaje inicial en el tema correcto
     msg = context.bot.send_message(
         chat_id=chat_id,
         text="🛒 Mercado (cargando...)",
+        message_thread_id=message_thread_id
     )
-    mostrar_mercado_pagina(chat_id, msg.message_id, context, user_id, pagina=1)
+
+    # Muestra la primera página en el tema correcto
+    mostrar_mercado_pagina(
+        chat_id,
+        msg.message_id,
+        context,
+        user_id,
+        pagina=1,
+        thread_id=message_thread_id
+    )
+
 
 
 @grupo_oficial
