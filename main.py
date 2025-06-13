@@ -91,8 +91,7 @@ def grupo_oficial(func):
 # === Temas por comando ===
 # Cambia los números por los message_thread_id REALES de tus temas
 COMANDOS_POR_TEMA = {
-    "idolday": [2],   # IDs de los temas donde sí funciona /ranking
-    "manejador_reclamar": [2],        # IDs de los temas donde sí funciona /reclamos
+    "k": [2],        # IDs de los temas donde sí funciona /reclamos
     
 }
 
@@ -114,6 +113,15 @@ def solo_en_temas_permitidos(nombre_comando):
 
 
 
+def solo_en_chat_general(func):
+    def wrapper(update, context, *args, **kwargs):
+        # Solo permite si es grupo/supergrupo y NO está en un tema (thread)
+        if update.message and update.message.chat.type in ["group", "supergroup"]:
+            if getattr(update.message, "message_thread_id", None) is not None:
+                update.message.reply_text("Este comando solo puede usarse en el chat general, no dentro de un tema.")
+                return
+        return func(update, context, *args, **kwargs)
+    return wrapper
 
 
 
@@ -836,9 +844,10 @@ def estados_disponibles_para_carta(nombre, version):
     # Devuelve todos los estados disponibles para esa carta (puede ser varios estados: Excelente, Buen estado, etc)
     return [c for c in cartas if c['nombre'] == nombre and c['version'] == version]
 
+
 # -- IDOLDAY DROP 2 CARTAS (Drop siempre muestra excelente estado, pero al reclamar puede variar) ---
 @grupo_oficial
-@solo_en_temas_permitidos("idolday")
+@solo_en_chat_general
 def comando_idolday(update, context):
     user_id = update.message.from_user.id
     chat_id = update.effective_chat.id
