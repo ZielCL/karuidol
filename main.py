@@ -1785,7 +1785,7 @@ def comando_album(update, context):
     msg = context.bot.send_message(
         chat_id=chat_id,
         text="Cargando álbum...",
-        message_thread_id=thread_id
+        message_thread_id=thread_id  # ¡SOLO AQUÍ!
     )
     mostrar_album_pagina(
         update,
@@ -1793,9 +1793,10 @@ def comando_album(update, context):
         chat_id,
         msg.message_id,
         user_id,
-        pagina=1,
-        thread_id=thread_id
+        pagina=1
+        # No incluyas thread_id aquí
     )
+
 
 
 
@@ -2994,8 +2995,7 @@ def mostrar_album_pagina(
     filtro=None, 
     valor_filtro=None, 
     orden=None, 
-    solo_botones=False,
-    thread_id=None   # ¡Importante!
+    solo_botones=False
 ):
 
     # === 1. Consulta cartas del usuario y aplica filtro ===
@@ -3071,14 +3071,11 @@ def mostrar_album_pagina(
     # --- Cambia SOLO los botones (al entrar a filtros) ---
     if solo_botones:
         try:
-            kwargs = dict(
-                chat_id=chat_id,
-                message_id=message_id,
+            context.bot.edit_message_reply_markup(
+                chat_id=chat_id, 
+                message_id=message_id, 
                 reply_markup=teclado
             )
-            if thread_id is not None:
-                kwargs['message_thread_id'] = thread_id
-            context.bot.edit_message_reply_markup(**kwargs)
         except telegram.error.RetryAfter as e:
             if update and hasattr(update, 'callback_query'):
                 try:
@@ -3100,18 +3097,15 @@ def mostrar_album_pagina(
                     pass
         return
 
-    # --- Cambia texto + botones (página, filtro, etc) ---
+    # Cambia texto + botones (página, filtro, etc):
     try:
-        kwargs = dict(
+        context.bot.edit_message_text(
             chat_id=chat_id,
             message_id=message_id,
             text=texto,
             reply_markup=teclado,
             parse_mode="HTML"
         )
-        if thread_id is not None:
-            kwargs['message_thread_id'] = thread_id
-        context.bot.edit_message_text(**kwargs)
     except telegram.error.RetryAfter as e:
         print(f"[album] Flood control: debes esperar {e.retry_after} segundos para editar mensaje.")
         if update and hasattr(update, 'callback_query'):
