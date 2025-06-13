@@ -118,7 +118,7 @@ def solo_en_chat_general(func):
         # Solo permite si es grupo/supergrupo y NO está en un tema (thread)
         if update.message and update.message.chat.type in ["group", "supergroup"]:
             if getattr(update.message, "message_thread_id", None) is not None:
-                update.message.reply_text("Este comando solo puede usarse en el chat general, no dentro de un tema.")
+                update.message.reply_text("Este comando solo puede usarse en el tema idolday (drops)")
                 return
         return func(update, context, *args, **kwargs)
     return wrapper
