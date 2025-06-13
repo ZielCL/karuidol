@@ -1404,9 +1404,8 @@ def manejador_reclamar(update, context):
             DROPS_ACTIVOS[drop_id] = drop
 
     ahora = time.time()
-
     # Si existe, toma el thread_id, si no, None
-    thread_id = drop.get("thread_id") if drop else None
+    thread_id = drop.get("thread_id") if drop else getattr(query.message, "message_thread_id", None)
 
     # --- Drop ausente completamente ---
     if not drop:
@@ -1604,7 +1603,6 @@ def manejador_reclamar(update, context):
     # --- Actualiza el drop en memoria ---
     DROPS_ACTIVOS[drop_id] = drop
 
-
     # --- Aquí SÍ generamos id_unico, estado y estrellas ---
     nombre = carta['nombre']
     version = carta['version']
@@ -1681,12 +1679,9 @@ def manejador_reclamar(update, context):
             "expirado": drop.get("expirado", False),
             "chat_id": chat_id,
             "mensaje_id": mensaje_id,
+            "thread_id": thread_id
         })
 
-
-
-
-    
     # --- Actualiza el drop en RAM y MongoDB
     DROPS_ACTIVOS[drop_id] = drop
     if "col_drops" in globals():
@@ -1701,7 +1696,8 @@ def manejador_reclamar(update, context):
     context.bot.edit_message_reply_markup(
         chat_id=drop["chat_id"],
         message_id=drop["mensaje_id"],
-        reply_markup=InlineKeyboardMarkup([teclado])
+        reply_markup=InlineKeyboardMarkup([teclado]),
+        message_thread_id=thread_id
     )
 
     user_mention = f"@{query.from_user.username or query.from_user.first_name}"
@@ -1722,7 +1718,8 @@ def manejador_reclamar(update, context):
         chat_id=drop["chat_id"],
         text=f"{user_mention} tomaste la carta <code>{id_unico}</code> #{nuevo_id} [{version}] {nombre} - {grupo}, {frase_estado} está en <b>{estado.lower()}</b>!\n"
              f"{mensaje_extra}",
-        parse_mode='HTML'
+        parse_mode='HTML',
+        message_thread_id=thread_id
     )
 
     favoritos = list(col_usuarios.find({
@@ -1737,7 +1734,8 @@ def manejador_reclamar(update, context):
         context.bot.send_message(
             chat_id=drop["chat_id"],
             text=texto_favs,
-            parse_mode='HTML'
+            parse_mode='HTML',
+            message_thread_id=thread_id
         )
 
     query.answer("¡Carta reclamada!", show_alert=True)
