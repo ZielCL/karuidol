@@ -98,24 +98,20 @@ COMANDOS_POR_TEMA = {
 
 from functools import wraps
 
-def solo_en_temas_permitidos(nombre_funcion):
+def solo_en_temas_permitidos(nombre_comando):
     def decorador(func):
-        @wraps(func)
         def wrapper(update, context, *args, **kwargs):
-            chat = update.effective_chat
-            # Permite en privado o fuera de grupo/tema
-            if chat.type not in ["group", "supergroup"]:
-                return func(update, context, *args, **kwargs)
-            topic_id = getattr(update.message, "message_thread_id", None)
-            if topic_id in COMANDOS_POR_TEMA.get(nombre_funcion, []):
-                return func(update, context, *args, **kwargs)
-            try:
-                update.message.reply_text("🚫 Este comando solo se puede usar en el tema correspondiente del grupo.")
-            except Exception:
-                pass
-            return
+            if update.message and update.message.chat.type in ["group", "supergroup"]:
+                thread_id = getattr(update.message, "message_thread_id", None)
+                permitidos = COMANDOS_POR_TEMA.get(nombre_comando, [])
+                if thread_id is not None and thread_id not in permitidos:
+                    update.message.reply_text("Este comando solo se puede usar en los temas oficiales del grupo.")
+                    return
+            # Si es privado o está permitido, ejecuta el comando normalmente
+            return func(update, context, *args, **kwargs)
         return wrapper
     return decorador
+
 
 
 
@@ -841,7 +837,7 @@ def estados_disponibles_para_carta(nombre, version):
     return [c for c in cartas if c['nombre'] == nombre and c['version'] == version]
 
 # -- IDOLDAY DROP 2 CARTAS (Drop siempre muestra excelente estado, pero al reclamar puede variar) ---
-@solo_en_temas_permitidos
+@solo_en_temas_permitidos("comando_idolday")
 @grupo_oficial
 def comando_idolday(update, context):
     user_id = update.message.from_user.id
