@@ -63,6 +63,36 @@ col_mercado.create_index(
     expireAfterSeconds=7*24*60*60  # 7 días
 )
 
+
+
+ID_GRUPOS_PERMITIDOS = [
+    -1001234567890,  # Grupo oficial 1
+    -1009876543210,  # Grupo oficial 2
+    # Agrega todos los que quieras
+]
+
+def grupo_oficial(func):
+    def wrapper(update, context, *args, **kwargs):
+        chat = update.effective_chat
+        if chat.type == 'private':
+            return func(update, context, *args, **kwargs)
+        if chat.id in ID_GRUPOS_PERMITIDOS:
+            return func(update, context, *args, **kwargs)
+        try:
+            update.message.reply_text(
+                "🚫 Este bot solo puede usarse en los grupos oficiales o por privado."
+            )
+        except Exception:
+            pass
+        return
+    return wrapper
+
+
+
+
+
+
+
 # --- Cooldowns ---
 COOLDOWN_USUARIO_SEG = 6 * 60 * 60  # 6 horas en segundos
 COOLDOWN_GRUPO_SEG = 30             # 30 segundos global por grupo
@@ -1022,6 +1052,12 @@ FRASES_ESTADO = {
     "Muy mal estado": "¡Oh no!"
 }
 
+
+def comando_chatid(update, context):
+    chat_id = update.effective_chat.id
+    update.message.reply_text(f"ID de este chat/grupo: <code>{chat_id}</code>", parse_mode="HTML")
+
+dispatcher.add_handler(CommandHandler('chatid', comando_chatid))
 
 
 
