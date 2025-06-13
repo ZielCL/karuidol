@@ -3533,18 +3533,16 @@ def manejador_callback_album(update, context):
     partes = data.split("_")
     user_id = query.from_user.id
 
-    # Recupera thread_id si viene en el callback_data o del mensaje
     def obtener_thread_id():
-        # Buscar si hay un thread_id al final del callback_data
-        if len(partes) > 4 and partes[-1].isdigit():
+        if len(partes) > 0 and partes[-1].isdigit():
             return int(partes[-1])
-        # O intenta del mensaje (solo para temas)
         return getattr(query.message, "message_thread_id", None)
 
     # --- Filtro por estrellas (estado) ---
     if data.startswith("album_filtro_estado_"):
-        user_id = int(partes[-3])
-        pagina = int(partes[-2])
+        # Corrige el índice aquí
+        user_id = int(partes[3])
+        pagina = int(partes[4])
         thread_id = obtener_thread_id()
         context.bot.edit_message_reply_markup(
             chat_id=query.message.chat_id,
