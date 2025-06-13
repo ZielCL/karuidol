@@ -1582,21 +1582,6 @@ def manejador_reclamar(update, context):
     except Exception as e:
         print("[manejador_reclamar] No se pudieron editar los botones:", e)
 
-    # ------ ENVIAR MENSAJES EN EL MISMO TEMA -------
-    try:
-        usuario_info = context.bot.get_chat_member(chat_id, usuario_click)
-        username_mostrar = (
-            f"@{usuario_info.user.username}"
-            if usuario_info.user.username else usuario_info.user.full_name
-        )
-        context.bot.send_message(
-            chat_id=chat_id,
-            text=f"🎉 {username_mostrar} reclamó la carta {carta.get('nombre', '')} [{carta.get('version', '')}]",
-            message_thread_id=thread_id if thread_id else None
-        )
-    except Exception as e:
-        print("[manejador_reclamar] Error enviando mensaje de éxito:", e)
-
     # --- ENTREGA DE CARTA, ESTADO, PRECIO ---
     nombre = carta['nombre']
     version = carta['version']
