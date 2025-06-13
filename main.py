@@ -91,7 +91,7 @@ def grupo_oficial(func):
 # === Temas por comando ===
 # Cambia los números por los message_thread_id REALES de tus temas
 COMANDOS_POR_TEMA = {
-    "idolday": [2],   # IDs de los temas donde sí funciona /ranking
+    "idolday": [1],   # IDs de los temas donde sí funciona /ranking
     "comando_reclamos": [5678],        # IDs de los temas donde sí funciona /reclamos
     
 }
