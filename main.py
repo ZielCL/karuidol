@@ -88,6 +88,36 @@ def grupo_oficial(func):
     return wrapper
 
 
+# === Temas por comando ===
+# Cambia los números por los message_thread_id REALES de tus temas
+COMANDOS_POR_TEMA = {
+    "comando_ranking": [1234, 4321],   # IDs de los temas donde sí funciona /ranking
+    "comando_reclamos": [5678],        # IDs de los temas donde sí funciona /reclamos
+    # Puedes agregar más comandos y más IDs separados por coma
+}
+
+from functools import wraps
+
+def solo_en_temas_permitidos(nombre_funcion):
+    def decorador(func):
+        @wraps(func)
+        def wrapper(update, context, *args, **kwargs):
+            chat = update.effective_chat
+            # Permite en privado o fuera de grupo/tema
+            if chat.type not in ["group", "supergroup"]:
+                return func(update, context, *args, **kwargs)
+            topic_id = getattr(update.message, "message_thread_id", None)
+            if topic_id in COMANDOS_POR_TEMA.get(nombre_funcion, []):
+                return func(update, context, *args, **kwargs)
+            try:
+                update.message.reply_text("🚫 Este comando solo se puede usar en el tema correspondiente del grupo.")
+            except Exception:
+                pass
+            return
+        return wrapper
+    return decorador
+
+
 
 
 
@@ -1059,6 +1089,15 @@ def comando_chatid(update, context):
     update.message.reply_text(f"ID de este chat/grupo: <code>{chat_id}</code>", parse_mode="HTML")
 
 dispatcher.add_handler(CommandHandler('chatid', comando_chatid))
+
+
+def comando_topicid(update, context):
+    topic_id = getattr(update.message, "message_thread_id", None)
+    update.message.reply_text(f"Thread ID de este tema: <code>{topic_id}</code>", parse_mode="HTML")
+
+
+
+
 
 
 
