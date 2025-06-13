@@ -2195,7 +2195,7 @@ def comando_comprarobjeto(update, context):
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 def mostrar_mercado_pagina(
-    chat_id, message_id, context, user_id, pagina=1, filtro=None, valor_filtro=None, orden=None, thread_id=None
+    chat_id, message_id, context, user_id, pagina=1, filtro=None, valor_filtro=None, orden=None
 ):
     # --- FILTRO DE CARTAS ---
     query_mercado = {}
@@ -2266,21 +2266,12 @@ def mostrar_mercado_pagina(
 
     # --- BOTONES ---
     botones = []
-    botones.append([InlineKeyboardButton(
-        "🔎 Filtrar / Ordenar", 
-        callback_data=f"mercado_filtros_{user_id}_{pagina}_{thread_id if thread_id else 'none'}"
-    )])
+    botones.append([InlineKeyboardButton("🔎 Filtrar / Ordenar", callback_data=f"mercado_filtros_{user_id}_{pagina}")])
     paginacion = []
     if pagina > 1:
-        paginacion.append(InlineKeyboardButton(
-            "⬅️", 
-            callback_data=f"mercado_pagina_{user_id}_{pagina-1}_{filtro or 'none'}_{valor_filtro or 'none'}_{orden or 'none'}_{thread_id if thread_id else 'none'}"
-        ))
+        paginacion.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_pagina_{user_id}_{pagina-1}_{filtro or 'none'}_{valor_filtro or 'none'}_{orden or 'none'}"))
     if pagina < total_paginas:
-        paginacion.append(InlineKeyboardButton(
-            "➡️", 
-            callback_data=f"mercado_pagina_{user_id}_{pagina+1}_{filtro or 'none'}_{valor_filtro or 'none'}_{orden or 'none'}_{thread_id if thread_id else 'none'}"
-        ))
+        paginacion.append(InlineKeyboardButton("➡️", callback_data=f"mercado_pagina_{user_id}_{pagina+1}_{filtro or 'none'}_{valor_filtro or 'none'}_{orden or 'none'}"))
     if paginacion:
         botones.append(paginacion)
     teclado = InlineKeyboardMarkup(botones)
@@ -2292,15 +2283,16 @@ def mostrar_mercado_pagina(
             chat_id=chat_id,
             message_id=message_id,
             text=texto,
-            parse_mode="HTML",
-            reply_markup=teclado,
-            message_thread_id=thread_id if thread_id and thread_id != "none" else None
+            parse_mode="HTML",  # Importante para enlaces
+            reply_markup=teclado
+            # NO pongas message_thread_id aquí
         )
     except telegram.error.RetryAfter as e:
         print(f"[mercado] Flood control: debes esperar {e.retry_after} segundos para editar mensaje.")
         try:
-            if hasattr(context, 'bot') and hasattr(context, 'update') and hasattr(context.update, 'callback_query'):
-                context.update.callback_query.answer(
+            query = getattr(context, 'update', None)
+            if query and hasattr(query, 'callback_query'):
+                query.callback_query.answer(
                     f"⚠️ ¡Calma! Debes esperar {int(e.retry_after)}s para cambiar de página (Telegram limita los cambios rápidos).",
                     show_alert=True
                 )
@@ -2309,13 +2301,15 @@ def mostrar_mercado_pagina(
     except Exception as ex:
         print("[mercado] Otro error al editar mensaje:", ex)
         try:
-            if hasattr(context, 'bot') and hasattr(context, 'update') and hasattr(context.update, 'callback_query'):
-                context.update.callback_query.answer(
+            query = getattr(context, 'update', None)
+            if query and hasattr(query, 'callback_query'):
+                query.callback_query.answer(
                     "Ocurrió un error inesperado al cambiar de página.",
                     show_alert=True
                 )
         except Exception:
             pass
+
 
 
 
@@ -2920,7 +2914,7 @@ def comando_mercado(update, context):
     # Mensaje inicial, muestra la primera página
     msg = context.bot.send_message(
         chat_id=chat_id,
-        text="Cargando mercado...",
+        text="🛒 Mercado (cargando...)",
     )
     mostrar_mercado_pagina(chat_id, msg.message_id, context, user_id, pagina=1)
 
