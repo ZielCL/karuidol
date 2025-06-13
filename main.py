@@ -2915,7 +2915,7 @@ def comando_mercado(update, context):
     
     # Si no está en un tema, muestra advertencia y sale
     if not message_thread_id:
-        update.message.reply_text("Debes usar /mercado dentro de el tema "Mercado de cartas").")
+        update.message.reply_text("Debes usar /mercado dentro de el tema mercado de cartas).")
         return
 
     # Envía mensaje inicial en el tema correcto
