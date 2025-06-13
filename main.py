@@ -104,7 +104,7 @@ def solo_en_temas_permitidos(nombre_comando):
             if update.message and update.message.chat.type in ["group", "supergroup"]:
                 thread_id = getattr(update.message, "message_thread_id", None)
                 permitidos = COMANDOS_POR_TEMA.get(nombre_comando, [])
-                if thread_id is not None and thread_id not in permitidos:
+                if thread_id is None or thread_id not in permitidos:
                     update.message.reply_text("Este comando solo se puede usar en los temas oficiales del grupo.")
                     return
             # Si es privado o está permitido, ejecuta el comando normalmente
