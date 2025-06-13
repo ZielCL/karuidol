@@ -140,7 +140,6 @@ FRASES_PERMITIDAS = [
 def borrar_mensajes_no_idolday(update, context):
     msg = update.effective_message
     try:
-        # Solo borrar si es en el chat general y NO es mensaje de drop/permitido
         if msg.chat_id == ID_CHAT_GENERAL and msg.message_thread_id is None:
             texto = (msg.text or msg.caption or "").lower()
             if (
@@ -149,14 +148,16 @@ def borrar_mensajes_no_idolday(update, context):
             ):
                 return  # No borrar mensajes de drop ni comandos válidos
 
-            # Borra después de 3 segundos
-            context.job_queue.run_once(
-                lambda ctx: msg.delete(),
-                when=3,
-                context=None,
-            )
+            def borrar_msg():
+                try:
+                    msg.delete()
+                except Exception as e:
+                    print("[Borrador mensajes] Error al borrar (thread):", e)
+
+            threading.Timer(3, borrar_msg).start()
     except Exception as e:
         print("[Borrador mensajes] Error al borrar:", e)
+
 
 
 
