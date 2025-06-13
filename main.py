@@ -91,6 +91,7 @@ def grupo_oficial(func):
 # === Temas por comando ===
 # Cambia los números por los message_thread_id REALES de tus temas
 COMANDOS_POR_TEMA = {
+    "idolday: [None],
     "album": [5],        # IDs de los temas donde sí funciona /reclamos
     
 }
@@ -1781,6 +1782,7 @@ def mostrar_lista_mejorables(update, context, user_id, cartas_mejorables, pagina
 def comando_album(update, context):
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
+    thread_id = getattr(update.message, "message_thread_id", None)
     msg = context.bot.send_message(chat_id=chat_id, text="Cargando álbum...")
     mostrar_album_pagina(
         update,
