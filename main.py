@@ -841,6 +841,7 @@ def estados_disponibles_para_carta(nombre, version):
     return [c for c in cartas if c['nombre'] == nombre and c['version'] == version]
 
 # -- IDOLDAY DROP 2 CARTAS (Drop siempre muestra excelente estado, pero al reclamar puede variar) ---
+@solo_en_temas_permitidos
 @grupo_oficial
 def comando_idolday(update, context):
     user_id = update.message.from_user.id
