@@ -2195,7 +2195,7 @@ def comando_comprarobjeto(update, context):
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 def mostrar_mercado_pagina(
-    chat_id, message_id, context, user_id, pagina=1, filtro=None, valor_filtro=None, orden=None
+    chat_id, message_id, context, user_id, pagina=1, filtro=None, valor_filtro=None, orden=None, thread_id=None
 ):
     # --- FILTRO DE CARTAS ---
     query_mercado = {}
@@ -2255,7 +2255,6 @@ def mostrar_mercado_pagina(
             if username:
                 vendedor_linea = f'👤 Vendedor: <code>{username}</code>\n'
 
-        
         texto += (
             f"{estrellas} · {num} · {ver} · {nom} · {grp}{estrella_fav}\n"
             f"💲{precio:,}\n"
@@ -2267,12 +2266,21 @@ def mostrar_mercado_pagina(
 
     # --- BOTONES ---
     botones = []
-    botones.append([InlineKeyboardButton("🔎 Filtrar / Ordenar", callback_data=f"mercado_filtros_{user_id}_{pagina}")])
+    botones.append([InlineKeyboardButton(
+        "🔎 Filtrar / Ordenar", 
+        callback_data=f"mercado_filtros_{user_id}_{pagina}_{thread_id if thread_id else 'none'}"
+    )])
     paginacion = []
     if pagina > 1:
-        paginacion.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_pagina_{user_id}_{pagina-1}_{filtro or 'none'}_{valor_filtro or 'none'}_{orden or 'none'}"))
+        paginacion.append(InlineKeyboardButton(
+            "⬅️", 
+            callback_data=f"mercado_pagina_{user_id}_{pagina-1}_{filtro or 'none'}_{valor_filtro or 'none'}_{orden or 'none'}_{thread_id if thread_id else 'none'}"
+        ))
     if pagina < total_paginas:
-        paginacion.append(InlineKeyboardButton("➡️", callback_data=f"mercado_pagina_{user_id}_{pagina+1}_{filtro or 'none'}_{valor_filtro or 'none'}_{orden or 'none'}"))
+        paginacion.append(InlineKeyboardButton(
+            "➡️", 
+            callback_data=f"mercado_pagina_{user_id}_{pagina+1}_{filtro or 'none'}_{valor_filtro or 'none'}_{orden or 'none'}_{thread_id if thread_id else 'none'}"
+        ))
     if paginacion:
         botones.append(paginacion)
     teclado = InlineKeyboardMarkup(botones)
@@ -2284,8 +2292,9 @@ def mostrar_mercado_pagina(
             chat_id=chat_id,
             message_id=message_id,
             text=texto,
-            parse_mode="HTML",  # Importante para enlaces
-            reply_markup=teclado
+            parse_mode="HTML",
+            reply_markup=teclado,
+            message_thread_id=thread_id if thread_id and thread_id != "none" else None
         )
     except telegram.error.RetryAfter as e:
         print(f"[mercado] Flood control: debes esperar {e.retry_after} segundos para editar mensaje.")
@@ -2312,64 +2321,58 @@ def mostrar_mercado_pagina(
 
 
 
-def mostrar_menu_filtros(user_id, pagina):
+def mostrar_menu_filtros(user_id, pagina, thread_id=None):
     botones = [
-        [InlineKeyboardButton("⭐ Filtrar por Estado", callback_data=f"mercado_filtro_estado_{user_id}_{pagina}")],
-        [InlineKeyboardButton("👥 Filtrar por Grupo", callback_data=f"mercado_filtro_grupo_{user_id}_{pagina}_1")],
-        [InlineKeyboardButton("🔢 Ordenar por Número", callback_data=f"mercado_filtro_numero_{user_id}_{pagina}")],
-        [InlineKeyboardButton("⬅️ Volver", callback_data=f"mercado_pagina_{user_id}_{pagina}_none_none_none")]
+        [InlineKeyboardButton("⭐ Filtrar por Estado", callback_data=f"mercado_filtro_estado_{user_id}_{pagina}_{thread_id if thread_id else 'none'}")],
+        [InlineKeyboardButton("👥 Filtrar por Grupo", callback_data=f"mercado_filtro_grupo_{user_id}_{pagina}_1_{thread_id if thread_id else 'none'}")],
+        [InlineKeyboardButton("🔢 Ordenar por Número", callback_data=f"mercado_filtro_numero_{user_id}_{pagina}_{thread_id if thread_id else 'none'}")],
+        [InlineKeyboardButton("⬅️ Volver", callback_data=f"mercado_pagina_{user_id}_{pagina}_none_none_none_{thread_id if thread_id else 'none'}")]
     ]
     return InlineKeyboardMarkup(botones)
 
-def mostrar_menu_estrellas(user_id, pagina):
+def mostrar_menu_estrellas(user_id, pagina, thread_id=None):
     botones = [
-        [InlineKeyboardButton("★★★", callback_data=f"mercado_filtraestrella_{user_id}_{pagina}_★★★")],
-        [InlineKeyboardButton("★★☆", callback_data=f"mercado_filtraestrella_{user_id}_{pagina}_★★☆")],
-        [InlineKeyboardButton("★☆☆", callback_data=f"mercado_filtraestrella_{user_id}_{pagina}_★☆☆")],
-        [InlineKeyboardButton("☆☆☆", callback_data=f"mercado_filtraestrella_{user_id}_{pagina}_☆☆☆")],
-        [InlineKeyboardButton("⬅️ Volver", callback_data=f"mercado_filtros_{user_id}_{pagina}")]
+        [InlineKeyboardButton("★★★", callback_data=f"mercado_filtraestrella_{user_id}_{pagina}_★★★_{thread_id if thread_id else 'none'}")],
+        [InlineKeyboardButton("★★☆", callback_data=f"mercado_filtraestrella_{user_id}_{pagina}_★★☆_{thread_id if thread_id else 'none'}")],
+        [InlineKeyboardButton("★☆☆", callback_data=f"mercado_filtraestrella_{user_id}_{pagina}_★☆☆_{thread_id if thread_id else 'none'}")],
+        [InlineKeyboardButton("☆☆☆", callback_data=f"mercado_filtraestrella_{user_id}_{pagina}_☆☆☆_{thread_id if thread_id else 'none'}")],
+        [InlineKeyboardButton("⬅️ Volver", callback_data=f"mercado_filtros_{user_id}_{pagina}_{thread_id if thread_id else 'none'}")]
     ]
     return InlineKeyboardMarkup(botones)
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-
-def mostrar_menu_grupos(user_id, pagina, grupos):
+def mostrar_menu_grupos(user_id, pagina, grupos, thread_id=None):
     por_pagina = 5
     total = len(grupos)
     paginas = max(1, (total - 1) // por_pagina + 1)
-    if pagina < 1:
-        pagina = 1
-    if pagina > paginas:
-        pagina = paginas
+    if pagina < 1: pagina = 1
+    if pagina > paginas: pagina = paginas
     inicio = (pagina - 1) * por_pagina
     fin = min(inicio + por_pagina, total)
     grupos_pagina = grupos[inicio:fin]
 
     matriz = []
     for g in grupos_pagina:
-        # Usa callback_data consistente con tu manejador_callback
-        matriz.append([InlineKeyboardButton(g, callback_data=f"mercado_filtragrupo_{user_id}_{pagina}_{g}")])
+        matriz.append([InlineKeyboardButton(g, callback_data=f"mercado_filtragrupo_{user_id}_{pagina}_{g}_{thread_id if thread_id else 'none'}")])
 
     nav = []
     if pagina > 1:
-        nav.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_filtro_grupo_{user_id}_{pagina-1}"))
+        nav.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_filtro_grupo_{user_id}_{pagina-1}_{thread_id if thread_id else 'none'}"))
     if pagina < paginas:
-        nav.append(InlineKeyboardButton("➡️", callback_data=f"mercado_filtro_grupo_{user_id}_{pagina+1}"))
+        nav.append(InlineKeyboardButton("➡️", callback_data=f"mercado_filtro_grupo_{user_id}_{pagina+1}_{thread_id if thread_id else 'none'}"))
     if nav:
         matriz.append(nav)
-    matriz.append([InlineKeyboardButton("Volver", callback_data=f"mercado_filtros_{user_id}_{pagina}")])
+    matriz.append([InlineKeyboardButton("⬅️ Volver", callback_data=f"mercado_filtros_{user_id}_{pagina}_{thread_id if thread_id else 'none'}")])
 
     return InlineKeyboardMarkup(matriz)
 
-
-
-def mostrar_menu_ordenar(user_id, pagina):
+def mostrar_menu_ordenar(user_id, pagina, thread_id=None):
     botones = [
-        [InlineKeyboardButton("⬆️ Menor a mayor", callback_data=f"mercado_ordennum_{user_id}_{pagina}_menor")],
-        [InlineKeyboardButton("⬇️ Mayor a menor", callback_data=f"mercado_ordennum_{user_id}_{pagina}_mayor")],
-        [InlineKeyboardButton("⬅️ Volver", callback_data=f"mercado_filtros_{user_id}_{pagina}")]
+        [InlineKeyboardButton("⬆️ Menor a mayor", callback_data=f"mercado_ordennum_{user_id}_{pagina}_menor_{thread_id if thread_id else 'none'}")],
+        [InlineKeyboardButton("⬇️ Mayor a menor", callback_data=f"mercado_ordennum_{user_id}_{pagina}_mayor_{thread_id if thread_id else 'none'}")],
+        [InlineKeyboardButton("⬅️ Volver", callback_data=f"mercado_filtros_{user_id}_{pagina}_{thread_id if thread_id else 'none'}")]
     ]
     return InlineKeyboardMarkup(botones)
+
 
 
 #----------Comando FAV1---------------
