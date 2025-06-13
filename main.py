@@ -1782,7 +1782,6 @@ def comando_album(update, context):
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
     thread_id = getattr(update.message, "message_thread_id", None)
-    # El mensaje inicial de "Cargando álbum..." se envía en el thread
     msg = context.bot.send_message(
         chat_id=chat_id,
         text="Cargando álbum...",
@@ -1795,7 +1794,7 @@ def comando_album(update, context):
         msg.message_id,
         user_id,
         pagina=1,
-        thread_id=thread_id  # <== pásalo aquí
+        thread_id=thread_id
     )
 
 
@@ -1805,7 +1804,8 @@ def comando_album(update, context):
 
 def enviar_lista_pagina(
     chat_id, user_id, lista_cartas, pagina, context,
-    editar=False, mensaje=None, filtro=None, valor_filtro=None, orden=None, mostrando_filtros=False
+    editar=False, mensaje=None, filtro=None, valor_filtro=None, orden=None, mostrando_filtros=False,
+    thread_id=None  # <-- ¡Aquí el parámetro opcional!
 ):
     total = len(lista_cartas)
     por_pagina = 10
@@ -1833,7 +1833,7 @@ def enviar_lista_pagina(
             id_unico = carta.get('id_unico', 'xxxx')
             estrellas = carta.get('estrellas', '★??')
             apodo = carta.get('apodo', '')
-            apodo_txt = f'· "{apodo}" ' if apodo else ''
+            apodo_txt = f'· \"{apodo}\" ' if apodo else ''
             texto += (
                 f"• <code>{id_unico}</code> · [{estrellas}] · #{cid} · [{version}] {apodo_txt}· {nombre} · {grupo}\n"
             )
@@ -1864,13 +1864,22 @@ def enviar_lista_pagina(
 
     teclado = InlineKeyboardMarkup(botones)
 
+    # --- ADAPTADO PARA ENVIAR SIEMPRE EN EL MISMO THREAD SI thread_id está presente ---
     if editar and mensaje:
         try:
             mensaje.edit_text(texto, reply_markup=teclado, parse_mode='HTML')
         except Exception:
-            context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode='HTML')
+            context.bot.send_message(
+                chat_id=chat_id, text=texto, reply_markup=teclado,
+                parse_mode='HTML',
+                message_thread_id=thread_id if thread_id else None
+            )
     else:
-        context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode='HTML')
+        context.bot.send_message(
+            chat_id=chat_id, text=texto, reply_markup=teclado,
+            parse_mode='HTML',
+            message_thread_id=thread_id if thread_id else None
+        )
 
 
 # ----------- Menú de ESTRELLAS (Estados) para filtrar -----------
@@ -2986,8 +2995,9 @@ def mostrar_album_pagina(
     valor_filtro=None, 
     orden=None, 
     solo_botones=False,
-    thread_id=thread_id # Para refrescar solo botones al abrir filtros
+    thread_id=None   # ¡Importante!
 ):
+
     # === 1. Consulta cartas del usuario y aplica filtro ===
     query_album = {"user_id": user_id}
     if filtro == "estrellas":
@@ -3034,16 +3044,25 @@ def mostrar_album_pagina(
 
     texto += '\n<i>Usa <b>/ampliar &lt;id_unico&gt;</b> para ver detalles de cualquier carta.</i>'
 
-    # === 4. Botones ===
+# === 4. Botones ===
     botones = []
     if not solo_botones:
-        botones.append([telegram.InlineKeyboardButton("🔎 Filtrar / Ordenar", callback_data=f"album_filtros_{user_id}_{pagina}")])
+        botones.append([telegram.InlineKeyboardButton(
+            "🔎 Filtrar / Ordenar",
+            callback_data=f"album_filtros_{user_id}_{pagina}_{thread_id if thread_id else 'none'}"
+        )])
 
     paginacion = []
     if pagina > 1:
-        paginacion.append(telegram.InlineKeyboardButton("⬅️", callback_data=f"album_pagina_{user_id}_{pagina-1}_{filtro or 'none'}_{valor_filtro or 'none'}_{orden or 'none'}"))
+        paginacion.append(telegram.InlineKeyboardButton(
+            "⬅️",
+            callback_data=f"album_pagina_{user_id}_{pagina-1}_{filtro or 'none'}_{valor_filtro or 'none'}_{orden or 'none'}_{thread_id if thread_id else 'none'}"
+        ))
     if pagina < total_paginas:
-        paginacion.append(telegram.InlineKeyboardButton("➡️", callback_data=f"album_pagina_{user_id}_{pagina+1}_{filtro or 'none'}_{valor_filtro or 'none'}_{orden or 'none'}"))
+        paginacion.append(telegram.InlineKeyboardButton(
+            "➡️",
+            callback_data=f"album_pagina_{user_id}_{pagina+1}_{filtro or 'none'}_{valor_filtro or 'none'}_{orden or 'none'}_{thread_id if thread_id else 'none'}"
+        ))
     if paginacion and not solo_botones:
         botones.append(paginacion)
 
@@ -3052,11 +3071,14 @@ def mostrar_album_pagina(
     # --- Cambia SOLO los botones (al entrar a filtros) ---
     if solo_botones:
         try:
-            context.bot.edit_message_reply_markup(
-                chat_id=chat_id, 
-                message_id=message_id, 
+            kwargs = dict(
+                chat_id=chat_id,
+                message_id=message_id,
                 reply_markup=teclado
             )
+            if thread_id is not None:
+                kwargs['message_thread_id'] = thread_id
+            context.bot.edit_message_reply_markup(**kwargs)
         except telegram.error.RetryAfter as e:
             if update and hasattr(update, 'callback_query'):
                 try:
@@ -3080,13 +3102,16 @@ def mostrar_album_pagina(
 
     # --- Cambia texto + botones (página, filtro, etc) ---
     try:
-        context.bot.edit_message_text(
+        kwargs = dict(
             chat_id=chat_id,
             message_id=message_id,
             text=texto,
             reply_markup=teclado,
             parse_mode="HTML"
         )
+        if thread_id is not None:
+            kwargs['message_thread_id'] = thread_id
+        context.bot.edit_message_text(**kwargs)
     except telegram.error.RetryAfter as e:
         print(f"[album] Flood control: debes esperar {e.retry_after} segundos para editar mensaje.")
         if update and hasattr(update, 'callback_query'):
@@ -3512,10 +3537,19 @@ def manejador_callback_album(update, context):
     partes = data.split("_")
     user_id = query.from_user.id
 
+    # Recupera thread_id si viene en el callback_data o del mensaje
+    def obtener_thread_id():
+        # Buscar si hay un thread_id al final del callback_data
+        if len(partes) > 4 and partes[-1].isdigit():
+            return int(partes[-1])
+        # O intenta del mensaje (solo para temas)
+        return getattr(query.message, "message_thread_id", None)
+
     # --- Filtro por estrellas (estado) ---
     if data.startswith("album_filtro_estado_"):
-        user_id = int(partes[-2])
-        pagina = int(partes[-1])
+        user_id = int(partes[-3])
+        pagina = int(partes[-2])
+        thread_id = obtener_thread_id()
         context.bot.edit_message_reply_markup(
             chat_id=query.message.chat_id,
             message_id=query.message.message_id,
@@ -3528,17 +3562,26 @@ def manejador_callback_album(update, context):
         user_id = int(partes[2])
         pagina = int(partes[3])
         estrellas = partes[4]
-        mostrar_album_pagina(update, context, query.message.chat_id, query.message.message_id, user_id, int(pagina), filtro="estrellas", valor_filtro=estrellas)
+        thread_id = obtener_thread_id()
+        mostrar_album_pagina(
+            update, context, query.message.chat_id, query.message.message_id,
+            user_id, int(pagina), filtro="estrellas", valor_filtro=estrellas, thread_id=thread_id
+        )
         return
 
     # --- Filtro por grupo ---
     if data.startswith("album_filtro_grupo_"):
         partes_split = data.split("_")
         user_id = int(partes_split[3])
-        if len(partes_split) > 4:
+        if len(partes_split) > 5 and partes_split[-1].isdigit():
             pagina = int(partes_split[4])
+            thread_id = int(partes_split[5])
+        elif len(partes_split) > 4:
+            pagina = int(partes_split[4])
+            thread_id = None
         else:
             pagina = 1
+            thread_id = None
         grupos = sorted({c.get("grupo", "") for c in col_cartas_usuario.find({"user_id": user_id}) if c.get("grupo")})
         context.bot.edit_message_reply_markup(
             chat_id=query.message.chat_id,
@@ -3551,14 +3594,19 @@ def manejador_callback_album(update, context):
     if data.startswith("album_filtragrupo_"):
         user_id = int(partes[2])
         pagina = int(partes[3])
-        grupo = "_".join(partes[4:])
-        mostrar_album_pagina(update, context, query.message.chat_id, query.message.message_id, user_id, int(pagina), filtro="grupo", valor_filtro=grupo)
+        grupo = "_".join(partes[4:-1]) if partes[-1].isdigit() else "_".join(partes[4:])
+        thread_id = obtener_thread_id()
+        mostrar_album_pagina(
+            update, context, query.message.chat_id, query.message.message_id,
+            user_id, int(pagina), filtro="grupo", valor_filtro=grupo, thread_id=thread_id
+        )
         return
 
     # --- Menú de filtros principal ---
     if data.startswith("album_filtros_"):
         user_id = int(partes[2])
         pagina = int(partes[3])
+        thread_id = obtener_thread_id()
         context.bot.edit_message_reply_markup(
             chat_id=query.message.chat_id,
             message_id=query.message.message_id,
@@ -3570,6 +3618,7 @@ def manejador_callback_album(update, context):
     if data.startswith("album_filtro_numero_"):
         user_id = int(partes[3])
         pagina = int(partes[4])
+        thread_id = obtener_thread_id()
         context.bot.edit_message_reply_markup(
             chat_id=query.message.chat_id,
             message_id=query.message.message_id,
@@ -3582,7 +3631,11 @@ def manejador_callback_album(update, context):
         user_id = int(partes[2])
         pagina = int(partes[3])
         orden = partes[4]
-        mostrar_album_pagina(update, context, query.message.chat_id, query.message.message_id, user_id, int(pagina), orden=orden)
+        thread_id = obtener_thread_id()
+        mostrar_album_pagina(
+            update, context, query.message.chat_id, query.message.message_id,
+            user_id, int(pagina), orden=orden, thread_id=thread_id
+        )
         return
 
     # --- Volver al álbum completo (sin filtros) ---
@@ -3592,7 +3645,11 @@ def manejador_callback_album(update, context):
         filtro = partes[4] if len(partes) > 4 and partes[4] != "none" else None
         valor_filtro = partes[5] if len(partes) > 5 and partes[5] != "none" else None
         orden = partes[6] if len(partes) > 6 and partes[6] != "none" else None
-        mostrar_album_pagina(update, context, query.message.chat_id, query.message.message_id, user_id, int(pagina), filtro=filtro, valor_filtro=valor_filtro, orden=orden)
+        thread_id = obtener_thread_id()
+        mostrar_album_pagina(
+            update, context, query.message.chat_id, query.message.message_id,
+            user_id, int(pagina), filtro=filtro, valor_filtro=valor_filtro, orden=orden, thread_id=thread_id
+        )
         return
 
 
