@@ -91,7 +91,7 @@ def grupo_oficial(func):
 # === Temas por comando ===
 # Cambia los números por los message_thread_id REALES de tus temas
 COMANDOS_POR_TEMA = {
-    "k": [2],        # IDs de los temas donde sí funciona /reclamos
+    "comando_album": [5],        # IDs de los temas donde sí funciona /reclamos
     
 }
 
@@ -1776,6 +1776,7 @@ def mostrar_lista_mejorables(update, context, user_id, cartas_mejorables, pagina
 
 
 # Aquí pego la versión adaptada de /album para usar id_unico, estrellas y letra pegada a la izquierda:
+@solo_en_temas_permitidos(comando_album)
 @cooldown_critico
 def comando_album(update, context):
     user_id = update.effective_user.id
