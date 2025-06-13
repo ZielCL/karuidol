@@ -125,6 +125,9 @@ def solo_en_chat_general(func):
     return wrapper
 
 
+
+ID_CHAT_GENERAL = -1002636853982
+
 def borrar_mensajes_no_idolday(update, context):
     msg = update.effective_message
     print(
