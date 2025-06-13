@@ -66,7 +66,7 @@ col_mercado.create_index(
 
 
 ID_GRUPOS_PERMITIDOS = [
-    -1001234567890,  # Grupo oficial 1
+    -1002636853982,  # Grupo oficial 1
     -1009876543210,  # Grupo oficial 2
     # Agrega todos los que quieras
 ]
@@ -80,7 +80,7 @@ def grupo_oficial(func):
             return func(update, context, *args, **kwargs)
         try:
             update.message.reply_text(
-                "🚫 Este bot solo puede usarse en los grupos oficiales o por privado."
+                "🚫 Este bot solo puede usarse en grupos oficiales."
             )
         except Exception:
             pass
@@ -811,6 +811,7 @@ def estados_disponibles_para_carta(nombre, version):
     return [c for c in cartas if c['nombre'] == nombre and c['version'] == version]
 
 # -- IDOLDAY DROP 2 CARTAS (Drop siempre muestra excelente estado, pero al reclamar puede variar) ---
+@grupo_oficial
 def comando_idolday(update, context):
     user_id = update.message.from_user.id
     chat_id = update.effective_chat.id
@@ -1052,7 +1053,7 @@ FRASES_ESTADO = {
     "Muy mal estado": "¡Oh no!"
 }
 
-
+@grupo_oficial
 def comando_chatid(update, context):
     chat_id = update.effective_chat.id
     update.message.reply_text(f"ID de este chat/grupo: <code>{chat_id}</code>", parse_mode="HTML")
@@ -1143,7 +1144,7 @@ def comando_kkp(update, context):
 
 
 
-
+@grupo_oficial
 def comando_estadisticasdrops(update, context):
     if not es_admin(update, context):
         update.message.reply_text("Este comando solo puede ser usado por administradores del grupo.")
@@ -1184,7 +1185,7 @@ def comando_estadisticasdrops(update, context):
 
 
 
-
+@grupo_oficial
 def comando_darGemas(update, context):
     TU_USER_ID = 1111798714  # <-- Reemplaza por tu verdadero ID de Telegram
     if update.message.from_user.id != TU_USER_ID:
@@ -1236,7 +1237,7 @@ def comando_darGemas(update, context):
 
 
 
-
+@grupo_oficial
 @cooldown_critico
 def comando_usar(update, context):
     from datetime import timedelta
@@ -2615,7 +2616,7 @@ def comando_saldo(update, context):
     kponey = usuario.get("kponey", 0)
     update.message.reply_text(f"💸 <b>Tus Kponey:</b> <code>{kponey}</code>", parse_mode="HTML")
 
-
+@grupo_oficial
 def comando_gemas(update, context):
     user_id = update.message.from_user.id
     usuario = col_usuarios.find_one({"user_id": user_id}) or {}
@@ -2624,6 +2625,7 @@ def comando_gemas(update, context):
 
 
 #---------Para dar dinero------------
+@grupo_oficial
 def comando_darKponey(update, context):
     TU_USER_ID = 1111798714  # <-- Reemplaza por tu verdadero ID de Telegram
     if update.message.from_user.id != TU_USER_ID:
@@ -2707,6 +2709,7 @@ def comando_miid(update, context):
     usuario = update.effective_user
     update.message.reply_text(f"Tu ID de Telegram es: {usuario.id}")
 
+@grupo_oficial
 def comando_bonoidolday(update, context):
     user_id = update.message.from_user.id
     chat = update.effective_chat
@@ -2799,7 +2802,7 @@ def comando_ampliar(update, context):
     )
 
 
-
+@grupo_oficial
 @cooldown_critico
 def comando_comandos(update, context):
     texto = (
@@ -2843,7 +2846,7 @@ def comando_mercado(update, context):
     mostrar_mercado_pagina(chat_id, msg.message_id, context, user_id, pagina=1)
 
 
-
+@grupo_oficial
 def comando_giveidol(update, context):
     # Uso: /giveidol <id_unico> @usuario_destino
     if len(context.args) < 2:
