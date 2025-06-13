@@ -131,8 +131,7 @@ import time
 
 
 # Configura aquí tu chat general y frases clave (en minúsculas para comparar)
-ID_CHAT_GENERAL = -1002636853982  # SOLO el número, sin "_1" ni "_2"
-THREAD_GENERAL = 1
+ID_CHAT_GENERAL = -1002636853982  # El chat general
 FRASES_PERMITIDAS = [
     "está dropeando",
     "tomaste la carta",
@@ -141,30 +140,31 @@ FRASES_PERMITIDAS = [
     # Agrega aquí más frases si usas otras
 ]
 
-def borrar_si_no_es_idolday(update, context):
-    mensaje = update.message
-    if not mensaje:
+def borrar_mensajes_no_idolday(update, context):
+    msg = update.effective_message
+
+    # Solo en el chat general
+    if msg.chat_id != ID_CHAT_GENERAL:
         return
 
-    # Solo actúa en el chat general
-    if mensaje.chat.id != ID_CHAT_GENERAL:
+    # Permitir /idolday
+    if msg.text and msg.text.startswith('/idolday'):
         return
 
-    texto = mensaje.text or mensaje.caption or ""
-    texto_lower = texto.lower()
+    # Permitir frases del drop
+    if msg.text and any(frase in msg.text for frase in FRASES_PERMITIDAS):
+        return
 
-    # Si NO contiene ninguna de las frases clave, borra tras 3 segundos
-    if not any(frase in texto_lower for frase in FRASES_PERMITIDAS):
-        def borrar():
-            time.sleep(3)
-            try:
-                mensaje.delete()
-            except Exception:
-                pass  # Puede que el mensaje ya esté borrado o sin permisos
+    # Permitir botones del drop
+    if getattr(msg, "reply_markup", None):
+        pass
 
-        threading.Thread(target=borrar).start()
-
-
+    # Borra todo lo demás tras 3 segundos
+    try:
+        import threading
+        threading.Timer(3, lambda: context.bot.delete_message(chat_id=msg.chat_id, message_id=msg.message_id)).start()
+    except Exception:
+        pass
 
 
 
@@ -4340,7 +4340,6 @@ dispatcher.add_handler(CommandHandler('comandos', comando_comandos))
 dispatcher.add_handler(CommandHandler('giveidol', comando_giveidol))
 dispatcher.add_handler(CommandHandler('setsprogreso', comando_setsprogreso))
 dispatcher.add_handler(CommandHandler('set', comando_set_detalle))
-dispatcher.add_handler(MessageHandler(Filters.chat(ID_CHAT_GENERAL) & Filters.all, borrar_si_no_es_idolday),group=99)
 dispatcher.add_handler(MessageHandler(Filters.text & (~Filters.command), handler_regalo_respuesta))
 dispatcher.add_handler(CommandHandler('ampliar', comando_ampliar))
 dispatcher.add_handler(CommandHandler('kponey', comando_saldo))
@@ -4352,7 +4351,13 @@ dispatcher.add_handler(CommandHandler('vender', comando_vender))
 dispatcher.add_handler(CommandHandler('comprar', comando_comprar))
 dispatcher.add_handler(CommandHandler('retirar', comando_retirar))
 dispatcher.add_handler(CommandHandler('mejorar', comando_mejorar))
-
+dispatcher.add_handler(
+    MessageHandler(
+        Filters.chat(ID_CHAT_GENERAL) & Filters.all,
+        borrar_mensajes_no_idolday
+    ),
+    group=99
+)
 
 def verify_paypal_ipn(data):
     verify_url = "https://ipnpb.paypal.com/cgi-bin/webscr"
