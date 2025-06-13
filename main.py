@@ -92,7 +92,7 @@ def grupo_oficial(func):
 # Cambia los números por los message_thread_id REALES de tus temas
 COMANDOS_POR_TEMA = {
     "idolday": [2],   # IDs de los temas donde sí funciona /ranking
-    "comando_reclamos": [5678],        # IDs de los temas donde sí funciona /reclamos
+    "manejador_reclamar": [2],        # IDs de los temas donde sí funciona /reclamos
     
 }
 
@@ -1381,7 +1381,8 @@ def comando_usar(update, context):
         return
 
 
-
+@grupo_oficial
+@solo_en_temas_permitidos("manejador_reclamar")
 def manejador_reclamar(update, context):
     query = update.callback_query
     usuario_click = query.from_user.id
