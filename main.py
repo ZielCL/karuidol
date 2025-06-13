@@ -5,6 +5,7 @@ import telegram
 from flask import Flask, request, jsonify, redirect
 from telegram.error import BadRequest, RetryAfter
 from telegram import ParseMode
+from telegram.ext import MessageHandler, Filters
 from telegram import (
     Bot,
     Update,
@@ -126,37 +127,36 @@ def solo_en_chat_general(func):
 
 
 
-ID_CHAT_GENERAL = -1002636853982
+ID_CHAT_GENERAL = -1002636853982  # El número SIN _1, _2
+
+FRASES_PERMITIDAS = [
+    "está dropeando",
+    "tomaste la carta",
+    "reclamó la carta",
+    "Favoritos de esta carta",
+    # ...otros textos que quieres permitir
+]
 
 def borrar_mensajes_no_idolday(update, context):
     msg = update.effective_message
-    print(
-        "MSG:",
-        repr(msg.text or msg.caption or ""),
-        "chat_id:", msg.chat_id,
-        "thread_id:", getattr(msg, "message_thread_id", None)
-    )
-    if msg.chat_id != ID_CHAT_GENERAL:
-        return
+    try:
+        # Solo borrar si es en el chat general y NO es mensaje de drop/permitido
+        if msg.chat_id == ID_CHAT_GENERAL and msg.message_thread_id is None:
+            texto = (msg.text or msg.caption or "").lower()
+            if (
+                texto.startswith("/idolday") or
+                any(frase in texto for frase in FRASES_PERMITIDAS)
+            ):
+                return  # No borrar mensajes de drop ni comandos válidos
 
-    FRASES_PERMITIDAS = [
-        "/idolday",
-        "está dropeando",
-        "tomaste la carta",
-        "reclamó la carta",
-        "Favoritos de esta carta"
-    ]
-    texto = msg.text or msg.caption or ""
-    if any(frase in texto for frase in FRASES_PERMITIDAS):
-        return
-
-    def borrar():
-        time.sleep(3)
-        try:
-            msg.delete()
-        except Exception as e:
-            print("[Borrador mensajes] Error al borrar:", e)
-    threading.Thread(target=borrar).start()
+            # Borra después de 3 segundos
+            context.job_queue.run_once(
+                lambda ctx: msg.delete(),
+                when=3,
+                context=None,
+            )
+    except Exception as e:
+        print("[Borrador mensajes] Error al borrar:", e)
 
 
 
@@ -4162,7 +4162,7 @@ def callback_confirmar_mejora(update, context):
 
 
 #------------------------------------------------------------
-from telegram.ext import MessageHandler, Filters
+
 
 def handler_regalo_respuesta(update, context):
     user_id = update.message.from_user.id
@@ -4343,10 +4343,7 @@ dispatcher.add_handler(CommandHandler('vender', comando_vender))
 dispatcher.add_handler(CommandHandler('comprar', comando_comprar))
 dispatcher.add_handler(CommandHandler('retirar', comando_retirar))
 dispatcher.add_handler(CommandHandler('mejorar', comando_mejorar))
-dispatcher.add_handler(
-    MessageHandler(Filters.chat(ID_CHAT_GENERAL) & Filters.all, borrar_mensajes_no_idolday),
-    group=99
-)
+dispatcher.add_handler(MessageHandler(Filters.all, borrar_mensajes_no_idolday), group=99)
 
 def verify_paypal_ipn(data):
     verify_url = "https://ipnpb.paypal.com/cgi-bin/webscr"
