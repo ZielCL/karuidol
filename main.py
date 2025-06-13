@@ -131,7 +131,7 @@ import time
 
 
 # Configura aquí tu chat general y frases clave (en minúsculas para comparar)
-ID_CHAT_GENERAL = -1002636853982  # El chat general
+ID_CHAT_GENERAL = -1002636853982_1  # El chat general
 FRASES_PERMITIDAS = [
     "está dropeando",
     "tomaste la carta",
