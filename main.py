@@ -129,21 +129,10 @@ from telegram.ext import MessageHandler, Filters
 import threading
 import time
 
-# REEMPLAZA estos valores por los de tu grupo y tema
-ID_CHAT_GENERAL = TU_CHAT_ID_GENERAL  # int del chat general, ej: -1001234567890
-THREAD_ID_GENERAL = None  # o el thread id si usas tema, sino déjalo en None
-
-# FRASES QUE IDENTIFICAN MENSAJES DEL DROP O DEL BOT QUE NO SE DEBEN BORRAR
-FRASES_NO_BORRAR_BOT = [
-    "está dropeando",       # Mensaje del drop, ej: "@ZaelSpace está dropeando 2 cartas!"
-    "tomaste la carta",     # Mensaje al reclamar carta
-    "reclamó la carta",     # Otra variante posible
-    "Favoritos de esta carta", # Por si usas este mensaje
-    # Agrega cualquier otra frase clave
-]
 
 # Configura aquí tu chat general y frases clave (en minúsculas para comparar)
 ID_CHAT_GENERAL = -1002636853982  # SOLO el número, sin "_1" ni "_2"
+THREAD_GENERAL = 1
 FRASES_PERMITIDAS = [
     "está dropeando",
     "tomaste la carta",
