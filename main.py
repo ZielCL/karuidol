@@ -2194,10 +2194,8 @@ def comando_comprarobjeto(update, context):
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-
 def mostrar_mercado_pagina(
-    chat_id, message_id, context, user_id, pagina=1, filtro=None, valor_filtro=None, orden=None, thread_id=None
+    chat_id, message_id, context, user_id, pagina=1, filtro=None, valor_filtro=None, orden=None
 ):
     # --- FILTRO DE CARTAS ---
     query_mercado = {}
@@ -2268,12 +2266,12 @@ def mostrar_mercado_pagina(
 
     # --- BOTONES ---
     botones = []
-    botones.append([InlineKeyboardButton("🔎 Filtrar / Ordenar", callback_data=f"mercado_filtros_{user_id}_{pagina}_{thread_id if thread_id else 'none'}")])
+    botones.append([InlineKeyboardButton("🔎 Filtrar / Ordenar", callback_data=f"mercado_filtros_{user_id}_{pagina}")])
     paginacion = []
     if pagina > 1:
-        paginacion.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_pagina_{user_id}_{pagina-1}_{filtro or 'none'}_{valor_filtro or 'none'}_{orden or 'none'}_{thread_id if thread_id else 'none'}"))
+        paginacion.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_pagina_{user_id}_{pagina-1}_{filtro or 'none'}_{valor_filtro or 'none'}_{orden or 'none'}"))
     if pagina < total_paginas:
-        paginacion.append(InlineKeyboardButton("➡️", callback_data=f"mercado_pagina_{user_id}_{pagina+1}_{filtro or 'none'}_{valor_filtro or 'none'}_{orden or 'none'}_{thread_id if thread_id else 'none'}"))
+        paginacion.append(InlineKeyboardButton("➡️", callback_data=f"mercado_pagina_{user_id}_{pagina+1}_{filtro or 'none'}_{valor_filtro or 'none'}_{orden or 'none'}"))
     if paginacion:
         botones.append(paginacion)
     teclado = InlineKeyboardMarkup(botones)
@@ -2281,24 +2279,14 @@ def mostrar_mercado_pagina(
     # --- Protege contra Flood control y otros errores ---
     import telegram
     try:
-        # Enviar SIEMPRE al tema si existe
-        if thread_id and thread_id != "none":
-            context.bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=message_id,
-                text=texto,
-                parse_mode="HTML",
-                reply_markup=teclado,
-                message_thread_id=int(thread_id)
-            )
-        else:
-            context.bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=message_id,
-                text=texto,
-                parse_mode="HTML",
-                reply_markup=teclado
-            )
+        context.bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=texto,
+            parse_mode="HTML",
+            reply_markup=teclado
+            # NO pongas message_thread_id aquí JAMÁS
+        )
     except telegram.error.RetryAfter as e:
         print(f"[mercado] Flood control: debes esperar {e.retry_after} segundos para editar mensaje.")
         try:
