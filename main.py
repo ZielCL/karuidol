@@ -4149,6 +4149,7 @@ dispatcher.add_handler(CallbackQueryHandler(manejador_tienda_paypal, pattern=r"^
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback))
 # === HANDLERS de comandos ===
 dispatcher.add_handler(CommandHandler('kkp', comando_kkp))
+dispatcher.add_handler(CommandHandler('topicid', comando_topicid))
 dispatcher.add_handler(CommandHandler('mercado', comando_mercado))
 dispatcher.add_handler(CommandHandler('rankingmercado', comando_rankingmercado))
 dispatcher.add_handler(CommandHandler('tiendagemas', tienda_gemas))
