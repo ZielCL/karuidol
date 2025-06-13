@@ -125,15 +125,15 @@ def solo_en_chat_general(func):
     return wrapper
 
 
-ID_CHAT_GENERAL = -1002636853982  # tu grupo
-THREAD_ID_CHAT_GENERAL = 1        # tu thread, ajusta según print()
-
 def borrar_mensajes_no_idolday(update, context):
     msg = update.effective_message
-
+    print(
+        "MSG:",
+        repr(msg.text or msg.caption or ""),
+        "chat_id:", msg.chat_id,
+        "thread_id:", getattr(msg, "message_thread_id", None)
+    )
     if msg.chat_id != ID_CHAT_GENERAL:
-        return
-    if getattr(msg, "message_thread_id", None) != THREAD_ID_CHAT_GENERAL:
         return
 
     FRASES_PERMITIDAS = [
@@ -147,7 +147,6 @@ def borrar_mensajes_no_idolday(update, context):
     if any(frase in texto for frase in FRASES_PERMITIDAS):
         return
 
-    # Borra a los 3 segundos en un hilo aparte
     def borrar():
         time.sleep(3)
         try:
