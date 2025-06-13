@@ -1404,8 +1404,9 @@ def manejador_reclamar(update, context):
             DROPS_ACTIVOS[drop_id] = drop
 
     ahora = time.time()
+
     # Si existe, toma el thread_id, si no, None
-    thread_id = drop.get("thread_id") if drop else getattr(query.message, "message_thread_id", None)
+    thread_id = drop.get("thread_id") if drop else None
 
     # --- Drop ausente completamente ---
     if not drop:
@@ -1574,12 +1575,13 @@ def manejador_reclamar(update, context):
             {"$set": {"cartas": drop["cartas"]}}
         )
 
-    # --- Edita botones del mensaje drop (en el mismo thread!) ---
+    # --- Edita botones del mensaje drop (NO uses message_thread_id aquí) ---
     try:
         context.bot.edit_message_reply_markup(
             chat_id=chat_id,
             message_id=mensaje_id,
-            reply_markup=None,
+            reply_markup=None
+            # No pongas message_thread_id aquí
         )
     except Exception as e:
         print("[manejador_reclamar] No se pudieron editar los botones:", e)
@@ -1594,7 +1596,7 @@ def manejador_reclamar(update, context):
         context.bot.send_message(
             chat_id=chat_id,
             text=f"🎉 {username_mostrar} reclamó la carta {carta.get('nombre', '')} [{carta.get('version', '')}]",
-            message_thread_id=thread_id
+            message_thread_id=thread_id  # Aquí SÍ se usa, sale el mensaje en el tema
         )
     except Exception as e:
         print("[manejador_reclamar] Error enviando mensaje de éxito:", e)
