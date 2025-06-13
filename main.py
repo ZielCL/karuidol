@@ -14,6 +14,7 @@ from telegram import (
 )
 from telegram.ext import Dispatcher, CommandHandler, CallbackQueryHandler
 import json
+import urllib.parse
 import random
 from datetime import datetime, timedelta
 from pymongo import MongoClient
@@ -2333,6 +2334,7 @@ def mostrar_menu_estrellas(user_id, pagina, thread_id=None):
     ]
     return InlineKeyboardMarkup(botones)
 
+
 def mostrar_menu_grupos(user_id, pagina, grupos, thread_id=None):
     por_pagina = 5
     total = len(grupos)
@@ -2345,7 +2347,13 @@ def mostrar_menu_grupos(user_id, pagina, grupos, thread_id=None):
 
     matriz = []
     for g in grupos_pagina:
-        matriz.append([InlineKeyboardButton(g, callback_data=f"mercado_filtragrupo_{user_id}_{pagina}_{g}_{thread_id if thread_id else 'none'}")])
+        grupo_codificado = urllib.parse.quote_plus(g)
+        matriz.append([
+            InlineKeyboardButton(
+                g,
+                callback_data=f"mercado_filtragrupo_{user_id}_{pagina}_{grupo_codificado}_{thread_id if thread_id else 'none'}"
+            )
+        ])
 
     nav = []
     if pagina > 1:
@@ -3522,12 +3530,19 @@ def manejador_callback(update, context):
                 print("Error en menu grupos:", e)
         return
 
+ 
+
     elif data.startswith("mercado_filtragrupo_"):
         user_id = int(partes[2])
         pagina = int(partes[3])
-        grupo = "_".join(partes[4:-1]) if partes[-1].isdigit() else "_".join(partes[4:])
+    # Une el grupo codificado (puede tener _), y descodifícalo
         if partes[-1].isdigit():
+            grupo_codificado = "_".join(partes[4:-1])
             thread_id = int(partes[-1])
+        else:
+            grupo_codificado = "_".join(partes[4:])
+            thread_id = None
+        grupo = urllib.parse.unquote_plus(grupo_codificado)
         mostrar_mercado_pagina(
             query.message.chat_id, query.message.message_id, context,
             user_id, int(pagina), filtro="grupo", valor_filtro=grupo, thread_id=thread_id
