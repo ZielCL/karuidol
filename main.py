@@ -3049,19 +3049,19 @@ def mostrar_album_pagina(
     if not solo_botones:
         botones.append([telegram.InlineKeyboardButton(
             "🔎 Filtrar / Ordenar",
-            callback_data=f"album_filtros_{user_id}_{pagina}_{thread_id if thread_id else 'none'}"
+            callback_data=f"album_filtros_{user_id}_{pagina}"
         )])
 
     paginacion = []
     if pagina > 1:
         paginacion.append(telegram.InlineKeyboardButton(
             "⬅️",
-            callback_data=f"album_pagina_{user_id}_{pagina-1}_{filtro or 'none'}_{valor_filtro or 'none'}_{orden or 'none'}_{thread_id if thread_id else 'none'}"
+            callback_data=f"album_pagina_{user_id}_{pagina-1}_{filtro or 'none'}_{valor_filtro or 'none'}_{orden or 'none'}"
         ))
     if pagina < total_paginas:
         paginacion.append(telegram.InlineKeyboardButton(
             "➡️",
-            callback_data=f"album_pagina_{user_id}_{pagina+1}_{filtro or 'none'}_{valor_filtro or 'none'}_{orden or 'none'}_{thread_id if thread_id else 'none'}"
+            callback_data=f"album_pagina_{user_id}_{pagina+1}_{filtro or 'none'}_{valor_filtro or 'none'}_{orden or 'none'}"
         ))
     if paginacion and not solo_botones:
         botones.append(paginacion)
