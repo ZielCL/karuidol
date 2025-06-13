@@ -2195,7 +2195,7 @@ def comando_comprarobjeto(update, context):
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 def mostrar_mercado_pagina(
-    chat_id, message_id, context, user_id, pagina=1, filtro=None, valor_filtro=None, orden=None
+    chat_id, message_id, context, user_id, pagina=1, filtro=None, valor_filtro=None, orden=None, thread_id=None
 ):
     # --- FILTRO DE CARTAS ---
     query_mercado = {}
@@ -2269,9 +2269,9 @@ def mostrar_mercado_pagina(
     botones.append([InlineKeyboardButton("🔎 Filtrar / Ordenar", callback_data=f"mercado_filtros_{user_id}_{pagina}")])
     paginacion = []
     if pagina > 1:
-        paginacion.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_pagina_{user_id}_{pagina-1}_{filtro or 'none'}_{valor_filtro or 'none'}_{orden or 'none'}"))
+        paginacion.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_pagina_{user_id}_{pagina-1}_{filtro or 'none'}_{valor_filtro or 'none'}_{orden or 'none'}_{thread_id if thread_id else 'none'}"))
     if pagina < total_paginas:
-        paginacion.append(InlineKeyboardButton("➡️", callback_data=f"mercado_pagina_{user_id}_{pagina+1}_{filtro or 'none'}_{valor_filtro or 'none'}_{orden or 'none'}"))
+        paginacion.append(InlineKeyboardButton("➡️", callback_data=f"mercado_pagina_{user_id}_{pagina+1}_{filtro or 'none'}_{valor_filtro or 'none'}_{orden or 'none'}_{thread_id if thread_id else 'none'}"))
     if paginacion:
         botones.append(paginacion)
     teclado = InlineKeyboardMarkup(botones)
@@ -2307,6 +2307,7 @@ def mostrar_mercado_pagina(
                 )
         except Exception:
             pass
+
 
 
 
@@ -2909,29 +2910,18 @@ def comando_comandos(update, context):
 def comando_mercado(update, context):
     user_id = update.message.from_user.id
     chat_id = update.effective_chat.id
-    message_thread_id = getattr(update.message, "message_thread_id", None)
-    
-    # Si no está en un tema, muestra advertencia y sale
-    if not message_thread_id:
-        update.message.reply_text("Debes usar /mercado dentro de el tema mercado de cartas).")
-        return
+    thread_id = getattr(update.message, "message_thread_id", None)
 
-    # Envía mensaje inicial en el tema correcto
+    # Mensaje inicial, muestra la primera página en el tema
     msg = context.bot.send_message(
         chat_id=chat_id,
         text="🛒 Mercado (cargando...)",
-        message_thread_id=message_thread_id
+        message_thread_id=thread_id if thread_id else None
+    )
+    mostrar_mercado_pagina(
+        chat_id, msg.message_id, context, user_id, pagina=1, thread_id=thread_id
     )
 
-    # Muestra la primera página en el tema correcto
-    mostrar_mercado_pagina(
-        chat_id,
-        msg.message_id,
-        context,
-        user_id,
-        pagina=1,
-        thread_id=message_thread_id
-    )
 
 
 
