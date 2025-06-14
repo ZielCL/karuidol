@@ -3446,8 +3446,10 @@ def mostrar_setsprogreso(update, context, pagina=1, mensaje=None, editar=False, 
 def comando_set_detalle(update, context):
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
+    thread_id = getattr(update.message, "message_thread_id", None)  # Toma el thread_id del mensaje
+
     if not context.args:
-        mostrar_lista_set(update, context, pagina=1)
+        mostrar_lista_set(update, context, pagina=1, thread_id=thread_id)
         return
     nombre_set = " ".join(context.args)
     sets = obtener_sets_disponibles()
@@ -3458,9 +3460,10 @@ def comando_set_detalle(update, context):
             set_match = s
             break
     if not set_match:
-        mostrar_lista_set(update, context, pagina=1, error=nombre_set)
+        mostrar_lista_set(update, context, pagina=1, error=nombre_set, thread_id=thread_id)
         return
-    mostrar_detalle_set(update, context, set_match, user_id, pagina=1)
+    mostrar_detalle_set(update, context, set_match, user_id, pagina=1, thread_id=thread_id)
+
 
 def mostrar_lista_set(update, context, pagina=1, mensaje=None, editar=False, error=None, thread_id=None):
     sets = obtener_sets_disponibles()
