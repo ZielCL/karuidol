@@ -214,24 +214,38 @@ COOLDOWN_GROUP = 1   # 1 segundo mínimo entre comandos por grupo
 
 def solo_en_tema_asignado(comando):
     def decorator(func):
+        @wraps(func)
         def wrapper(update, context, *args, **kwargs):
-            chat_id = update.effective_chat.id
-            tema_asignado = col_temas_comandos.find_one({"chat_id": chat_id, "comando": comando})
-            thread_id_permitido = tema_asignado["thread_id"] if tema_asignado else None
+            chat_id = update.effective_chat.id if update.effective_chat else None
 
-            # Thread actual (None para mensajes generales)
-            thread_id_actual = getattr(update.message, "message_thread_id", None)
-            if str(thread_id_actual) != str(thread_id_permitido):
+            # Busca el thread_id permitido en Mongo
+            tema_asignado = col_temas_comandos.find_one({"chat_id": chat_id, "comando": comando})
+            thread_id_permitido = str(tema_asignado["thread_id"]) if tema_asignado else None
+
+            # Detecta thread actual según si es comando o callback
+            thread_id_actual = None
+            # Mensaje normal
+            if getattr(update, 'message', None):
+                thread_id_actual = str(getattr(update.message, "message_thread_id", None))
+            # Callback (botón)
+            elif getattr(update, 'callback_query', None):
+                thread_id_actual = str(getattr(update.callback_query.message, "message_thread_id", None))
+
+            # Si thread no coincide, elimina mensaje o alerta
+            if thread_id_actual != thread_id_permitido:
                 try:
-                    update.message.delete()
+                    if getattr(update, 'message', None):
+                        update.message.delete()
+                    elif getattr(update, 'callback_query', None):
+                        update.callback_query.answer(
+                            "❌ Solo disponible en el tema asignado.", show_alert=True
+                        )
+                        # Opcional: borra el mensaje del botón fuera de thread
+                        # update.callback_query.message.delete()
                 except Exception:
                     pass
-                context.bot.send_message(
-                    chat_id=chat_id,
-                    text=f"❌ Este comando solo se puede usar en el tema ID <code>{thread_id_permitido}</code>.",
-                    parse_mode='HTML'
-                )
-                return
+                return  # No sigue
+            # Si todo OK
             return func(update, context, *args, **kwargs)
         return wrapper
     return decorator
@@ -947,7 +961,7 @@ def comando_settema(update, context):
         upsert=True
     )
     update.message.reply_text(
-        f"✅ El comando <b>/{comando}</b> solo funcionará en el tema con ID <code>{thread_id}</code>.",
+        f"✅ El comando <b>/{comando}</b> solo funcionará en el tema correspondiende{thread_id}</code>.",
         parse_mode='HTML'
     )
 
@@ -2058,8 +2072,8 @@ def mostrar_menu_grupos_album(user_id, pagina):
     teclado = InlineKeyboardMarkup(botones)
     return teclado
 
-
-
+@solo_en_tema_asignado("set")
+@solo_en_tema_asignado("setdet")
 def manejador_callback_setdet(update, context):
     query = update.callback_query
     data = query.data  # Ejemplo: 'setdet_TWICE_123456789_2'
@@ -2077,7 +2091,7 @@ def manejador_callback_setdet(update, context):
 
 
 
-
+@solo_en_tema_asignado("set")
 def manejador_callback_setlist(update, context):
     query = update.callback_query
     data = query.data  # Ejemplo: 'setlist_2'
@@ -2090,6 +2104,7 @@ def manejador_callback_setlist(update, context):
     mostrar_lista_set(update, context, pagina=pagina, mensaje=query.message, editar=True)
     query.answer()  # Elimina el "loading..." de Telegram
 
+@solo_en_tema_asignado("setsprogreso")
 def manejador_callback_setsprogreso(update, context):
     query = update.callback_query
     data = query.data  # Por ejemplo: 'setsprogreso_2'
@@ -2103,7 +2118,9 @@ def manejador_callback_setsprogreso(update, context):
 
 
 # ----------- CALLBACK GENERAL para el menú de ALBUM -----------
-
+@solo_en_tema_asignado("album")
+@solo_en_tema_asignado("setsprogreso")
+@solo_en_tema_asignado("set")
 def manejador_callback_album(update, context):
     query = update.callback_query
     data = query.data
@@ -3597,7 +3614,7 @@ def callback_ampliar_vender(update, context):
 
 
 
-
+@solo_en_tema_asignado("mercado")
 def manejador_callback(update, context):
     query = update.callback_query
     data = query.data
@@ -3733,7 +3750,9 @@ def manejador_callback(update, context):
 
 
     #----------Album--------------
-
+@solo_en_tema_asignado("album")
+@solo_en_tema_asignado("setsprogreso")
+@solo_en_tema_asignado("set")
 def manejador_callback_album(update, context):
     query = update.callback_query
     data = query.data
