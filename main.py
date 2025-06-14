@@ -2099,9 +2099,12 @@ def manejador_callback_setlist(update, context):
         query.answer("Error en paginación", show_alert=True)
         return
     pagina = int(partes[1])
+    thread_id = getattr(query.message, "message_thread_id", None)  # <- AÑADE ESTO
+
     # Vuelve a mostrar la lista, editando el mensaje anterior
-    mostrar_lista_set(update, context, pagina=pagina, mensaje=query.message, editar=True)
+    mostrar_lista_set(update, context, pagina=pagina, mensaje=query.message, editar=True, thread_id=thread_id)
     query.answer()  # Elimina el "loading..." de Telegram
+
 
 @solo_en_tema_asignado("setsprogreso")
 def manejador_callback_setsprogreso(update, context):
@@ -3386,12 +3389,11 @@ def obtener_sets_disponibles():
             sets.add(carta["grupo"])
     return sorted(list(sets), key=lambda s: s.lower())
 
-def mostrar_setsprogreso(update, context, pagina=1, mensaje=None, editar=False):
+def mostrar_setsprogreso(update, context, pagina=1, mensaje=None, editar=False, thread_id=None):
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
     sets = obtener_sets_disponibles()
     cartas_usuario = list(col_cartas_usuario.find({"user_id": user_id}))
-    # El usuario puede tener varias copias/estados de una misma carta. Solo cuenta una vez cada (nombre, version).
     cartas_usuario_unicas = set((c["nombre"], c["version"]) for c in cartas_usuario)
     por_pagina = 5
     total = len(sets)
@@ -3402,7 +3404,6 @@ def mostrar_setsprogreso(update, context, pagina=1, mensaje=None, editar=False):
     fin = min(inicio + por_pagina, total)
     texto = "<b>📚 Progreso de sets/colecciones:</b>\n\n"
     for s in sets[inicio:fin]:
-        # Solo un registro por (nombre, version)
         cartas_set_unicas = set((c["nombre"], c["version"]) for c in cartas if (c.get("set") == s or c.get("grupo") == s))
         total_set = len(cartas_set_unicas)
         usuario_tiene = sum(1 for carta in cartas_set_unicas if carta in cartas_usuario_unicas)
@@ -3430,9 +3431,16 @@ def mostrar_setsprogreso(update, context, pagina=1, mensaje=None, editar=False):
         try:
             mensaje.edit_text(texto, reply_markup=teclado, parse_mode="HTML")
         except Exception:
-            context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML")
+            context.bot.send_message(
+                chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML",
+                message_thread_id=thread_id
+            )
     else:
-        context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML")
+        context.bot.send_message(
+            chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML",
+            message_thread_id=thread_id
+        )
+
 
 @solo_en_tema_asignado("set")
 def comando_set_detalle(update, context):
@@ -3454,7 +3462,7 @@ def comando_set_detalle(update, context):
         return
     mostrar_detalle_set(update, context, set_match, user_id, pagina=1)
 
-def mostrar_lista_set(update, context, pagina=1, mensaje=None, editar=False, error=None):
+def mostrar_lista_set(update, context, pagina=1, mensaje=None, editar=False, error=None, thread_id=None):
     sets = obtener_sets_disponibles()
     por_pagina = 8
     total = len(sets)
@@ -3475,15 +3483,23 @@ def mostrar_lista_set(update, context, pagina=1, mensaje=None, editar=False, err
         botones.append(InlineKeyboardButton("➡️", callback_data=f"setlist_{pagina+1}"))
     teclado = InlineKeyboardMarkup([botones]) if botones else None
     chat_id = update.effective_chat.id
+
     if editar and mensaje:
         try:
             mensaje.edit_text(texto, reply_markup=teclado, parse_mode="HTML")
         except Exception:
-            context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML")
+            context.bot.send_message(
+                chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML",
+                message_thread_id=thread_id
+            )
     else:
-        context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML")
+        context.bot.send_message(
+            chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML",
+            message_thread_id=thread_id
+        )
 
-def mostrar_detalle_set(update, context, set_name, user_id, pagina=1, mensaje=None, editar=False):
+
+def mostrar_detalle_set(update, context, set_name, user_id, pagina=1, mensaje=None, editar=False, thread_id=None):
     chat_id = update.effective_chat.id
 
     cartas_set = [c for c in cartas if (c.get("set") == set_name or c.get("grupo") == set_name)]
@@ -3546,9 +3562,16 @@ def mostrar_detalle_set(update, context, set_name, user_id, pagina=1, mensaje=No
         try:
             mensaje.edit_text(texto, reply_markup=teclado, parse_mode='HTML')
         except Exception:
-            context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode='HTML')
+            context.bot.send_message(
+                chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode='HTML',
+                message_thread_id=thread_id
+            )
     else:
-        context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode='HTML')
+        context.bot.send_message(
+            chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode='HTML',
+            message_thread_id=thread_id
+        )
+
 
 
 
@@ -4387,7 +4410,9 @@ def handler_regalo_respuesta(update, context):
 
 @solo_en_tema_asignado("setsprogreso")
 def comando_setsprogreso(update, context):
-    mostrar_setsprogreso(update, context, pagina=1)
+    thread_id = getattr(update.message, "message_thread_id", None)
+    mostrar_setsprogreso(update, context, pagina=1, thread_id=thread_id)
+
 
 @solo_en_tema_asignado("apodo")
 @cooldown_critico
