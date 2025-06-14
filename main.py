@@ -2073,7 +2073,6 @@ def mostrar_menu_grupos_album(user_id, pagina):
     return teclado
 
 @solo_en_tema_asignado("set")
-@solo_en_tema_asignado("setdet")
 def manejador_callback_setdet(update, context):
     query = update.callback_query
     data = query.data  # Ejemplo: 'setdet_TWICE_123456789_2'
