@@ -134,6 +134,7 @@ FRASES_PERMITIDAS = [
     "tomaste la carta",
     "reclamó la carta",
     "Favoritos de esta carta",
+    "Regla básica",
     # ...otros textos que quieres permitir
 ]
 
