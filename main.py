@@ -57,7 +57,7 @@ col_cartas_usuario.create_index("user_id")
 col_mercado.create_index("vendedor_id")
 col_usuarios.create_index("user_id", unique=True)
 col_drops_log = db['drops_log']
-
+col_temas_comandos = db.temas_comandos
 # TTL para cartas en mercado (ejemplo: 7 días)
 from pymongo import ASCENDING
 col_mercado.create_index(
@@ -209,6 +209,38 @@ group_last_cmd = {}
 
 COOLDOWN_USER = 3    # 3 segundos mínimo entre comandos por usuario
 COOLDOWN_GROUP = 1   # 1 segundo mínimo entre comandos por grupo
+
+
+
+def solo_en_tema_asignado(comando):
+    def decorator(func):
+        def wrapper(update, context, *args, **kwargs):
+            chat_id = update.effective_chat.id
+            tema_asignado = col_temas_comandos.find_one({"chat_id": chat_id, "comando": comando})
+            thread_id_permitido = tema_asignado["thread_id"] if tema_asignado else None
+
+            # Thread actual (None para mensajes generales)
+            thread_id_actual = getattr(update.message, "message_thread_id", None)
+            if str(thread_id_actual) != str(thread_id_permitido):
+                try:
+                    update.message.delete()
+                except Exception:
+                    pass
+                context.bot.send_message(
+                    chat_id=chat_id,
+                    text=f"❌ Este comando solo se puede usar en el tema ID <code>{thread_id_permitido}</code>.",
+                    parse_mode='HTML'
+                )
+                return
+            return func(update, context, *args, **kwargs)
+        return wrapper
+    return decorator
+
+
+
+
+
+
 
 
 #----------PAYPALAPP-------------------
@@ -887,6 +919,82 @@ def estados_disponibles_para_carta(nombre, version):
     return [c for c in cartas if c['nombre'] == nombre and c['version'] == version]
 
 
+
+
+
+@grupo_oficial
+def comando_settema(update, context):
+    user_id = update.message.from_user.id
+    chat_id = update.effective_chat.id
+
+    # Permite solo admins y creador
+    if not es_admin(update) and user_id != TU_USER_ID:
+        update.message.reply_text("Solo un administrador puede configurar esto.")
+        return
+
+    if len(context.args) != 2:
+        update.message.reply_text("Uso: /settema <thread_id> <comando>\nEjemplo: /settema 12345 setsprogreso")
+        return
+
+    thread_id, comando = context.args
+    if not thread_id.isdigit():
+        update.message.reply_text("El thread_id debe ser numérico.")
+        return
+
+    col_temas_comandos.update_one(
+        {"chat_id": chat_id, "comando": comando},
+        {"$set": {"thread_id": int(thread_id)}},
+        upsert=True
+    )
+    update.message.reply_text(
+        f"✅ El comando <b>/{comando}</b> solo funcionará en el tema con ID <code>{thread_id}</code>.",
+        parse_mode='HTML'
+    )
+
+
+@grupo_oficial
+def comando_removetema(update, context):
+    user_id = update.message.from_user.id
+    chat_id = update.effective_chat.id
+    if not es_admin(update) and user_id != TU_USER_ID:
+        update.message.reply_text("Solo un administrador puede configurar esto.")
+        return
+    if len(context.args) != 1:
+        update.message.reply_text("Uso: /removetema <comando>\nEjemplo: /removetema setsprogreso")
+        return
+    comando = context.args[0]
+    res = col_temas_comandos.delete_one({"chat_id": chat_id, "comando": comando})
+    if res.deleted_count:
+        update.message.reply_text(f"El comando <b>/{comando}</b> ahora puede usarse en cualquier tema.", parse_mode='HTML')
+    else:
+        update.message.reply_text("Ese comando no tenía restricción en este grupo.")
+
+
+
+
+@grupo_oficial
+def comando_vertemas(update, context):
+    chat_id = update.effective_chat.id
+    docs = list(col_temas_comandos.find({"chat_id": chat_id}))
+    if not docs:
+        update.message.reply_text("No hay restricciones configuradas para este grupo.")
+        return
+    texto = "<b>Restricciones de comandos por tema:</b>\n\n"
+    for d in docs:
+        texto += f"/{d['comando']}: <code>{d['thread_id']}</code>\n"
+    update.message.reply_text(texto, parse_mode='HTML')
+
+
+
+
+
+
+
+
+
+
+
+
 # -- IDOLDAY DROP 2 CARTAS (Drop siempre muestra excelente estado, pero al reclamar puede variar) ---
 @grupo_oficial
 @solo_en_chat_general
@@ -1137,7 +1245,7 @@ FRASES_ESTADO = {
     "Mal estado": "Podría estar mejor...",
     "Muy mal estado": "¡Oh no!"
 }
-
+@solo_en_tema_asignado("chatid")
 @grupo_oficial
 def comando_chatid(update, context):
     chat_id = update.effective_chat.id
@@ -1145,7 +1253,7 @@ def comando_chatid(update, context):
 
 dispatcher.add_handler(CommandHandler('chatid', comando_chatid))
 
-
+@solo_en_tema_asignado("topicid")
 def comando_topicid(update, context):
     topic_id = getattr(update.message, "message_thread_id", None)
     update.message.reply_text(f"Thread ID de este tema: <code>{topic_id}</code>", parse_mode="HTML")
@@ -1155,7 +1263,7 @@ def comando_topicid(update, context):
 
 
 
-
+@solo_en_tema_asignado("kkp")
 def comando_kkp(update, context):
     from datetime import datetime, timedelta
     import time
@@ -1237,7 +1345,7 @@ def comando_kkp(update, context):
 
 
 
-
+@solo_en_tema_asignado("estadisticasdrops")
 @grupo_oficial
 def comando_estadisticasdrops(update, context):
     if not es_admin(update, context):
@@ -1330,7 +1438,7 @@ def comando_darGemas(update, context):
 
 
 
-
+@solo_en_tema_asignado("usar")
 @grupo_oficial
 @cooldown_critico
 def comando_usar(update, context):
@@ -2099,6 +2207,7 @@ def manejador_callback_album(update, context):
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
+@solo_en_tema_asignado("mejorar")
 @cooldown_critico
 def comando_mejorar(update, context):
     user_id = update.message.from_user.id
@@ -2141,7 +2250,7 @@ def comando_mejorar(update, context):
 
 
 
-
+@solo_en_tema_asignado("inventario")
 @cooldown_critico
 def comando_inventario(update, context):
     user_id = update.message.from_user.id
@@ -2170,7 +2279,7 @@ def comando_inventario(update, context):
 
 
 
-
+@solo_en_tema_asignado("tienda")
 @cooldown_critico
 def comando_tienda(update, context):
     user_id = update.message.from_user.id
@@ -2215,7 +2324,7 @@ def comprar_objeto(user_id, obj_id, context, chat_id, reply_func):
         parse_mode="HTML"
     )
 
-
+@solo_en_tema_asignado("comprarobjeto")
 @cooldown_critico
 def comando_comprarobjeto(update, context):
     user_id = update.message.from_user.id
@@ -2408,6 +2517,7 @@ def mostrar_menu_grupos(user_id, pagina, grupos, thread_id=None):
 
 
 #----------Comando FAV1---------------
+@solo_en_tema_asignado("favoritos")
 @cooldown_critico
 def comando_favoritos(update, context):
     user_id = update.message.from_user.id
@@ -2428,6 +2538,7 @@ def comando_favoritos(update, context):
     update.message.reply_text(texto, parse_mode="HTML")
 
 #----------Comando FAV---------------
+@solo_en_tema_asignado("fav")
 @cooldown_critico
 def comando_fav(update, context):
     user_id = update.message.from_user.id
@@ -2465,6 +2576,7 @@ def comando_fav(update, context):
         update.message.reply_text(f"⭐ Añadiste a favoritos: <code>[{version}] {nombre}</code>", parse_mode="HTML")
 
 #------------COMANDO PRECIO---------------------
+@solo_en_tema_asignado("precio")
 @cooldown_critico
 def comando_precio(update, context):
     if not context.args:
@@ -2499,6 +2611,7 @@ def comando_precio(update, context):
 
 
 #------Comando vender--------------------
+@solo_en_tema_asignado("vender")
 @cooldown_critico
 def comando_vender(update, context):
     user_id = update.message.from_user.id
@@ -2552,6 +2665,7 @@ def comando_vender(update, context):
 
 
 #----------Comprar carta del mercado------------------
+@solo_en_tema_asignado("comprar")
 @cooldown_critico
 def comando_comprar(update, context):
     user_id = update.message.from_user.id
@@ -2637,7 +2751,7 @@ def comando_comprar(update, context):
 
 
 
-
+@solo_en_tema_asignado("rankingmercado")
 def comando_rankingmercado(update, context):
     # Ranking de vendedores (top 10)
     pipeline_v = [
@@ -2682,7 +2796,7 @@ def comando_rankingmercado(update, context):
 
 
 #----------Retirar carta del mercado------------------
-
+@solo_en_tema_asignado("retirar")
 def comando_retirar(update, context):
     user_id = update.message.from_user.id
     if not context.args:
@@ -2718,6 +2832,7 @@ def comando_retirar(update, context):
 
 
 #---------Dinero del bot------------
+@solo_en_tema_asignado("saldo")
 @cooldown_critico
 def comando_saldo(update, context):
     user_id = update.message.from_user.id
@@ -2725,6 +2840,7 @@ def comando_saldo(update, context):
     kponey = usuario.get("kponey", 0)
     update.message.reply_text(f"💸 <b>Tus Kponey:</b> <code>{kponey}</code>", parse_mode="HTML")
 
+@solo_en_tema_asignado("gemas")
 @grupo_oficial
 def comando_gemas(update, context):
     user_id = update.message.from_user.id
@@ -2734,6 +2850,7 @@ def comando_gemas(update, context):
 
 
 #---------Para dar dinero------------
+@solo_en_tema_asignado("darKponey")
 @grupo_oficial
 def comando_darKponey(update, context):
     TU_USER_ID = 1111798714  # <-- Reemplaza por tu verdadero ID de Telegram
@@ -2814,6 +2931,7 @@ def mostrar_carta_individual(chat_id, user_id, lista_cartas, idx, context, mensa
 
 # ... Aquí pegas la versión nueva de comando_giveidol y resto de comandos extras adaptados ...
 # Si quieres esa parte dime y te la entrego lista para copiar y pegar
+@solo_en_tema_asignado("miid")
 def comando_miid(update, context):
     usuario = update.effective_user
     update.message.reply_text(f"Tu ID de Telegram es: {usuario.id}")
@@ -2844,7 +2962,7 @@ def comando_bonoidolday(update, context):
     col_usuarios.update_one({"user_id": dest_id}, {"$inc": {"bono": cantidad}}, upsert=True)
     update.message.reply_text(f"✅ Bono de {cantidad} tiradas de /idolday entregado a <code>{dest_id}</code>.", parse_mode='HTML')
 
-
+@solo_en_tema_asignado("ampliar")
 def comando_ampliar(update, context):
     if not context.args:
         update.message.reply_text("Debes indicar el ID único de la carta: /ampliar <id_unico>")
@@ -2910,7 +3028,7 @@ def comando_ampliar(update, context):
         reply_markup=teclado
     )
 
-
+@solo_en_tema_asignado("comandos")
 @grupo_oficial
 @cooldown_critico
 def comando_comandos(update, context):
@@ -3300,6 +3418,7 @@ def mostrar_setsprogreso(update, context, pagina=1, mensaje=None, editar=False):
     else:
         context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML")
 
+@solo_en_tema_asignado("set")
 def comando_set_detalle(update, context):
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
@@ -4246,10 +4365,13 @@ def handler_regalo_respuesta(update, context):
         update.message.reply_text("La carta fue enviada, pero no pude notificar al usuario destino en privado.")
     del SESIONES_REGALO[user_id]
 
+
+
+@solo_en_tema_asignado("setsprogreso")
 def comando_setsprogreso(update, context):
     mostrar_setsprogreso(update, context, pagina=1)
 
-
+@solo_en_tema_asignado("apodo")
 @cooldown_critico
 def comando_apodo(update, context):
     user_id = update.message.from_user.id
@@ -4313,6 +4435,9 @@ dispatcher.add_handler(CallbackQueryHandler(manejador_tienda_paypal, pattern=r"^
 # ESTOS GENERAL SIEMPRE AL FINAL (sin pattern)
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback))
 # === HANDLERS de comandos ===
+dispatcher.add_handler(CommandHandler('settema', comando_settema))
+dispatcher.add_handler(CommandHandler('removetema', comando_removetema))
+dispatcher.add_handler(CommandHandler('vertemas', comando_vertemas))
 dispatcher.add_handler(CommandHandler('kkp', comando_kkp))
 dispatcher.add_handler(CommandHandler('topicid', comando_topicid))
 dispatcher.add_handler(CommandHandler('mercado', comando_mercado))
