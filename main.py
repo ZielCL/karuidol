@@ -527,8 +527,7 @@ CATALOGO_OBJETOS = {
             "Permite hacer un /idolday adicional sin esperar el cooldown.\n"
             "Uso: /idolday si tienes bonos."
         ),
-        "precio": 1600,
-        "precio_gemas": 160
+        "precio": 1600
     },
     "lightstick": {
         "nombre": "Lightstick",
@@ -540,8 +539,7 @@ CATALOGO_OBJETOS = {
             "• ★★☆ → ★★★: 40% de posibilidad\n"
             "• ★★★: No se puede mejorar más"
         ),
-        "precio": 4000,
-        "precio_gemas": 400
+        "precio": 4000
     },
     "ticket_agregar_apodo": {
         "nombre": "Ticket Agregar Apodo",
@@ -550,8 +548,7 @@ CATALOGO_OBJETOS = {
             'Permite agregar un apodo personalizado a una carta usando /apodo <code>id_unico</code> "apodo"\n'
             'Máx 8 caracteres. Ejemplo: /apodo fghj7 "Mi bebe"'
         ),
-        "precio": 2600,
-        "precio_gemas": 260
+        "precio": 2600
     },
     "abrazo_de_bias": {
         "nombre": "Abrazo de Bias",
@@ -560,10 +557,10 @@ CATALOGO_OBJETOS = {
             "Reduce el cooldown de /idolday a la mitad, una vez.\n"
             "Uso: Cuando tengas cooldown, gasta 1 para reducir la espera."
         ),
-        "precio": 600,
-        "precio_gemas": 60
+        "precio": 600
     }
 }
+
 
 
 
@@ -2309,20 +2306,20 @@ def comando_tienda(update, context):
     user_id = update.message.from_user.id
     doc = col_usuarios.find_one({"user_id": user_id}) or {}
     kponey = doc.get("kponey", 0)
-    gemas = doc.get("gemas", 0)
 
     texto = "🛒 <b>Tienda de objetos</b>\n\n"
     botones = []
     for obj_id, info in CATALOGO_OBJETOS.items():
         texto += (
-            f"{info['emoji']} <b>{info['nombre']}</b> — <code>{info['precio']} Kponey</code> / <code>{info['precio_gemas']} Gemas</code>\n"
+            f"{info['emoji']} <b>{info['nombre']}</b> — <code>{info['precio']} Kponey</code>\n"
             f"{info['desc']}\n\n"
         )
         botones.append([InlineKeyboardButton(f"{info['emoji']} Comprar {info['nombre']}", callback_data=f"comprarobj_{obj_id}")])
-    texto += f"💸 <b>Tu saldo:</b> <code>{kponey}</code> Kponey | <code>{gemas}</code> Gemas"
+    texto += f"💸 <b>Tu saldo:</b> <code>{kponey}</code>"
 
     teclado = InlineKeyboardMarkup(botones)
     update.message.reply_text(texto, parse_mode="HTML", reply_markup=teclado)
+
 
 
 
@@ -2350,52 +2347,21 @@ def comprar_objeto(user_id, obj_id, context, chat_id, reply_func):
         parse_mode="HTML"
     )
 
+
 @solo_en_tema_asignado("comprarobjeto")
 @cooldown_critico
 def comando_comprarobjeto(update, context):
     user_id = update.message.from_user.id
     chat_id = update.effective_chat.id
-
-    # Permite usar como mensaje o como callback (ambos casos)
-    is_callback = hasattr(update, "callback_query")
-    if is_callback:
-        msg_func = lambda text: update.callback_query.answer(text=text, show_alert=True)
-        args = context.args if context.args else []
-    else:
-        msg_func = lambda text: update.message.reply_text(text)
-        args = context.args
-
-    if not args or len(args) < 2:
-        if is_callback:
-            msg_func("Usa: /comprarobjeto <objeto_id> <kponey|gemas>\nEjemplo: /comprarobjeto bono_idolday kponey")
-        else:
-            update.message.reply_text("Usa: /comprarobjeto <objeto_id> <kponey|gemas>\nEjemplo: /comprarobjeto bono_idolday kponey")
+    if not context.args:
+        update.message.reply_text("Usa: /comprarobjeto <objeto_id>\nEjemplo: /comprarobjeto bono_idolday")
         return
-
-    obj_id = args[0].strip()
-    moneda = args[1].strip().lower()
-    info = CATALOGO_OBJETOS.get(obj_id)
-    if not info:
-        msg_func("Ese objeto no existe.")
-        return
-
-    if moneda not in ("kponey", "gemas"):
-        msg_func("Elige moneda válida: kponey o gemas.")
-        return
-
-    doc = col_usuarios.find_one({"user_id": user_id}) or {}
-    saldo = doc.get(moneda, 0)
-    precio = info["precio"] if moneda == "kponey" else info["precio_gemas"]
-    if saldo < precio:
-        msg_func(f"No tienes suficiente {moneda} para este objeto.")
-        return
-
-    col_usuarios.update_one(
-        {"user_id": user_id},
-        {"$inc": {f"objetos.{obj_id}": 1, moneda: -precio}},
-        upsert=True
+    obj_id = context.args[0].strip()
+    comprar_objeto(
+        user_id, obj_id, context, chat_id,
+        lambda text, **kwargs: update.message.reply_text(text, **kwargs)
     )
-    msg_func(f"¡Compraste {info['emoji']} {info['nombre']} por {precio} {moneda.title()}!")
+
 
 
 
@@ -4186,10 +4152,14 @@ def callback_comprarobj(update, context):
     if not data.startswith("comprarobj_"):
         return
     obj_id = data.replace("comprarobj_", "")
-    info = CATALOGO_OBJETOS.get(obj_id)
-    if not info:
-        query.answer("Ese objeto no existe.", show_alert=True)
-        return
+    user_id = query.from_user.id
+    chat_id = query.message.chat_id
+
+    def reply_func(text, **kwargs):
+        query.answer(text=text, show_alert=True)
+
+    comprar_objeto(user_id, obj_id, context, chat_id, reply_func)
+
 
     # Muestra alerta con opciones
     # Telegram no permite botones interactivos en alerts, pero puedes simular con callback_data extra
