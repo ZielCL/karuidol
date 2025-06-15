@@ -4494,17 +4494,38 @@ def callback_confirmar_mejora(update, context):
 
 
 def handler_regalo_respuesta(update, context):
-    user_id = update.message.from_user.id
+    # Detecta si el mensaje viene de un mensaje normal o de un callback
+    if update.message:
+        user_id = update.message.from_user.id
+        mensaje_obj = update.message
+    elif update.callback_query:
+        user_id = update.callback_query.from_user.id
+        mensaje_obj = update.callback_query.message
+    else:
+        # No se puede identificar el usuario
+        return
+
     if user_id not in SESIONES_REGALO:
         return  # No está esperando nada
 
     data = SESIONES_REGALO[user_id]
     carta = data["carta"]
-    destino = update.message.text.strip()
+
+    # Detecta el texto según el origen
+    destino = None
+    if update.message:
+        destino = update.message.text.strip()
+    elif update.callback_query and update.callback_query.data:
+        destino = update.callback_query.data.strip()
+
+    if not destino:
+        mensaje_obj.reply_text("❌ No se pudo leer el destino.")
+        del SESIONES_REGALO[user_id]
+        return
 
     # Si usuario escribe 'cancelar' (en cualquier forma)
     if destino.lower().strip() == "cancelar":
-        update.message.reply_text("❌ Regalo cancelado. La carta sigue en tu álbum.")
+        mensaje_obj.reply_text("❌ Regalo cancelado. La carta sigue en tu álbum.")
         del SESIONES_REGALO[user_id]
         return
 
@@ -4515,27 +4536,26 @@ def handler_regalo_respuesta(update, context):
         if posible:
             target_user_id = posible["user_id"]
         else:
-            update.message.reply_text("❌ No pude identificar al usuario destino. Usa @username (de alguien que haya usado el bot) o el ID numérico de Telegram.")
+            mensaje_obj.reply_text("❌ No pude identificar al usuario destino. Usa @username (de alguien que haya usado el bot) o el ID numérico de Telegram.")
             del SESIONES_REGALO[user_id]
             return
     else:
         try:
             target_user_id = int(destino)
         except:
-            update.message.reply_text("❌ No pude identificar al usuario destino. Usa @username (de alguien que haya usado el bot) o el ID numérico de Telegram.")
+            mensaje_obj.reply_text("❌ No pude identificar al usuario destino. Usa @username (de alguien que haya usado el bot) o el ID numérico de Telegram.")
             del SESIONES_REGALO[user_id]
             return
 
     if user_id == target_user_id:
-        update.message.reply_text("No puedes regalarte cartas a ti mismo.")
+        mensaje_obj.reply_text("No puedes regalarte cartas a ti mismo.")
         del SESIONES_REGALO[user_id]
         return
 
     # Quitar carta al remitente (verifica que aún la tenga)
     res = col_cartas_usuario.delete_one({"user_id": user_id, "id_unico": carta["id_unico"]})
-
     if res.deleted_count == 0:
-        update.message.reply_text("Parece que ya no tienes esa carta.")
+        mensaje_obj.reply_text("Parece que ya no tienes esa carta.")
         del SESIONES_REGALO[user_id]
         return
 
@@ -4545,7 +4565,7 @@ def handler_regalo_respuesta(update, context):
 
     # Notificación pública y privada
     try:
-        update.message.reply_text(f"🎁 ¡Carta [{carta['id_unico']}] enviada correctamente!")
+        mensaje_obj.reply_text(f"🎁 ¡Carta [{carta['id_unico']}] enviada correctamente!")
         notif = (
             f"🎉 <b>¡Has recibido una carta!</b>\n"
             f"Te han regalado <b>{carta['id_unico']}</b> ({carta['nombre']} [{carta['version']}])\n"
@@ -4553,25 +4573,9 @@ def handler_regalo_respuesta(update, context):
         )
         context.bot.send_message(chat_id=target_user_id, text=notif, parse_mode='HTML')
     except Exception:
-        update.message.reply_text("La carta fue enviada, pero no pude notificar al usuario destino en privado.")
+        mensaje_obj.reply_text("La carta fue enviada, pero no pude notificar al usuario destino en privado.")
     del SESIONES_REGALO[user_id]
 
-    # Entregar carta al destinatario (misma id_unico)
-    carta["user_id"] = target_user_id
-    col_cartas_usuario.insert_one(carta)
-
-    # Notificación pública y privada
-    try:
-        update.message.reply_text(f"🎁 ¡Carta [{carta['id_unico']}] enviada correctamente!")
-        notif = (
-            f"🎉 <b>¡Has recibido una carta!</b>\n"
-            f"Te han regalado <b>{carta['id_unico']}</b> ({carta['nombre']} [{carta['version']}])\n"
-            f"¡Revisa tu álbum con <code>/album</code>!"
-        )
-        context.bot.send_message(chat_id=target_user_id, text=notif, parse_mode='HTML')
-    except Exception:
-        update.message.reply_text("La carta fue enviada, pero no pude notificar al usuario destino en privado.")
-    del SESIONES_REGALO[user_id]
 
 
 
