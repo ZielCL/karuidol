@@ -2307,7 +2307,6 @@ def comando_inventario(update, context):
 @cooldown_critico
 def comando_tienda(update, context):
     user_id = update.message.from_user.id
-    chat_id = update.effective_chat.id
     doc = col_usuarios.find_one({"user_id": user_id}) or {}
     kponey = doc.get("kponey", 0)
     gemas = doc.get("gemas", 0)
@@ -2316,17 +2315,15 @@ def comando_tienda(update, context):
     botones = []
     for obj_id, info in CATALOGO_OBJETOS.items():
         texto += (
-            f"{info['emoji']} <b>{info['nombre']}</b> — <code>{info['precio']} Kponey</code> | <code>{info['precio_gemas']} Gemas</code>\n"
+            f"{info['emoji']} <b>{info['nombre']}</b> — <code>{info['precio']} Kponey</code> / <code>{info['precio_gemas']} Gemas</code>\n"
             f"{info['desc']}\n\n"
         )
-        botones.append([InlineKeyboardButton(
-            f"{info['emoji']} Comprar {info['nombre']}", 
-            callback_data=f"tienda_objeto_{obj_id}"
-        )])
-    texto += f"💸 <b>Tu saldo:</b> <code>{kponey} Kponey</code> | <code>{gemas} Gemas</code>"
+        botones.append([InlineKeyboardButton(f"{info['emoji']} Comprar {info['nombre']}", callback_data=f"comprarobj_{obj_id}")])
+    texto += f"💸 <b>Tu saldo:</b> <code>{kponey}</code> Kponey | <code>{gemas}</code> Gemas"
 
     teclado = InlineKeyboardMarkup(botones)
     update.message.reply_text(texto, parse_mode="HTML", reply_markup=teclado)
+
 
 
 
@@ -4194,15 +4191,66 @@ def callback_comprarobj(update, context):
         query.answer("Ese objeto no existe.", show_alert=True)
         return
 
-    # Mostrar menú de pago como ALERTA (popup)
-    query.answer(
-        f"¿Cómo quieres pagar '{info['nombre']}'?\n\n"
-        f"💸 {info['precio']} Kponey\n"
-        f"💎 {info['precio_gemas']} Gemas\n\n"
-        f"Responde usando:\n"
-        f"/comprarobjeto {obj_id} kponey  o  /comprarobjeto {obj_id} gemas",
-        show_alert=True
+    # Muestra alerta con opciones
+    # Telegram no permite botones interactivos en alerts, pero puedes simular con callback_data extra
+    texto = (
+        f"{info['emoji']} <b>{info['nombre']}</b>\n\n"
+        f"{info['desc']}\n\n"
+        f"¿Con qué deseas pagar?\n"
+        f"• {info['precio']} Kponey\n"
+        f"• {info['precio_gemas']} Gemas\n\n"
+        "Responde abajo:"
     )
+    # Muestra opciones con botones de callback
+    botones = [
+        [InlineKeyboardButton(f"💸 {info['precio']} Kponey", callback_data=f"comprarconf_{obj_id}_kponey")],
+        [InlineKeyboardButton(f"💎 {info['precio_gemas']} Gemas", callback_data=f"comprarconf_{obj_id}_gemas")],
+        [InlineKeyboardButton("❌ Cancelar", callback_data=f"comprarcancel_{obj_id}")]
+    ]
+    query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(botones))
+    query.answer("Elige con qué pagar", show_alert=True)
+
+
+def callback_confirmar_compra(update, context):
+    query = update.callback_query
+    data = query.data
+    # Procesa callback_data tipo: comprarconf_bono_idolday_kponey
+    if data.startswith("comprarconf_"):
+        _, obj_id, moneda = data.split("_", 2)
+        info = CATALOGO_OBJETOS.get(obj_id)
+        user_id = query.from_user.id
+        if not info:
+            query.answer("Ese objeto no existe.", show_alert=True)
+            return
+        if moneda not in ("kponey", "gemas"):
+            query.answer("Moneda inválida.", show_alert=True)
+            return
+
+        doc = col_usuarios.find_one({"user_id": user_id}) or {}
+        saldo = doc.get(moneda, 0)
+        precio = info["precio"] if moneda == "kponey" else info["precio_gemas"]
+        if saldo < precio:
+            query.answer(f"No tienes suficiente {moneda} para este objeto.", show_alert=True)
+            return
+
+        col_usuarios.update_one(
+            {"user_id": user_id},
+            {"$inc": {f"objetos.{obj_id}": 1, moneda: -precio}},
+            upsert=True
+        )
+        query.answer(f"¡Compraste {info['emoji']} {info['nombre']} por {precio} {moneda.title()}!", show_alert=True)
+        # Opcional: desactivar los botones tras compra
+        try:
+            query.edit_message_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+
+    elif data.startswith("comprarcancel_"):
+        query.answer("Compra cancelada.", show_alert=True)
+        try:
+            query.edit_message_reply_markup(reply_markup=None)
+        except Exception:
+            pass
 
 
 
@@ -4590,9 +4638,9 @@ dispatcher.add_handler(CallbackQueryHandler(manejador_callback_setlist, pattern=
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback_setsprogreso, pattern=r"^setsprogreso_"))
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback_setdet, pattern=r"^setdet_"))
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback, pattern="^mercado_"))
-dispatcher.add_handler(CallbackQueryHandler(manejador_tienda_objeto, pattern=r"^tienda_objeto_"))
-dispatcher.add_handler(CallbackQueryHandler(callback_comprar_objeto, pattern=r"^comprar_"))
-dispatcher.add_handler(CallbackQueryHandler(callback_cancelar_compra, pattern="^cancelar_compra"))
+dispatcher.add_handler(CallbackQueryHandler(callback_comprarobj, pattern="^comprarobj_"))
+dispatcher.add_handler(CallbackQueryHandler(callback_confirmar_compra, pattern="^comprarconf_"))
+dispatcher.add_handler(CallbackQueryHandler(callback_confirmar_compra, pattern="^comprarcancel_"))
 dispatcher.add_handler(CallbackQueryHandler(manejador_tienda_paypal, pattern=r"^tienda_paypal_"))
 # ESTOS GENERAL SIEMPRE AL FINAL (sin pattern)
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback))
