@@ -527,7 +527,8 @@ CATALOGO_OBJETOS = {
             "Permite hacer un /idolday adicional sin esperar el cooldown.\n"
             "Uso: /idolday si tienes bonos."
         ),
-        "precio": 1600
+        "precio": 1600,
+        "precio_gemas": 160
     },
     "lightstick": {
         "nombre": "Lightstick",
@@ -539,7 +540,8 @@ CATALOGO_OBJETOS = {
             "• ★★☆ → ★★★: 40% de posibilidad\n"
             "• ★★★: No se puede mejorar más"
         ),
-        "precio": 4000
+        "precio": 4000,
+        "precio_gemas": 400
     },
     "ticket_agregar_apodo": {
         "nombre": "Ticket Agregar Apodo",
@@ -548,7 +550,8 @@ CATALOGO_OBJETOS = {
             'Permite agregar un apodo personalizado a una carta usando /apodo <code>id_unico</code> "apodo"\n'
             'Máx 8 caracteres. Ejemplo: /apodo fghj7 "Mi bebe"'
         ),
-        "precio": 2600
+        "precio": 2600,
+        "precio_gemas": 260
     },
     "abrazo_de_bias": {
         "nombre": "Abrazo de Bias",
@@ -557,9 +560,11 @@ CATALOGO_OBJETOS = {
             "Reduce el cooldown de /idolday a la mitad, una vez.\n"
             "Uso: Cuando tengas cooldown, gasta 1 para reducir la espera."
         ),
-        "precio": 600
+        "precio": 600,
+        "precio_gemas": 60
     }
 }
+
 
 
 
@@ -2305,19 +2310,24 @@ def comando_tienda(update, context):
     chat_id = update.effective_chat.id
     doc = col_usuarios.find_one({"user_id": user_id}) or {}
     kponey = doc.get("kponey", 0)
+    gemas = doc.get("gemas", 0)
 
     texto = "🛒 <b>Tienda de objetos</b>\n\n"
     botones = []
     for obj_id, info in CATALOGO_OBJETOS.items():
         texto += (
-            f"{info['emoji']} <b>{info['nombre']}</b> — <code>{info['precio']} Kponey</code>\n"
+            f"{info['emoji']} <b>{info['nombre']}</b> — <code>{info['precio']} Kponey</code> | <code>{info['precio_gemas']} Gemas</code>\n"
             f"{info['desc']}\n\n"
         )
-        botones.append([InlineKeyboardButton(f"{info['emoji']} Comprar {info['nombre']}", callback_data=f"comprarobj_{obj_id}")])
-    texto += f"💸 <b>Tu saldo:</b> <code>{kponey}</code>"
+        botones.append([InlineKeyboardButton(
+            f"{info['emoji']} Comprar {info['nombre']}", 
+            callback_data=f"tienda_objeto_{obj_id}"
+        )])
+    texto += f"💸 <b>Tu saldo:</b> <code>{kponey} Kponey</code> | <code>{gemas} Gemas</code>"
 
     teclado = InlineKeyboardMarkup(botones)
     update.message.reply_text(texto, parse_mode="HTML", reply_markup=teclado)
+
 
 
 def comprar_objeto(user_id, obj_id, context, chat_id, reply_func):
@@ -3634,10 +3644,72 @@ def callback_ampliar_vender(update, context):
     )
 
 
+def manejador_tienda_objeto(update, context):
+    query = update.callback_query
+    data = query.data  # 'tienda_objeto_bono_idolday'
+    obj_id = data.replace("tienda_objeto_", "")
+    obj = CATALOGO_OBJETOS.get(obj_id)
+    if not obj:
+        query.answer("Objeto no válido.", show_alert=True)
+        return
+
+    # Menú de opciones para pagar
+    botones = [
+        [
+            InlineKeyboardButton(
+                f"💸 {obj['precio']} Kponey", callback_data=f"comprar_{obj_id}_kponey"
+            ),
+            InlineKeyboardButton(
+                f"💎 {obj['precio_gemas']} Gemas", callback_data=f"comprar_{obj_id}_gemas"
+            )
+        ],
+        [InlineKeyboardButton("❌ Cancelar", callback_data="cancelar_compra")]
+    ]
+    query.answer()
+    query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(botones))
+
+
+def callback_comprar_objeto(update, context):
+    query = update.callback_query
+    data = query.data  # 'comprar_bono_idolday_kponey' o 'comprar_lightstick_gemas'
+    partes = data.split("_")
+    if len(partes) < 3:
+        query.answer("Error al procesar la compra.", show_alert=True)
+        return
+
+    obj_id = "_".join(partes[1:-1])
+    moneda = partes[-1]
+    obj = CATALOGO_OBJETOS.get(obj_id)
+    if not obj:
+        query.answer("Objeto no válido.", show_alert=True)
+        return
+
+    user_id = query.from_user.id
+    precio = obj["precio"] if moneda == "kponey" else obj["precio_gemas"]
+    campo = "kponey" if moneda == "kponey" else "gemas"
+
+    usuario = col_usuarios.find_one({"user_id": user_id}) or {}
+    saldo = usuario.get(campo, 0)
+    if saldo < precio:
+        query.answer(f"No tienes suficiente {'Kponey' if moneda=='kponey' else 'Gemas'}.", show_alert=True)
+        return
+
+    # Descontar y dar objeto
+    col_usuarios.update_one({"user_id": user_id}, {"$inc": {campo: -precio, f"objetos.{obj_id}": 1}})
+    query.answer(f"¡Compraste {obj['emoji']} {obj['nombre']} usando {precio} {'Kponey' if campo=='kponey' else 'Gemas'}!", show_alert=True)
+    query.edit_message_reply_markup(reply_markup=None)  # Quita los botones
+
+def callback_cancelar_compra(update, context):
+    query = update.callback_query
+    query.answer("Compra cancelada.")
+    query.edit_message_reply_markup(reply_markup=None)
+
+
+
+
+
+
 #-------------mostrar_menu_mercado------------
-
-
-
 
 @solo_en_tema_asignado("mercado")
 def manejador_callback(update, context):
@@ -4477,6 +4549,9 @@ dispatcher.add_handler(CallbackQueryHandler(manejador_callback_setlist, pattern=
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback_setsprogreso, pattern=r"^setsprogreso_"))
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback_setdet, pattern=r"^setdet_"))
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback, pattern="^mercado_"))
+dispatcher.add_handler(CallbackQueryHandler(manejador_tienda_objeto, pattern=r"^tienda_objeto_"))
+dispatcher.add_handler(CallbackQueryHandler(callback_comprar_objeto, pattern=r"^comprar_"))
+dispatcher.add_handler(CallbackQueryHandler(callback_cancelar_compra, pattern="^cancelar_compra"))
 dispatcher.add_handler(CallbackQueryHandler(manejador_tienda_paypal, pattern=r"^tienda_paypal_"))
 # ESTOS GENERAL SIEMPRE AL FINAL (sin pattern)
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback))
