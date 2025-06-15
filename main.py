@@ -1558,7 +1558,6 @@ def comando_usar(update, context):
 
 
 @grupo_oficial
-@solo_en_temas_permitidos("manejador_reclamar")
 def manejador_reclamar(update, context):
     query = update.callback_query
     usuario_click = query.from_user.id
