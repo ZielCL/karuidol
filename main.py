@@ -2877,7 +2877,6 @@ def comando_gemas(update, context):
 
 
 #---------Para dar dinero------------
-@solo_en_tema_asignado("darKponey")
 @grupo_oficial
 def comando_darKponey(update, context):
     TU_USER_ID = 1111798714  # <-- Reemplaza por tu verdadero ID de Telegram
@@ -2926,6 +2925,7 @@ def comando_darKponey(update, context):
 
     col_usuarios.update_one({"user_id": dest_id}, {"$inc": {"kponey": cantidad}}, upsert=True)
     update.message.reply_text(f"💸 Kponey actualizado para <code>{dest_id}</code> ({cantidad:+})", parse_mode="HTML")
+
 
 
 
