@@ -2358,14 +2358,48 @@ def comprar_objeto(user_id, obj_id, context, chat_id, reply_func):
 def comando_comprarobjeto(update, context):
     user_id = update.message.from_user.id
     chat_id = update.effective_chat.id
-    if not context.args:
-        update.message.reply_text("Usa: /comprarobjeto <objeto_id>\nEjemplo: /comprarobjeto bono_idolday")
+
+    # Permite usar como mensaje o como callback (ambos casos)
+    is_callback = hasattr(update, "callback_query")
+    if is_callback:
+        msg_func = lambda text: update.callback_query.answer(text=text, show_alert=True)
+        args = context.args if context.args else []
+    else:
+        msg_func = lambda text: update.message.reply_text(text)
+        args = context.args
+
+    if not args or len(args) < 2:
+        if is_callback:
+            msg_func("Usa: /comprarobjeto <objeto_id> <kponey|gemas>\nEjemplo: /comprarobjeto bono_idolday kponey")
+        else:
+            update.message.reply_text("Usa: /comprarobjeto <objeto_id> <kponey|gemas>\nEjemplo: /comprarobjeto bono_idolday kponey")
         return
-    obj_id = context.args[0].strip()
-    comprar_objeto(
-        user_id, obj_id, context, chat_id,
-        lambda text, **kwargs: update.message.reply_text(text, **kwargs)
+
+    obj_id = args[0].strip()
+    moneda = args[1].strip().lower()
+    info = CATALOGO_OBJETOS.get(obj_id)
+    if not info:
+        msg_func("Ese objeto no existe.")
+        return
+
+    if moneda not in ("kponey", "gemas"):
+        msg_func("Elige moneda válida: kponey o gemas.")
+        return
+
+    doc = col_usuarios.find_one({"user_id": user_id}) or {}
+    saldo = doc.get(moneda, 0)
+    precio = info["precio"] if moneda == "kponey" else info["precio_gemas"]
+    if saldo < precio:
+        msg_func(f"No tienes suficiente {moneda} para este objeto.")
+        return
+
+    col_usuarios.update_one(
+        {"user_id": user_id},
+        {"$inc": {f"objetos.{obj_id}": 1, moneda: -precio}},
+        upsert=True
     )
+    msg_func(f"¡Compraste {info['emoji']} {info['nombre']} por {precio} {moneda.title()}!")
+
 
 
 
@@ -4155,14 +4189,21 @@ def callback_comprarobj(update, context):
     if not data.startswith("comprarobj_"):
         return
     obj_id = data.replace("comprarobj_", "")
-    user_id = query.from_user.id
-    chat_id = query.message.chat_id
+    info = CATALOGO_OBJETOS.get(obj_id)
+    if not info:
+        query.answer("Ese objeto no existe.", show_alert=True)
+        return
 
-    # Cambia aquí: usa query.answer para mostrar el mensaje en alerta
-    def reply_func(text, **kwargs):
-        query.answer(text=text, show_alert=True)
+    # Mostrar menú de pago como ALERTA (popup)
+    query.answer(
+        f"¿Cómo quieres pagar '{info['nombre']}'?\n\n"
+        f"💸 {info['precio']} Kponey\n"
+        f"💎 {info['precio_gemas']} Gemas\n\n"
+        f"Responde usando:\n"
+        f"/comprarobjeto {obj_id} kponey  o  /comprarobjeto {obj_id} gemas",
+        show_alert=True
+    )
 
-    comprar_objeto(user_id, obj_id, context, chat_id, reply_func)
 
 
    
