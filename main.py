@@ -963,9 +963,10 @@ def comando_settema(update, context):
         upsert=True
     )
     update.message.reply_text(
-        f"✅ El comando <b>/{comando}</b> solo funcionará en el tema correspondiende{thread_id}</code>.",
+        f"✅ El comando <b>/{comando}</b> solo funcionará en el tema correspondiente <code>{thread_id}</code>.",
         parse_mode='HTML'
     )
+
 
 
 @grupo_oficial
