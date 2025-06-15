@@ -3423,7 +3423,13 @@ def mostrar_setsprogreso(update, context, pagina=1, mensaje=None, editar=False, 
     chat_id = update.effective_chat.id
     sets = obtener_sets_disponibles()
     cartas_usuario = list(col_cartas_usuario.find({"user_id": user_id}))
-    cartas_usuario_unicas = set((c["nombre"], c["version"]) for c in cartas_usuario)
+
+    # Diferencia por grupo/set, nombre y versión
+    cartas_usuario_unicas = set(
+        (c.get("grupo", c.get("set")), c["nombre"], c["version"])
+        for c in cartas_usuario
+    )
+
     por_pagina = 5
     total = len(sets)
     paginas = (total - 1) // por_pagina + 1
@@ -3433,7 +3439,11 @@ def mostrar_setsprogreso(update, context, pagina=1, mensaje=None, editar=False, 
     fin = min(inicio + por_pagina, total)
     texto = "<b>📚 Progreso de sets/colecciones:</b>\n\n"
     for s in sets[inicio:fin]:
-        cartas_set_unicas = set((c["nombre"], c["version"]) for c in cartas if (c.get("set") == s or c.get("grupo") == s))
+        # Diferencia por grupo/set, nombre y versión aquí también
+        cartas_set_unicas = set(
+            (c.get("grupo", c.get("set")), c["nombre"], c["version"])
+            for c in cartas if (c.get("set") == s or c.get("grupo") == s)
+        )
         total_set = len(cartas_set_unicas)
         usuario_tiene = sum(1 for carta in cartas_set_unicas if carta in cartas_usuario_unicas)
         if usuario_tiene == 0:
@@ -3469,6 +3479,7 @@ def mostrar_setsprogreso(update, context, pagina=1, mensaje=None, editar=False, 
             chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML",
             message_thread_id=thread_id
         )
+
 
 
 @solo_en_tema_asignado("set")
