@@ -1013,6 +1013,7 @@ def comando_vertemas(update, context):
 
 
 # -- IDOLDAY DROP 2 CARTAS (Drop siempre muestra excelente estado, pero al reclamar puede variar) ---
+@solo_en_tema_asignado("idolday")
 @grupo_oficial
 @solo_en_chat_general
 def comando_idolday(update, context):
