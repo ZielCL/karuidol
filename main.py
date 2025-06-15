@@ -3710,18 +3710,18 @@ def callback_cancelar_compra(update, context):
 
 @solo_en_tema_asignado("mercado")
 def manejador_callback(update, context):
+    from telegram.error import RetryAfter, BadRequest
     query = update.callback_query
     data = query.data
     user_id = query.from_user.id
 
-    # --- Recuperar thread_id si está presente ---
     partes = data.split("_")
     def obtener_thread_id():
         if len(partes) > 0 and partes[-1].isdigit():
             return int(partes[-1])
         return getattr(query.message, "message_thread_id", None)
 
-    # Sólo para callbacks que inician con mercado_
+    # Solo puedes interactuar con tu propio mercado
     if data.startswith("mercado"):
         try:
             dueño_id = None
@@ -3737,7 +3737,6 @@ def manejador_callback(update, context):
             return
 
     if not data.startswith("mercado"):
-        # ...deja el resto de tus callbacks aquí
         return
 
     thread_id = obtener_thread_id()
@@ -3746,12 +3745,15 @@ def manejador_callback(update, context):
     if data.startswith("mercado_filtros_"):
         user_id = int(partes[2])
         pagina = int(partes[3])
-        # thread_id puede venir en la última parte
         if len(partes) > 4 and partes[4].isdigit():
             thread_id = int(partes[4])
-        query.edit_message_reply_markup(
-            reply_markup=mostrar_menu_filtros(user_id, pagina)
-        )
+        try:
+            query.edit_message_reply_markup(
+                reply_markup=mostrar_menu_filtros(user_id, pagina)
+            )
+        except RetryAfter as e:
+            query.answer(f"⏳ El bot alcanzó el límite de cambios. Intenta en {int(e.retry_after)} segundos.", show_alert=True)
+            return
         return
 
     elif data.startswith("mercado_filtro_estado_"):
@@ -3759,9 +3761,13 @@ def manejador_callback(update, context):
         pagina = int(partes[4])
         if len(partes) > 5 and partes[5].isdigit():
             thread_id = int(partes[5])
-        query.edit_message_reply_markup(
-            reply_markup=mostrar_menu_estrellas(user_id, pagina)
-        )
+        try:
+            query.edit_message_reply_markup(
+                reply_markup=mostrar_menu_estrellas(user_id, pagina)
+            )
+        except RetryAfter as e:
+            query.answer(f"⏳ El bot alcanzó el límite de cambios. Intenta en {int(e.retry_after)} segundos.", show_alert=True)
+            return
         return
 
     elif data.startswith("mercado_filtraestrella_"):
@@ -3770,10 +3776,14 @@ def manejador_callback(update, context):
         estrellas = partes[4]
         if len(partes) > 5 and partes[5].isdigit():
             thread_id = int(partes[5])
-        mostrar_mercado_pagina(
-            query.message.chat_id, query.message.message_id, context,
-            user_id, int(pagina), filtro="estrellas", valor_filtro=estrellas, thread_id=thread_id
-        )
+        try:
+            mostrar_mercado_pagina(
+                query.message.chat_id, query.message.message_id, context,
+                user_id, int(pagina), filtro="estrellas", valor_filtro=estrellas, thread_id=thread_id
+            )
+        except RetryAfter as e:
+            query.answer(f"⏳ El bot alcanzó el límite de cambios. Intenta en {int(e.retry_after)} segundos.", show_alert=True)
+            return
         return
 
     elif data.startswith("mercado_filtro_grupo_"):
@@ -3783,15 +3793,16 @@ def manejador_callback(update, context):
             thread_id = int(partes[-1])
         else:
             thread_id = None
-        grupos = obtener_grupos_del_mercado()  # Pon aquí tu función para obtener los grupos
+        grupos = obtener_grupos_del_mercado()
         try:
             query.edit_message_reply_markup(reply_markup=mostrar_menu_grupos(user_id, pagina, grupos))
+        except RetryAfter as e:
+            query.answer(f"⏳ El bot alcanzó el límite de cambios. Intenta en {int(e.retry_after)} segundos.", show_alert=True)
+            return
         except BadRequest as e:
             if "Message is not modified" not in str(e):
                 print("Error en menu grupos:", e)
         return
-
- 
 
     elif data.startswith("mercado_filtragrupo_"):
         user_id = int(partes[2])
@@ -3799,10 +3810,14 @@ def manejador_callback(update, context):
         grupo_codificado = partes[4]
         grupo = urllib.parse.unquote_plus(grupo_codificado)
         thread_id = int(partes[5]) if len(partes) > 5 and partes[5].isdigit() else None
-        mostrar_mercado_pagina(
-            query.message.chat_id, query.message.message_id, context,
-            user_id, int(pagina), filtro="grupo", valor_filtro=grupo, thread_id=thread_id
-        )
+        try:
+            mostrar_mercado_pagina(
+                query.message.chat_id, query.message.message_id, context,
+                user_id, int(pagina), filtro="grupo", valor_filtro=grupo, thread_id=thread_id
+            )
+        except RetryAfter as e:
+            query.answer(f"⏳ El bot alcanzó el límite de cambios. Intenta en {int(e.retry_after)} segundos.", show_alert=True)
+            return
         return
 
     elif data.startswith("mercado_filtro_numero_"):
@@ -3810,7 +3825,11 @@ def manejador_callback(update, context):
         pagina = int(partes[4])
         if len(partes) > 5 and partes[5].isdigit():
             thread_id = int(partes[5])
-        query.edit_message_reply_markup(reply_markup=mostrar_menu_ordenar(user_id, pagina))
+        try:
+            query.edit_message_reply_markup(reply_markup=mostrar_menu_ordenar(user_id, pagina))
+        except RetryAfter as e:
+            query.answer(f"⏳ El bot alcanzó el límite de cambios. Intenta en {int(e.retry_after)} segundos.", show_alert=True)
+            return
         return
 
     elif data.startswith("mercado_ordennum_"):
@@ -3819,10 +3838,14 @@ def manejador_callback(update, context):
         orden = partes[4]
         if len(partes) > 5 and partes[5].isdigit():
             thread_id = int(partes[5])
-        mostrar_mercado_pagina(
-            query.message.chat_id, query.message.message_id, context,
-            user_id, int(pagina), orden=orden, thread_id=thread_id
-        )
+        try:
+            mostrar_mercado_pagina(
+                query.message.chat_id, query.message.message_id, context,
+                user_id, int(pagina), orden=orden, thread_id=thread_id
+            )
+        except RetryAfter as e:
+            query.answer(f"⏳ El bot alcanzó el límite de cambios. Intenta en {int(e.retry_after)} segundos.", show_alert=True)
+            return
         return
 
     elif data.startswith("mercado_pagina_"):
@@ -3833,11 +3856,16 @@ def manejador_callback(update, context):
         orden = partes[6] if len(partes) > 6 and partes[6] != "none" else None
         if len(partes) > 7 and partes[7].isdigit():
             thread_id = int(partes[7])
-        mostrar_mercado_pagina(
-            query.message.chat_id, query.message.message_id, context,
-            user_id, int(pagina), filtro=filtro, valor_filtro=valor_filtro, orden=orden, thread_id=thread_id
-        )
+        try:
+            mostrar_mercado_pagina(
+                query.message.chat_id, query.message.message_id, context,
+                user_id, int(pagina), filtro=filtro, valor_filtro=valor_filtro, orden=orden, thread_id=thread_id
+            )
+        except RetryAfter as e:
+            query.answer(f"⏳ El bot alcanzó el límite de cambios. Intenta en {int(e.retry_after)} segundos.", show_alert=True)
+            return
         return
+
 
 
 
@@ -3848,6 +3876,7 @@ def manejador_callback(update, context):
 @solo_en_tema_asignado("setsprogreso")
 @solo_en_tema_asignado("set")
 def manejador_callback_album(update, context):
+    from telegram.error import RetryAfter
     query = update.callback_query
     data = query.data
     partes = data.split("_")
@@ -3860,15 +3889,18 @@ def manejador_callback_album(update, context):
 
     # --- Filtro por estrellas (estado) ---
     if data.startswith("album_filtro_estado_"):
-        # Corrige el índice aquí
         user_id = int(partes[3])
         pagina = int(partes[4])
         thread_id = obtener_thread_id()
-        context.bot.edit_message_reply_markup(
-            chat_id=query.message.chat_id,
-            message_id=query.message.message_id,
-            reply_markup=mostrar_menu_estrellas_album(user_id, pagina)
-        )
+        try:
+            context.bot.edit_message_reply_markup(
+                chat_id=query.message.chat_id,
+                message_id=query.message.message_id,
+                reply_markup=mostrar_menu_estrellas_album(user_id, pagina)
+            )
+        except RetryAfter as e:
+            query.answer(f"⏳ El bot alcanzó el límite de cambios. Intenta en {int(e.retry_after)} segundos.", show_alert=True)
+            return
         return
 
     # --- Filtro aplicado por estrella ---
@@ -3877,10 +3909,14 @@ def manejador_callback_album(update, context):
         pagina = int(partes[3])
         estrellas = partes[4]
         thread_id = obtener_thread_id()
-        mostrar_album_pagina(
-            update, context, query.message.chat_id, query.message.message_id,
-            user_id, int(pagina), filtro="estrellas", valor_filtro=estrellas, thread_id=thread_id
-        )
+        try:
+            mostrar_album_pagina(
+                update, context, query.message.chat_id, query.message.message_id,
+                user_id, int(pagina), filtro="estrellas", valor_filtro=estrellas, thread_id=thread_id
+            )
+        except RetryAfter as e:
+            query.answer(f"⏳ El bot alcanzó el límite de cambios. Intenta en {int(e.retry_after)} segundos.", show_alert=True)
+            return
         return
 
     # --- Filtro por grupo ---
@@ -3897,11 +3933,15 @@ def manejador_callback_album(update, context):
             pagina = 1
             thread_id = None
         grupos = sorted({c.get("grupo", "") for c in col_cartas_usuario.find({"user_id": user_id}) if c.get("grupo")})
-        context.bot.edit_message_reply_markup(
-            chat_id=query.message.chat_id,
-            message_id=query.message.message_id,
-            reply_markup=mostrar_menu_grupos_album(user_id, pagina, grupos)
-        )
+        try:
+            context.bot.edit_message_reply_markup(
+                chat_id=query.message.chat_id,
+                message_id=query.message.message_id,
+                reply_markup=mostrar_menu_grupos_album(user_id, pagina, grupos)
+            )
+        except RetryAfter as e:
+            query.answer(f"⏳ El bot alcanzó el límite de cambios. Intenta en {int(e.retry_after)} segundos.", show_alert=True)
+            return
         return
 
     # --- Filtro aplicado por grupo ---
@@ -3910,10 +3950,14 @@ def manejador_callback_album(update, context):
         pagina = int(partes[3])
         grupo = "_".join(partes[4:-1]) if partes[-1].isdigit() else "_".join(partes[4:])
         thread_id = obtener_thread_id()
-        mostrar_album_pagina(
-            update, context, query.message.chat_id, query.message.message_id,
-            user_id, int(pagina), filtro="grupo", valor_filtro=grupo, thread_id=thread_id
-        )
+        try:
+            mostrar_album_pagina(
+                update, context, query.message.chat_id, query.message.message_id,
+                user_id, int(pagina), filtro="grupo", valor_filtro=grupo, thread_id=thread_id
+            )
+        except RetryAfter as e:
+            query.answer(f"⏳ El bot alcanzó el límite de cambios. Intenta en {int(e.retry_after)} segundos.", show_alert=True)
+            return
         return
 
     # --- Menú de filtros principal ---
@@ -3921,11 +3965,15 @@ def manejador_callback_album(update, context):
         user_id = int(partes[2])
         pagina = int(partes[3])
         thread_id = obtener_thread_id()
-        context.bot.edit_message_reply_markup(
-            chat_id=query.message.chat_id,
-            message_id=query.message.message_id,
-            reply_markup=mostrar_menu_filtros_album(user_id, pagina)
-        )
+        try:
+            context.bot.edit_message_reply_markup(
+                chat_id=query.message.chat_id,
+                message_id=query.message.message_id,
+                reply_markup=mostrar_menu_filtros_album(user_id, pagina)
+            )
+        except RetryAfter as e:
+            query.answer(f"⏳ El bot alcanzó el límite de cambios. Intenta en {int(e.retry_after)} segundos.", show_alert=True)
+            return
         return
 
     # --- Filtro ordenar por número ---
@@ -3933,11 +3981,15 @@ def manejador_callback_album(update, context):
         user_id = int(partes[3])
         pagina = int(partes[4])
         thread_id = obtener_thread_id()
-        context.bot.edit_message_reply_markup(
-            chat_id=query.message.chat_id,
-            message_id=query.message.message_id,
-            reply_markup=mostrar_menu_ordenar_album(user_id, pagina)
-        )
+        try:
+            context.bot.edit_message_reply_markup(
+                chat_id=query.message.chat_id,
+                message_id=query.message.message_id,
+                reply_markup=mostrar_menu_ordenar_album(user_id, pagina)
+            )
+        except RetryAfter as e:
+            query.answer(f"⏳ El bot alcanzó el límite de cambios. Intenta en {int(e.retry_after)} segundos.", show_alert=True)
+            return
         return
 
     # --- Orden aplicado ---
@@ -3946,10 +3998,14 @@ def manejador_callback_album(update, context):
         pagina = int(partes[3])
         orden = partes[4]
         thread_id = obtener_thread_id()
-        mostrar_album_pagina(
-            update, context, query.message.chat_id, query.message.message_id,
-            user_id, int(pagina), orden=orden, thread_id=thread_id
-        )
+        try:
+            mostrar_album_pagina(
+                update, context, query.message.chat_id, query.message.message_id,
+                user_id, int(pagina), orden=orden, thread_id=thread_id
+            )
+        except RetryAfter as e:
+            query.answer(f"⏳ El bot alcanzó el límite de cambios. Intenta en {int(e.retry_after)} segundos.", show_alert=True)
+            return
         return
 
     # --- Volver al álbum completo (sin filtros) ---
@@ -3960,10 +4016,14 @@ def manejador_callback_album(update, context):
         valor_filtro = partes[5] if len(partes) > 5 and partes[5] != "none" else None
         orden = partes[6] if len(partes) > 6 and partes[6] != "none" else None
         thread_id = obtener_thread_id()
-        mostrar_album_pagina(
-            update, context, query.message.chat_id, query.message.message_id,
-            user_id, int(pagina), filtro=filtro, valor_filtro=valor_filtro, orden=orden, thread_id=thread_id
-        )
+        try:
+            mostrar_album_pagina(
+                update, context, query.message.chat_id, query.message.message_id,
+                user_id, int(pagina), filtro=filtro, valor_filtro=valor_filtro, orden=orden, thread_id=thread_id
+            )
+        except RetryAfter as e:
+            query.answer(f"⏳ El bot alcanzó el límite de cambios. Intenta en {int(e.retry_after)} segundos.", show_alert=True)
+            return
         return
 
 
