@@ -2551,17 +2551,22 @@ def comando_favoritos(update, context):
     favoritos = doc.get("favoritos", []) if doc else []
 
     if not favoritos:
-        update.message.reply_text("⭐ No tienes cartas favoritas aún. Usa <code>/fav [V1] Dahyun</code> para añadir una.", parse_mode="HTML")
+        update.message.reply_text(
+            "⭐ No tienes cartas favoritas aún. Usa <code>/fav Twice [V1] Dahyun</code> para añadir una.",
+            parse_mode="HTML"
+        )
         return
 
     texto = "⭐ <b>Tus cartas favoritas:</b>\n\n"
     for fav in favoritos:
+        grupo = fav.get("grupo", "SinGrupo")
         nombre = fav.get("nombre", "")
         version = fav.get("version", "")
-        texto += f"<code>[{version}] {nombre}</code>\n"
-    texto += "\n<i>Puedes añadir o quitar favoritos usando /fav [Vn] Nombre</i>"
+        texto += f"<code>{grupo} [{version}] {nombre}</code>\n"
+    texto += "\n<i>Puedes añadir o quitar favoritos usando /fav &lt;grupo&gt; [Vn] Nombre</i>"
 
     update.message.reply_text(texto, parse_mode="HTML")
+
 
 #----------Comando FAV---------------
 @solo_en_tema_asignado("fav")
@@ -2569,37 +2574,54 @@ def comando_favoritos(update, context):
 def comando_fav(update, context):
     user_id = update.message.from_user.id
     args = context.args
-    if not args:
-        update.message.reply_text("Usa: /fav [Vn] Nombre\nPor ejemplo: /fav [V1] Dahyun")
+    if not args or len(args) < 3:
+        update.message.reply_text(
+            "Usa: /fav <grupo> [Vn] Nombre\nEjemplo: /fav Twice [V1] Dahyun",
+            parse_mode="HTML"
+        )
         return
 
-    # Reconstruir nombre y versión correctamente
-    entrada = " ".join(args).strip()
-    if not entrada.startswith("[") or "]" not in entrada:
-        update.message.reply_text("Formato incorrecto. Ejemplo: /fav [V1] Dahyun")
+    grupo = args[0]
+    if not args[1].startswith("[") or not args[1].endswith("]"):
+        update.message.reply_text(
+            "Formato incorrecto. Ejemplo: /fav Twice [V1] Dahyun",
+            parse_mode="HTML"
+        )
         return
 
-    version = entrada.split("]", 1)[0][1:]
-    nombre = entrada.split("]", 1)[1].strip()
+    version = args[1][1:-1]
+    nombre = " ".join(args[2:]).strip()
 
-    # Busca si la carta existe en el catálogo
-    existe = any(c["nombre"] == nombre and c["version"] == version for c in cartas)
+    # Busca si la carta existe en el catálogo (usando grupo, nombre, version)
+    existe = any(
+        (c.get("grupo", c.get("set")) == grupo and c["nombre"] == nombre and c["version"] == version)
+        for c in cartas
+    )
     if not existe:
-        update.message.reply_text(f"No se encontró la carta: [{version}] {nombre}")
+        update.message.reply_text(
+            f"No se encontró la carta: {grupo} [{version}] {nombre}",
+            parse_mode="HTML"
+        )
         return
 
     doc = col_usuarios.find_one({"user_id": user_id}) or {}
     favoritos = doc.get("favoritos", [])
 
-    key = {"nombre": nombre, "version": version}
+    key = {"grupo": grupo, "nombre": nombre, "version": version}
     if key in favoritos:
-        favoritos = [f for f in favoritos if not (f["nombre"] == nombre and f["version"] == version)]
+        favoritos = [f for f in favoritos if not (f["grupo"] == grupo and f["nombre"] == nombre and f["version"] == version)]
         col_usuarios.update_one({"user_id": user_id}, {"$set": {"favoritos": favoritos}}, upsert=True)
-        update.message.reply_text(f"❌ Quitaste de favoritos: <code>[{version}] {nombre}</code>", parse_mode="HTML")
+        update.message.reply_text(
+            f"❌ Quitaste de favoritos: <code>{grupo} [{version}] {nombre}</code>",
+            parse_mode="HTML"
+        )
     else:
         favoritos.append(key)
         col_usuarios.update_one({"user_id": user_id}, {"$set": {"favoritos": favoritos}}, upsert=True)
-        update.message.reply_text(f"⭐ Añadiste a favoritos: <code>[{version}] {nombre}</code>", parse_mode="HTML")
+        update.message.reply_text(
+            f"⭐ Añadiste a favoritos: <code>{grupo} [{version}] {nombre}</code>",
+            parse_mode="HTML"
+        )
 
 #------------COMANDO PRECIO---------------------
 @solo_en_tema_asignado("precio")
@@ -3516,7 +3538,8 @@ def mostrar_detalle_set(update, context, set_name, user_id, pagina=1, mensaje=No
     cartas_set_unicas = []
     vistos = set()
     for c in cartas_set:
-        key = (c["nombre"], c["version"])
+        # Ahora considera grupo también
+        key = (c["nombre"], c["version"], c.get("grupo", set_name))
         if key not in vistos:
             cartas_set_unicas.append(c)
             vistos.add(key)
@@ -3530,33 +3553,44 @@ def mostrar_detalle_set(update, context, set_name, user_id, pagina=1, mensaje=No
     fin = min(inicio + por_pagina, total)
 
     cartas_usuario = list(col_cartas_usuario.find({"user_id": user_id}))
-    cartas_usuario_unicas = set((c["nombre"], c["version"]) for c in cartas_usuario)
+    cartas_usuario_unicas = set(
+        (c["nombre"], c["version"], c.get("grupo", set_name))
+        for c in cartas_usuario
+    )
 
     user_doc = col_usuarios.find_one({"user_id": user_id}) or {}
     favoritos = user_doc.get("favoritos", [])
 
-    usuario_tiene = sum(1 for c in cartas_set_unicas if (c["nombre"], c["version"]) in cartas_usuario_unicas)
+    usuario_tiene = sum(
+        1 for c in cartas_set_unicas
+        if (c["nombre"], c["version"], c.get("grupo", set_name)) in cartas_usuario_unicas
+    )
     bloques = 10
     bloques_llenos = int((usuario_tiene / total) * bloques) if total > 0 else 0
     barra = "🟩" * bloques_llenos + "⬜" * (bloques - bloques_llenos)
     texto = f"<b>🌟 Set: {set_name} ({usuario_tiene}/{total})</b>\n{barra}\n\n"
 
     for carta in cartas_set_unicas[inicio:fin]:
-        key = (carta["nombre"], carta["version"])
+        key = (carta["nombre"], carta["version"], carta.get("grupo", set_name))
         nombre = carta["nombre"]
         version = carta["version"]
-        nombre_version = f"[{version}] {nombre}"
-        es_fav = any(fav.get("nombre") == nombre and fav.get("version") == version for fav in favoritos)
+        grupo = carta.get("grupo", set_name)
+        nombre_version = f"{grupo} [{version}] {nombre}"
+
+        es_fav = any(
+            fav.get("nombre") == nombre and fav.get("version") == version and fav.get("grupo", grupo) == grupo
+            for fav in favoritos
+        )
         icono_fav = " ⭐" if es_fav else ""
         if key in cartas_usuario_unicas:
-            texto += f"✅ <code>{nombre_version}</code>{icono_fav}\n"
+            texto += f"✅ {nombre_version}{icono_fav}\n"
         else:
-            texto += f"❌ <code>{nombre_version}</code>{icono_fav}\n"
+            texto += f"❌ {nombre_version}{icono_fav}\n"
 
     texto += (
         "\n<i>Para añadir una carta a favoritos:</i>\n"
-        "Copia el nombre (incluyendo los corchetes) y usa:\n"
-        "<code>/fav [V1] Tzuyu</code>\n"
+        "Copia el nombre (incluyendo grupo y corchetes) y usa:\n"
+        f"<code>/fav {set_name} [V1] Tzuyu</code>\n"
     )
     if usuario_tiene == total and total > 0:
         texto += "\n🎉 <b>¡Completaste este set!</b> 🎉"
