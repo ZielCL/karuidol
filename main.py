@@ -4538,7 +4538,7 @@ def comando_apodo(update, context):
 
 
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback_album, pattern="^album_"))
-dispatcher.add_handler(CallbackQueryHandler(manejador_callback_album, pattern="^reclamar"))
+dispatcher.add_handler(CallbackQueryHandler(manejador_reclamar, pattern="^reclamar_"))
 dispatcher.add_handler(CallbackQueryHandler(callback_comprarobj, pattern="^comprarobj_"))
 dispatcher.add_handler(CallbackQueryHandler(callback_ampliar_vender, pattern="^ampliar_vender_"))
 dispatcher.add_handler(CallbackQueryHandler(callback_mejorar_carta, pattern="^mejorar_"))
