@@ -2398,7 +2398,7 @@ def comando_tiendaG(update, context):
 
     texto = "💎 <b>Tienda de objetos (Gemas)</b>\n\n"
     botones = []
-    for obj_id, info in CATALOGO_OBJETOS.items():
+    for obj_id, info in CATALOGO_OBJETOSG.items():
         if "precio_gemas" not in info:
             continue  # Solo muestra objetos con precio en gemas
         texto += (
