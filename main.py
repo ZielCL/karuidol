@@ -562,6 +562,32 @@ CATALOGO_OBJETOS = {
 }
 
 
+CATALOGO_OBJETOSG = {
+    "bono_idolday": {
+        "nombre": "Bono Idolday",
+        "emoji": "🎟️",
+        "desc": "Permite hacer un /idolday adicional sin esperar el cooldown.\nUso: /idolday si tienes bonos.",
+        "precio_gemas": 160
+    },
+    "lightstick": {
+        "nombre": "Lightstick",
+        "emoji": "💡",
+        "desc": "Mejora el estado de una carta:\n• ☆☆☆ → ★☆☆: 100% de posibilidad\n• ★☆☆ → ★★☆: 70% de posibilidad\n• ★★☆ → ★★★: 40% de posibilidad\n• ★★★: No se puede mejorar más",
+        "precio_gemas": 400
+    },
+    "ticket_agregar_apodo": {
+        "nombre": "Ticket Agregar Apodo",
+        "emoji": "🏷️",
+        "desc": 'Permite agregar un apodo personalizado a una carta usando /apodo <code>id_unico</code> "apodo"\nMáx 8 caracteres. Ejemplo: /apodo fghj7 "Mi bebe"',
+        "precio_gemas": 260
+    },
+    "abrazo_de_bias": {
+        "nombre": "Abrazo de Bias",
+        "emoji": "🤗",
+        "desc": "Reduce el cooldown de /idolday a la mitad, una vez.\nUso: Cuando tengas cooldown, gasta 1 para reducir la espera.",
+        "precio_gemas": 60
+    }
+}
 
 
 
@@ -2363,6 +2389,37 @@ def comando_comprarobjeto(update, context):
     )
 
 
+@solo_en_tema_asignado("tiendaG")
+@cooldown_critico
+def comando_tiendaG(update, context):
+    user_id = update.message.from_user.id
+    doc = col_usuarios.find_one({"user_id": user_id}) or {}
+    gemas = doc.get("gemas", 0)
+
+    texto = "💎 <b>Tienda de objetos (Gemas)</b>\n\n"
+    botones = []
+    for obj_id, info in CATALOGO_OBJETOS.items():
+        if "precio_gemas" not in info:
+            continue  # Solo muestra los que tienen precio en gemas
+        texto += (
+            f"{info['emoji']} <b>{info['nombre']}</b> — <code>{info['precio_gemas']} Gemas</code>\n"
+            f"{info['desc']}\n\n"
+        )
+        botones.append([
+            InlineKeyboardButton(
+                f"{info['emoji']} Comprar {info['nombre']}", 
+                callback_data=f"comprarG_{obj_id}"
+            )
+        ])
+    texto += f"💎 <b>Tu saldo:</b> <code>{gemas}</code>"
+
+    teclado = InlineKeyboardMarkup(botones)
+    update.message.reply_text(texto, parse_mode="HTML", reply_markup=teclado)
+
+
+
+
+
 
 
 
@@ -3748,6 +3805,44 @@ def callback_cancelar_compra(update, context):
 
 
 
+def callback_comprarG_objeto(update, context):
+    query = update.callback_query
+    data = query.data  # 'comprarG_bono_idolday'
+    if not data.startswith("comprarG_"):
+        return
+    obj_id = data[len("comprarG_"):]
+    obj = CATALOGO_OBJETOSG.get(obj_id)
+    user_id = query.from_user.id
+
+    if not obj or "precio_gemas" not in obj:
+        query.answer("Este objeto no existe o no está disponible en la tienda de gemas.", show_alert=True)
+        return
+
+    doc = col_usuarios.find_one({"user_id": user_id}) or {}
+    gemas = doc.get("gemas", 0)
+    precio = obj["precio_gemas"]
+    if gemas < precio:
+        query.answer("No tienes suficientes Gemas.", show_alert=True)
+        return
+
+    # Descontar gemas y dar objeto
+    col_usuarios.update_one(
+        {"user_id": user_id},
+        {"$inc": {f"objetos.{obj_id}": 1, "gemas": -precio}},
+        upsert=True
+    )
+    query.answer(
+        f"¡Compraste {obj['emoji']} {obj['nombre']} por {precio} Gemas!",
+        show_alert=True
+    )
+    # Quita los botones del mensaje
+    try:
+        query.edit_message_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+
+
+
 
 
 
@@ -4649,6 +4744,7 @@ def comando_apodo(update, context):
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback_album, pattern="^album_"))
 dispatcher.add_handler(CallbackQueryHandler(manejador_reclamar, pattern="^reclamar_"))
 dispatcher.add_handler(CallbackQueryHandler(callback_comprarobj, pattern="^comprarobj_"))
+dispatcher.add_handler(CallbackQueryHandler(callback_comprarG_objeto, pattern="^comprarG_"))
 dispatcher.add_handler(CallbackQueryHandler(callback_ampliar_vender, pattern="^ampliar_vender_"))
 dispatcher.add_handler(CallbackQueryHandler(callback_mejorar_carta, pattern="^mejorar_"))
 dispatcher.add_handler(CallbackQueryHandler(callback_confirmar_mejora, pattern="^(confirmamejora_|cancelarmejora)"))
