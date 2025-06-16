@@ -15,7 +15,6 @@ from telegram import (
 )
 from telegram.ext import Dispatcher, CommandHandler, CallbackQueryHandler
 import json
-import Filters
 import uuid
 import urllib.parse
 import random
