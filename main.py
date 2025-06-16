@@ -2398,23 +2398,19 @@ def comando_tiendaG(update, context):
 
     texto = "💎 <b>Tienda de objetos (Gemas)</b>\n\n"
     botones = []
-    for obj_id, info in CATALOGO_OBJETOSG.items():
+    for obj_id, info in CATALOGO_OBJETOS.items():
         if "precio_gemas" not in info:
-            continue  # Solo muestra los que tienen precio en gemas
+            continue  # Solo muestra objetos con precio en gemas
         texto += (
             f"{info['emoji']} <b>{info['nombre']}</b> — <code>{info['precio_gemas']} Gemas</code>\n"
             f"{info['desc']}\n\n"
         )
-        botones.append([
-            InlineKeyboardButton(
-                f"{info['emoji']} Comprar {info['nombre']}", 
-                callback_data=f"comprarG_{obj_id}"
-            )
-        ])
+        botones.append([InlineKeyboardButton(f"{info['emoji']} Comprar {info['nombre']}", callback_data=f"comprarG_{obj_id}")])
     texto += f"💎 <b>Tu saldo:</b> <code>{gemas}</code>"
 
     teclado = InlineKeyboardMarkup(botones)
     update.message.reply_text(texto, parse_mode="HTML", reply_markup=teclado)
+
 
 
 
@@ -3810,36 +3806,26 @@ def callback_comprarG_objeto(update, context):
     data = query.data  # 'comprarG_bono_idolday'
     if not data.startswith("comprarG_"):
         return
-    obj_id = data[len("comprarG_"):]
-    obj = CATALOGO_OBJETOSG.get(obj_id)
-    user_id = query.from_user.id
-
+    obj_id = data.replace("comprarG_", "")
+    obj = CATALOGO_OBJETOS.get(obj_id)
     if not obj or "precio_gemas" not in obj:
-        query.answer("Este objeto no existe o no está disponible en la tienda de gemas.", show_alert=True)
+        query.answer("Objeto no válido o no disponible por gemas.", show_alert=True)
         return
 
-    doc = col_usuarios.find_one({"user_id": user_id}) or {}
-    gemas = doc.get("gemas", 0)
+    user_id = query.from_user.id
+    usuario = col_usuarios.find_one({"user_id": user_id}) or {}
+    saldo = usuario.get("gemas", 0)
     precio = obj["precio_gemas"]
-    if gemas < precio:
-        query.answer("No tienes suficientes Gemas.", show_alert=True)
+
+    if saldo < precio:
+        query.answer("No tienes suficientes gemas.", show_alert=True)
         return
 
-    # Descontar gemas y dar objeto
-    col_usuarios.update_one(
-        {"user_id": user_id},
-        {"$inc": {f"objetos.{obj_id}": 1, "gemas": -precio}},
-        upsert=True
-    )
-    query.answer(
-        f"¡Compraste {obj['emoji']} {obj['nombre']} por {precio} Gemas!",
-        show_alert=True
-    )
-    # Quita los botones del mensaje
-    try:
-        query.edit_message_reply_markup(reply_markup=None)
-    except Exception:
-        pass
+    # Descontar y dar objeto
+    col_usuarios.update_one({"user_id": user_id}, {"$inc": {"gemas": -precio, f"objetos.{obj_id}": 1}})
+    query.answer(f"¡Compraste {obj['emoji']} {obj['nombre']} por {precio} gemas!", show_alert=True)
+    # NO ponemos: query.edit_message_reply_markup(reply_markup=None)
+
 
 
 
