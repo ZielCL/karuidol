@@ -2334,7 +2334,7 @@ def mensaje_trade_id(update, context):
     else:
         update.message.reply_text("Carta seleccionada, esperando al otro usuario...")
 
-dispatcher.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, mensaje_trade_id))
+
 
 
 
@@ -4954,6 +4954,7 @@ dispatcher.add_handler(CommandHandler('comandos', comando_comandos))
 dispatcher.add_handler(CommandHandler('giveidol', comando_giveidol))
 dispatcher.add_handler(CommandHandler('setsprogreso', comando_setsprogreso))
 dispatcher.add_handler(CommandHandler('set', comando_set_detalle))
+dispatcher.add_handler(MessageHandler(filters.text & (~filters.command), mensaje_trade_id))
 dispatcher.add_handler(MessageHandler(filters.text & (~filters.command), handler_regalo_respuesta))
 dispatcher.add_handler(CommandHandler('ampliar', comando_ampliar))
 dispatcher.add_handler(CommandHandler('kponey', comando_saldo))
