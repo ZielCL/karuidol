@@ -5,7 +5,7 @@ import telegram
 from flask import Flask, request, jsonify, redirect
 from telegram.error import BadRequest, RetryAfter
 from telegram import ParseMode
-from telegram.ext import MessageHandler, Filters
+from telegram.ext import MessageHandler, filters
 from telegram import (
     Bot,
     Update,
@@ -4954,7 +4954,7 @@ dispatcher.add_handler(CommandHandler('comandos', comando_comandos))
 dispatcher.add_handler(CommandHandler('giveidol', comando_giveidol))
 dispatcher.add_handler(CommandHandler('setsprogreso', comando_setsprogreso))
 dispatcher.add_handler(CommandHandler('set', comando_set_detalle))
-dispatcher.add_handler(MessageHandler(Filters.text & (~Filters.command), handler_regalo_respuesta))
+dispatcher.add_handler(MessageHandler(filters.text & (~filters.command), handler_regalo_respuesta))
 dispatcher.add_handler(CommandHandler('ampliar', comando_ampliar))
 dispatcher.add_handler(CommandHandler('kponey', comando_saldo))
 dispatcher.add_handler(CommandHandler('darKponey', comando_darKponey))
@@ -4965,7 +4965,7 @@ dispatcher.add_handler(CommandHandler('vender', comando_vender))
 dispatcher.add_handler(CommandHandler('comprar', comando_comprar))
 dispatcher.add_handler(CommandHandler('retirar', comando_retirar))
 dispatcher.add_handler(CommandHandler('mejorar', comando_mejorar))
-dispatcher.add_handler(MessageHandler(Filters.all, borrar_mensajes_no_idolday), group=99)
+dispatcher.add_handler(MessageHandler(filters.all, borrar_mensajes_no_idolday), group=99)
 
 def verify_paypal_ipn(data):
     verify_url = "https://ipnpb.paypal.com/cgi-bin/webscr"
