@@ -3807,7 +3807,7 @@ def callback_comprarG_objeto(update, context):
     if not data.startswith("comprarG_"):
         return
     obj_id = data.replace("comprarG_", "")
-    obj = CATALOGO_OBJETOS.get(obj_id)
+    obj = CATALOGO_OBJETOSG.get(obj_id)
     if not obj or "precio_gemas" not in obj:
         query.answer("Objeto no válido o no disponible por gemas.", show_alert=True)
         return
