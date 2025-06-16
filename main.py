@@ -1400,7 +1400,7 @@ def comando_estadisticasdrops(update, context):
 
     pipeline = [
         {"$match": {"evento": "reclamado"}},
-        {"$group": {"_id": {"usuario_id": "$usuario_id", "username": "$username"}, "total": {"$sum": 1}}},
+        {"$group": {"_id": {"user_id": "$user_id", "username": "$username"}, "total": {"$sum": 1}}},
         {"$sort": {"total": -1}},
         {"$limit": 10}
     ]
@@ -1413,7 +1413,7 @@ def comando_estadisticasdrops(update, context):
         if username:
             user_text = f"@{username}"
         else:
-            user_text = f"<code>{user['usuario_id']}</code>"
+            user_text = f"<code>{user['user_id']}</code>"
         ranking_texto += f"{i}. {user_text} — {r['total']} cartas\n"
 
     texto = (
@@ -2155,7 +2155,7 @@ def manejador_callback_album(update, context):
     query = update.callback_query
     data = query.data
     partes = data.split("_")
-    usuario_id = query.from_user.id
+    user_id = query.from_user.id
 
     # ==== Siempre extrae el user_id de la posición 2 de cualquier callback_data ====
     # Ejemplo: album_pagina_123456789_2, album_filtros_123456789_1, etc.
@@ -2169,7 +2169,7 @@ def manejador_callback_album(update, context):
         dueño_id = None
 
     # ==== Bloquea SIEMPRE si no es el dueño ====
-    if dueño_id is not None and usuario_id != dueño_id:
+    if dueño_id is not None and user_id != dueño_id:
         query.answer("Solo puedes interactuar con tu propio álbum.", show_alert=True)
         return
 
