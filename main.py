@@ -15,6 +15,7 @@ from telegram import (
 )
 from telegram.ext import Dispatcher, CommandHandler, CallbackQueryHandler
 import json
+import uuid
 import urllib.parse
 import random
 from datetime import datetime, timedelta
@@ -162,10 +163,9 @@ def borrar_mensajes_no_idolday(update, context):
 
 
 
-
-
-
-
+# === VARIABLES GLOBALES DE TRADE (INTERCAMBIO DE CARTAS) ===
+TRADES_EN_CURSO = {}  # trade_id: {usuarios: [A, B], chat_id, thread_id, cartas: {A: id_unico, B: id_unico}, confirmado: {A: False, B: False}, estado}
+TRADES_POR_USUARIO = {}  # user_id: trade_id
 
 
 
@@ -2248,6 +2248,188 @@ def manejador_callback_album(update, context):
 
 
 
+@solo_en_tema_asignado("trade")
+@cooldown_critico
+def comando_trade(update, context):
+    user_id = update.message.from_user.id
+    chat_id = update.effective_chat.id
+    thread_id = getattr(update.message, "message_thread_id", None)
+
+    # Destinatario por reply o @username
+    if update.message.reply_to_message:
+        otro_id = update.message.reply_to_message.from_user.id
+    elif context.args and context.args[0].startswith("@"):
+        user_doc = col_usuarios.find_one({"username": context.args[0][1:].lower()})
+        if not user_doc:
+            update.message.reply_text("Usuario no encontrado o no ha usado el bot.")
+            return
+        otro_id = user_doc["user_id"]
+    else:
+        update.message.reply_text("Debes responder a un usuario o indicar su @username.")
+        return
+
+    if otro_id == user_id:
+        update.message.reply_text("No puedes intercambiar contigo mismo.")
+        return
+
+    if user_id in TRADES_POR_USUARIO or otro_id in TRADES_POR_USUARIO:
+        update.message.reply_text("Uno de los dos ya tiene un intercambio pendiente.")
+        return
+
+    trade_id = str(uuid.uuid4())[:8]
+    TRADES_EN_CURSO[trade_id] = {
+        "usuarios": [user_id, otro_id],
+        "chat_id": chat_id,
+        "thread_id": thread_id,
+        "id_unico": {user_id: None, otro_id: None},
+        "confirmado": {user_id: False, otro_id: False},
+        "estado": "esperando_id",
+    }
+    TRADES_POR_USUARIO[user_id] = trade_id
+    TRADES_POR_USUARIO[otro_id] = trade_id
+
+    texto = (
+        f"🤝 <b>¡Trade iniciado!</b>\n"
+        f"• <a href='tg://user?id={user_id}'>{user_id}</a>\n"
+        f"• <a href='tg://user?id={otro_id}'>{otro_id}</a>\n\n"
+        "Ambos deben ingresar el <b>id_unico</b> de la carta que ofrecen para el intercambio (escríbanlo aquí en el tema):"
+    )
+    context.bot.send_message(
+        chat_id=chat_id, text=texto, parse_mode="HTML", message_thread_id=thread_id
+    )
+
+def mensaje_trade_id(update, context):
+    user_id = update.message.from_user.id
+    chat_id = update.effective_chat.id
+    thread_id = getattr(update.message, "message_thread_id", None)
+    texto_ingresado = update.message.text.strip()
+
+    trade_id = TRADES_POR_USUARIO.get(user_id)
+    if not trade_id:
+        return
+    trade = TRADES_EN_CURSO.get(trade_id)
+    if not trade or trade["chat_id"] != chat_id or trade["thread_id"] != thread_id:
+        return
+    if user_id not in trade["usuarios"]:
+        return
+
+    if trade["estado"] != "esperando_id":
+        return
+
+    # Solo los dos usuarios pueden interactuar
+    if user_id not in trade["usuarios"]:
+        update.message.reply_text("Solo los usuarios del intercambio pueden participar.")
+        return
+
+    carta = col_cartas_usuario.find_one({"user_id": user_id, "id_unico": texto_ingresado})
+    if not carta:
+        update.message.reply_text("No tienes una carta con ese id_unico.")
+        return
+
+    trade["id_unico"][user_id] = texto_ingresado
+
+    if all(trade["id_unico"].values()):
+        trade["estado"] = "confirmacion"
+        mostrar_trade_resumen(context, trade_id)
+    else:
+        update.message.reply_text("Carta seleccionada, esperando al otro usuario...")
+
+dispatcher.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, mensaje_trade_id))
+
+
+
+def mostrar_trade_resumen(context, trade_id):
+    trade = TRADES_EN_CURSO[trade_id]
+    user_a, user_b = trade["usuarios"]
+    id_a, id_b = trade["id_unico"][user_a], trade["id_unico"][user_b]
+    carta_a = col_cartas_usuario.find_one({"user_id": user_a, "id_unico": id_a})
+    carta_b = col_cartas_usuario.find_one({"user_id": user_b, "id_unico": id_b})
+    chat_id = trade["chat_id"]
+    thread_id = trade["thread_id"]
+
+    texto = (
+        f"🔄 <b>Propuesta de Intercambio</b>\n\n"
+        f"<a href='tg://user?id={user_a}'>{user_a}</a> ofrece <b>[{carta_a['version']}] {carta_a['nombre']}</b> ({id_a})\n"
+        f"<a href='tg://user?id={user_b}'>{user_b}</a> ofrece <b>[{carta_b['version']}] {carta_b['nombre']}</b> ({id_b})\n\n"
+        "Ambos deben confirmar con el botón para completar el intercambio."
+    )
+    botones = [
+        [
+            InlineKeyboardButton("✅ Confirmar", callback_data=f"tradeconf_{trade_id}"),
+            InlineKeyboardButton("❌ Cancelar", callback_data=f"tradecancel_{trade_id}")
+        ]
+    ]
+    context.bot.send_message(
+        chat_id=chat_id, text=texto, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(botones),
+        message_thread_id=thread_id
+    )
+
+
+def callback_trade_confirm(update, context):
+    query = update.callback_query
+    data = query.data
+    partes = data.split("_")
+    trade_id = partes[1]
+    user_id = query.from_user.id
+
+    trade = TRADES_EN_CURSO.get(trade_id)
+    if not trade or trade["estado"] != "confirmacion":
+        query.answer("No hay intercambio pendiente.", show_alert=True)
+        return
+
+    # Solo los usuarios del trade pueden interactuar
+    if user_id not in trade["usuarios"]:
+        query.answer("Solo los usuarios del intercambio pueden interactuar.", show_alert=True)
+        return
+
+    if data.startswith("tradeconf_"):
+        trade["confirmado"][user_id] = True
+        query.answer("Confirmaste el trade.", show_alert=True)
+        if all(trade["confirmado"].values()):
+            a, b = trade["usuarios"]
+            id_a, id_b = trade["id_unico"][a], trade["id_unico"][b]
+            carta_a = col_cartas_usuario.find_one_and_delete({"user_id": a, "id_unico": id_a})
+            carta_b = col_cartas_usuario.find_one_and_delete({"user_id": b, "id_unico": id_b})
+            if carta_a and carta_b:
+                carta_a["user_id"] = b
+                carta_b["user_id"] = a
+                col_cartas_usuario.insert_one(carta_a)
+                col_cartas_usuario.insert_one(carta_b)
+                txt = "✅ ¡Intercambio realizado exitosamente!"
+            else:
+                txt = "❌ Error: una de las cartas ya no está disponible."
+            context.bot.send_message(
+                chat_id=trade["chat_id"], text=txt, message_thread_id=trade["thread_id"]
+            )
+            for uid in trade["usuarios"]:
+                TRADES_POR_USUARIO.pop(uid, None)
+            TRADES_EN_CURSO.pop(trade_id, None)
+    elif data.startswith("tradecancel_"):
+        context.bot.send_message(
+            chat_id=trade["chat_id"],
+            text="❌ El intercambio fue cancelado.",
+            message_thread_id=trade["thread_id"]
+        )
+        for uid in trade["usuarios"]:
+            TRADES_POR_USUARIO.pop(uid, None)
+        TRADES_EN_CURSO.pop(trade_id, None)
+        query.answer("Trade cancelado.", show_alert=True)
+
+dispatcher.add_handler(CallbackQueryHandler(callback_trade_confirm, pattern=r"^trade(conf|cancel)_"))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2322,6 +2504,11 @@ def comando_inventario(update, context):
     texto += f"\n💸 <b>Kponey:</b> <code>{kponey}</code>"
     texto += "\n\nUsa <code>/tienda</code> para comprar objetos."
     update.message.reply_text(texto, parse_mode="HTML")
+
+
+
+
+
 
 
 
