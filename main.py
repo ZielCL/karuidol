@@ -2248,9 +2248,9 @@ def manejador_callback_album(update, context):
 
 
 
-@solo_en_tema_asignado("trade")
+@solo_en_tema_asignado("tradek")
 @cooldown_critico
-def comando_trade(update, context):
+def comando_tradek(update, context):
     user_id = update.message.from_user.id
     chat_id = update.effective_chat.id
     thread_id = getattr(update.message, "message_thread_id", None)
