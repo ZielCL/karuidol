@@ -2313,6 +2313,10 @@ def comando_trk(update, context):
     )
 
 def mensaje_trade_id(update, context):
+    # --- Protección: sólo mensajes de texto ---
+    if not getattr(update, "message", None) or not getattr(update.message, "text", None):
+        return  # Ignora si no es mensaje de texto
+
     user_id = update.message.from_user.id
     chat_id = update.effective_chat.id
     thread_id = getattr(update.message, "message_thread_id", None)
@@ -2347,6 +2351,7 @@ def mensaje_trade_id(update, context):
         mostrar_trade_resumen(context, trade_id)
     else:
         update.message.reply_text("Carta seleccionada, esperando al otro usuario...")
+
 
 
 
