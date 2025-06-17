@@ -1104,6 +1104,11 @@ def comando_vertemas(update, context):
 @grupo_oficial
 @solo_en_chat_general
 def comando_idolday(update, context):
+    # 🚫 Restringe a grupos y supergrupos solamente
+    if update.effective_chat.type not in ["group", "supergroup"]:
+        update.message.reply_text("Este comando solo está disponible en el grupo oficial.")
+        return
+
     user_id = update.message.from_user.id
     chat_id = update.effective_chat.id
     thread_id = getattr(update.message, "message_thread_id", None)   # <--- thread_id aquí
@@ -1142,6 +1147,8 @@ def comando_idolday(update, context):
     cooldown_listo, bono_listo = puede_usar_idolday(user_id)
     mision_completada_hoy = False
     premio_entregado = False
+
+ 
 
     def actualiza_mision_diaria(user_id):
         user_doc = col_usuarios.find_one({"user_id": user_id}) or {}
