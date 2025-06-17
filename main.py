@@ -2283,7 +2283,7 @@ def comando_trk(update, context):
         return
 
     if otro_id == user_id:
-        update.message.reply_text("No puedes intercambiar contigo mismo.")
+        update.message.reply_text("Usa /trk @user o /trk repondiendo un mensaje.")
         return
 
     if user_id in TRADES_POR_USUARIO or otro_id in TRADES_POR_USUARIO:
