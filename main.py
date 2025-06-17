@@ -5172,6 +5172,7 @@ dispatcher.add_handler(CallbackQueryHandler(manejador_tienda_paypal, pattern=r"^
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback))
 # === HANDLERS de comandos ===
 dispatcher.add_handler(CommandHandler("start", mensaje_tutorial_privado))
+dispatcher.add_handler(CommandHandler("help", comando_help))
 dispatcher.add_handler(CommandHandler('settema', comando_settema))
 dispatcher.add_handler(CommandHandler('removetema', comando_removetema))
 dispatcher.add_handler(CommandHandler('vertemas', comando_vertemas))
