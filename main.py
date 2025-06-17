@@ -270,7 +270,7 @@ def mensaje_tutorial_privado(update, context):
                 "🔹 Puedes revisar tu álbum de cartas con <b>/album</b> (aquí solo modo lectura)\n"
                 "🔹 Usa <b>/idolday</b> y los comandos de colección en el grupo oficial para jugar, conseguir cartas, y mucho más.\n"
                 "🔹 ¡Explora las tiendas, intercambia con otros, y sigue completando tus sets de idols!\n\n"
-                "¿Tienes dudas? Pregunta en el grupo o usa /ayuda aquí mismo."
+                "¿Tienes dudas? Pregunta en el grupo o usa /help aquí mismo."
             )
         else:
             # --- Usuario nuevo ---
@@ -1008,10 +1008,10 @@ def estados_disponibles_para_carta(nombre, version):
 
 
 
-def comando_ayuda(update, context):
+def comando_help(update, context):
     if update.message.chat.type != "private":
         update.message.reply_text(
-            "Usa /ayuda en el chat privado del bot para ver la guía y la explicación de cada comando."
+            "Usa /help en el chat privado del bot para ver la guía y la explicación de cada comando."
         )
         return
 
@@ -1025,7 +1025,7 @@ def comando_ayuda(update, context):
     reply_markup = InlineKeyboardMarkup(faqs)
     context.bot.send_message(
         chat_id=update.message.chat_id,
-        text="❓ <b>Ayuda - Preguntas frecuentes</b>\nSelecciona una pregunta o pulsa <b>Comandos</b> para ver la explicación de cada uno.",
+        text="❓ <b>help - Preguntas frecuentes</b>\nSelecciona una pregunta o pulsa <b>Comandos</b> para ver la explicación de cada uno.",
         reply_markup=reply_markup,
         parse_mode="HTML"
     )
@@ -1034,7 +1034,7 @@ def comando_ayuda(update, context):
 
 
 
-def callback_ayuda(update, context):
+def callback_help(update, context):
     query = update.callback_query
     data = query.data
 
@@ -1156,7 +1156,7 @@ def callback_ayuda(update, context):
         )
     elif data == "help_volver_faq":
         query.edit_message_text(
-            "❓ <b>Ayuda - Preguntas frecuentes</b>\nSelecciona una pregunta o pulsa <b>Comandos</b> para ver la explicación de cada uno.",
+            "❓ <b>help - Preguntas frecuentes</b>\nSelecciona una pregunta o pulsa <b>Comandos</b> para ver la explicación de cada uno.",
             reply_markup=faqs_markup,
             parse_mode="HTML"
         )
@@ -5155,7 +5155,7 @@ def comando_apodo(update, context):
         parse_mode="HTML"
     )
 
-dispatcher.add_handler(CallbackQueryHandler(callback_ayuda, pattern=r"^help_"))
+dispatcher.add_handler(CallbackQueryHandler(callback_help, pattern=r"^help_"))
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback_album, pattern="^album_"))
 dispatcher.add_handler(CallbackQueryHandler(manejador_reclamar, pattern="^reclamar_"))
 dispatcher.add_handler(CallbackQueryHandler(callback_comprarobj, pattern="^comprarobj_"))
