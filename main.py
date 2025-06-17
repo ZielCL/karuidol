@@ -1083,7 +1083,7 @@ def callback_help(update, context):
             [InlineKeyboardButton("💰 /vender", callback_data="help_vender")],
             [InlineKeyboardButton("🛒 /comprar", callback_data="help_comprar")],
             [InlineKeyboardButton("🎴 /retirar", callback_data="help_retirar")],
-            [InlineKeyboardButton("💵 /kkp", callback_data="help_kkp")],
+            [InlineKeyboardButton("⌛ /kkp", callback_data="help_kkp")],
             [InlineKeyboardButton("💸 /precio", callback_data="help_precio")],
             [InlineKeyboardButton("⬅️ Volver", callback_data="help_volver_faq")]
         ]
