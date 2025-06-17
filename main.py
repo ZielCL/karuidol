@@ -218,21 +218,27 @@ def solo_en_tema_asignado(comando):
         def wrapper(update, context, *args, **kwargs):
             chat_id = update.effective_chat.id if update.effective_chat else None
 
-            # Busca el thread_id permitido en Mongo
+            # Busca el/los thread_id permitidos en Mongo
             tema_asignado = col_temas_comandos.find_one({"chat_id": chat_id, "comando": comando})
-            thread_id_permitido = str(tema_asignado["thread_id"]) if tema_asignado else None
+            # Soporta tanto "thread_ids" (lista) como "thread_id" (legacy)
+            threads_permitidos = set()
+            if tema_asignado:
+                if "thread_ids" in tema_asignado:
+                    threads_permitidos = set(str(tid) for tid in tema_asignado["thread_ids"])
+                elif "thread_id" in tema_asignado:
+                    threads_permitidos = {str(tema_asignado["thread_id"])}
+            else:
+                threads_permitidos = set()
 
             # Detecta thread actual según si es comando o callback
             thread_id_actual = None
-            # Mensaje normal
             if getattr(update, 'message', None):
                 thread_id_actual = str(getattr(update.message, "message_thread_id", None))
-            # Callback (botón)
             elif getattr(update, 'callback_query', None):
                 thread_id_actual = str(getattr(update.callback_query.message, "message_thread_id", None))
 
-            # Si thread no coincide, elimina mensaje o alerta
-            if thread_id_actual != thread_id_permitido:
+            # Si thread_id_actual NO está entre los permitidos, bloquea
+            if thread_id_actual not in threads_permitidos:
                 try:
                     if getattr(update, 'message', None):
                         update.message.delete()
@@ -249,6 +255,7 @@ def solo_en_tema_asignado(comando):
             return func(update, context, *args, **kwargs)
         return wrapper
     return decorator
+
 
 
 
@@ -974,24 +981,36 @@ def comando_settema(update, context):
         update.message.reply_text("Solo un administrador puede configurar esto.")
         return
 
-    if len(context.args) != 2:
-        update.message.reply_text("Uso: /settema <thread_id> <comando>\nEjemplo: /settema 12345 setsprogreso")
+    if len(context.args) < 2:
+        update.message.reply_text(
+            "Uso: /settema <thread_id(s)> <comando>\nEjemplo: /settema 12345 54321 setsprogreso\n"
+            "Puedes ingresar uno o más thread_id separados por espacio.",
+            parse_mode='HTML'
+        )
         return
 
-    thread_id, comando = context.args
-    if not thread_id.isdigit():
-        update.message.reply_text("El thread_id debe ser numérico.")
+    *thread_ids, comando = context.args
+    try:
+        thread_ids = [int(tid) for tid in thread_ids]
+    except Exception:
+        update.message.reply_text("Todos los thread_id deben ser numéricos.")
         return
 
+    entry = col_temas_comandos.find_one({"chat_id": chat_id, "comando": comando})
+    nuevos = set(thread_ids)
+    if entry:
+        existentes = set(entry.get("thread_ids", []))
+        nuevos = existentes | nuevos
     col_temas_comandos.update_one(
         {"chat_id": chat_id, "comando": comando},
-        {"$set": {"thread_id": int(thread_id)}},
+        {"$set": {"thread_ids": list(nuevos)}},
         upsert=True
     )
     update.message.reply_text(
-        f"✅ El comando <b>/{comando}</b> solo funcionará en el tema correspondiente <code>{thread_id}</code>.",
+        f"✅ El comando <b>/{comando}</b> funcionará en los temas: <code>{', '.join(str(t) for t in nuevos)}</code>",
         parse_mode='HTML'
     )
+
 
 
 
@@ -2425,15 +2444,6 @@ dispatcher.add_handler(CallbackQueryHandler(callback_trade_confirm, pattern=r"^t
 
 
 
-
-
-
-
-
-
-
-
-
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 @solo_en_tema_asignado("mejorar")
@@ -3266,7 +3276,7 @@ def comando_ampliar(update, context):
         carta = col_mercado.find_one({"id_unico": id_unico})
         fuente = "mercado"
     if not carta:
-        update.message.reply_text("No encontré esa carta en tu álbum ni en el mercado.")
+        update.message.reply_text("No tienes esta carta.")
         return
 
     # Traer datos principales
