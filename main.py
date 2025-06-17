@@ -1008,6 +1008,183 @@ def estados_disponibles_para_carta(nombre, version):
 
 
 
+def comando_ayuda(update, context):
+    if update.message.chat.type != "private":
+        update.message.reply_text(
+            "Usa /ayuda en el chat privado del bot para ver la guía y la explicación de cada comando."
+        )
+        return
+
+    faqs = [
+        [InlineKeyboardButton("¿Qué uso se le da al dinero Kponey?", callback_data="help_faq_kponey")],
+        [InlineKeyboardButton("¿Para qué sirven las gemas?", callback_data="help_faq_gemas")],
+        [InlineKeyboardButton("¿Qué sucede si completo un set?", callback_data="help_faq_set")],
+        [InlineKeyboardButton("¿Qué sucede si completo una misión diaria?", callback_data="help_faq_mision")],
+        [InlineKeyboardButton("📋 Comandos", callback_data="help_comandos")]
+    ]
+    reply_markup = InlineKeyboardMarkup(faqs)
+    context.bot.send_message(
+        chat_id=update.message.chat_id,
+        text="❓ <b>Ayuda - Preguntas frecuentes</b>\nSelecciona una pregunta o pulsa <b>Comandos</b> para ver la explicación de cada uno.",
+        reply_markup=reply_markup,
+        parse_mode="HTML"
+    )
+
+
+
+
+
+def callback_ayuda(update, context):
+    query = update.callback_query
+    data = query.data
+
+    # Mensajes FAQ
+    textos_faq = {
+        "help_faq_kponey": (
+            "💵 <b>¿Qué uso se le da al dinero Kponey?</b>\n"
+            "El Kponey es la moneda principal del bot. Sirve para comprar objetos en la tienda y realizar mejoras."
+        ),
+        "help_faq_gemas": (
+            "💎 <b>¿Para qué sirven las gemas?</b>\n"
+            "Las gemas son una moneda premium que permite comprar objetos exclusivos o acelerar el progreso."
+        ),
+        "help_faq_set": (
+            "📚 <b>¿Qué sucede si completo un set?</b>\n"
+            "Completar un set suele otorgar recompensas especiales, logros o premios en el bot."
+        ),
+        "help_faq_mision": (
+            "🎯 <b>¿Qué sucede si completo una misión diaria?</b>\n"
+            "Ganas premios adicionales como gemas, Kponey u objetos especiales."
+        )
+    }
+
+    # Botones FAQ + Comandos
+    faqs = [
+        [InlineKeyboardButton("¿Qué uso se le da al dinero Kponey?", callback_data="help_faq_kponey")],
+        [InlineKeyboardButton("¿Para qué sirven las gemas?", callback_data="help_faq_gemas")],
+        [InlineKeyboardButton("¿Qué sucede si completo un set?", callback_data="help_faq_set")],
+        [InlineKeyboardButton("¿Qué sucede si completo una misión diaria?", callback_data="help_faq_mision")],
+        [InlineKeyboardButton("📋 Comandos", callback_data="help_comandos")]
+    ]
+    faqs_markup = InlineKeyboardMarkup(faqs)
+
+    # Menú comandos
+    comandos = [
+        [InlineKeyboardButton("🌸 /idolday", callback_data="help_idolday")],
+        [InlineKeyboardButton("📗 /album", callback_data="help_album")],
+        [InlineKeyboardButton("🔎 /ampliar", callback_data="help_ampliar")],
+        [InlineKeyboardButton("🎒 /inventario", callback_data="help_inventario")],
+        [InlineKeyboardButton("⭐ /fav", callback_data="help_fav")],
+        [InlineKeyboardButton("🌟 /favoritos", callback_data="help_favoritos")],
+        [InlineKeyboardButton("📚 /set", callback_data="help_set")],
+        [InlineKeyboardButton("📈 /setsprogreso", callback_data="help_setsprogreso")],
+        [InlineKeyboardButton("🤝 /trk", callback_data="help_trk")],
+        [InlineKeyboardButton("💰 /vender", callback_data="help_vender")],
+        [InlineKeyboardButton("🛒 /comprar", callback_data="help_comprar")],
+        [InlineKeyboardButton("🏦 /retirar", callback_data="help_retirar")],
+        [InlineKeyboardButton("💵 /kkp", callback_data="help_kkp")],
+        [InlineKeyboardButton("💸 /precio", callback_data="help_precio")],
+        [InlineKeyboardButton("⬅️ Volver", callback_data="help_volver_faq")]
+    ]
+    comandos_markup = InlineKeyboardMarkup(comandos)
+
+    textos_comandos = {
+        "help_idolday": (
+            "🌸 <b>/idolday</b>\n"
+            "Dropea cartas de idols en el grupo (en el tema correspondiente). Usa este comando para conseguir cartas nuevas cada día. ¡Solo puedes usarlo una vez cada 6 horas!"
+        ),
+        "help_album": (
+            "📗 <b>/album</b>\n"
+            "Muestra tu colección de cartas. Usa los botones para filtrar, ordenar o ver tus cartas por grupo o estrellas."
+        ),
+        "help_ampliar": (
+            "🔎 <b>/ampliar &lt;id_unico&gt;</b>\n"
+            "Muestra los detalles de una carta específica de tu álbum, usando el <code>id_unico</code> que aparece junto a cada carta."
+        ),
+        "help_inventario": (
+            "🎒 <b>/inventario</b>\n"
+            "Muestra tus objetos y consumibles (bonos, tickets, etc)."
+        ),
+        "help_fav": (
+            "⭐ <b>/fav &lt;grupo&gt; [Vn] Nombre</b>\n"
+            "Agrega o quita una carta de tu lista de favoritas. Ejemplo: <code>/fav Twice [V1] Dahyun</code>"
+        ),
+        "help_favoritos": (
+            "🌟 <b>/favoritos</b>\n"
+            "Muestra la lista de tus cartas favoritas actuales."
+        ),
+        "help_set": (
+            "📚 <b>/set &lt;grupo/set&gt;</b>\n"
+            "Muestra tu progreso y las cartas de un grupo o set específico. Ejemplo: <code>/set Twice</code>"
+        ),
+        "help_setsprogreso": (
+            "📈 <b>/setsprogreso</b>\n"
+            "Muestra el avance en todos tus sets/grupos: cuántas cartas tienes de cada uno, y cuáles te faltan."
+        ),
+        "help_trk": (
+            "🤝 <b>/trk @usuario</b>\n"
+            "Inicia un intercambio de cartas con otro usuario. Ambos deben ingresar el <code>id_unico</code> de la carta a intercambiar, y confirmar con los botones."
+        ),
+        "help_vender": (
+            "💰 <b>/vender &lt;id_unico&gt;</b>\n"
+            "Vende una carta específica usando su <code>id_unico</code> para obtener Kponey (dinero del juego)."
+        ),
+        "help_comprar": (
+            "🛒 <b>/comprar &lt;id_objeto&gt;</b>\n"
+            "Compra objetos de la tienda (Kponey). Usa <code>/tienda</code> para ver la lista de objetos disponibles."
+        ),
+        "help_retirar": (
+            "🏦 <b>/retirar</b>\n"
+            "Retira el dinero ganado en el bot a tu cuenta si está disponible esa opción."
+        ),
+        "help_kkp": (
+            "💵 <b>/kkp</b>\n"
+            "Muestra tu saldo actual de Kponey."
+        ),
+        "help_precio": (
+            "💸 <b>/precio &lt;id_unico&gt;</b>\n"
+            "Consulta el valor de una carta según su estado, grupo y rareza."
+        ),
+    }
+
+    # Manejador del menú principal
+    if data == "help_comandos":
+        query.edit_message_text(
+            "📋 <b>Comandos disponibles:</b>\nSelecciona uno para ver su explicación.",
+            reply_markup=comandos_markup,
+            parse_mode="HTML"
+        )
+    elif data == "help_volver_faq":
+        query.edit_message_text(
+            "❓ <b>Ayuda - Preguntas frecuentes</b>\nSelecciona una pregunta o pulsa <b>Comandos</b> para ver la explicación de cada uno.",
+            reply_markup=faqs_markup,
+            parse_mode="HTML"
+        )
+    elif data in textos_faq:
+        query.edit_message_text(
+            textos_faq[data],
+            reply_markup=faqs_markup,
+            parse_mode="HTML"
+        )
+    elif data in textos_comandos:
+        query.edit_message_text(
+            textos_comandos[data],
+            reply_markup=comandos_markup,
+            parse_mode="HTML"
+        )
+    else:
+        query.answer("Comando no reconocido.")
+
+
+
+
+
+
+
+
+
+
+
 
 @grupo_oficial
 def comando_settema(update, context):
@@ -4978,7 +5155,7 @@ def comando_apodo(update, context):
         parse_mode="HTML"
     )
 
-
+dispatcher.add_handler(CallbackQueryHandler(callback_ayuda, pattern=r"^help_"))
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback_album, pattern="^album_"))
 dispatcher.add_handler(CallbackQueryHandler(manejador_reclamar, pattern="^reclamar_"))
 dispatcher.add_handler(CallbackQueryHandler(callback_comprarobj, pattern="^comprarobj_"))
