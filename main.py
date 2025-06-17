@@ -1043,10 +1043,14 @@ def comando_vertemas(update, context):
         return
     texto = "<b>Restricciones de comandos por tema:</b>\n\n"
     for d in docs:
-        texto += f"/{d['comando']}: <code>{d['thread_id']}</code>\n"
+        if "thread_ids" in d:
+            threads = ", ".join(f"<code>{tid}</code>" for tid in d["thread_ids"])
+        elif "thread_id" in d:
+            threads = f"<code>{d['thread_id']}</code>"
+        else:
+            threads = "<i>No asignado</i>"
+        texto += f"/{d['comando']}: {threads}\n"
     update.message.reply_text(texto, parse_mode='HTML')
-
-
 
 
 
