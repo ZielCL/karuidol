@@ -1035,145 +1035,161 @@ def comando_help(update, context):
 
 
 def callback_help(update, context):
-    query = update.callback_query
-    data = query.data
+    try:
+        query = update.callback_query
+        data = query.data
 
-    # Mensajes FAQ
-    textos_faq = {
-        "help_faq_kponey": (
-            "💵 <b>¿Qué uso se le da al dinero Kponey?</b>\n"
-            "El Kponey es la moneda principal del bot. Sirve para comprar objetos en la tienda y realizar mejoras."
-        ),
-        "help_faq_gemas": (
-            "💎 <b>¿Para qué sirven las gemas?</b>\n"
-            "Las gemas son una moneda premium que permite comprar objetos exclusivos o acelerar el progreso."
-        ),
-        "help_faq_set": (
-            "📚 <b>¿Qué sucede si completo un set?</b>\n"
-            "Completar un set suele otorgar recompensas especiales, logros o premios en el bot."
-        ),
-        "help_faq_mision": (
-            "🎯 <b>¿Qué sucede si completo una misión diaria?</b>\n"
-            "Ganas premios adicionales como gemas, Kponey u objetos especiales."
-        )
-    }
+        # Mensajes FAQ
+        textos_faq = {
+            "help_faq_kponey": (
+                "💵 <b>¿Qué uso se le da al dinero Kponey?</b>\n"
+                "El Kponey es la moneda principal del bot. Sirve para comprar objetos en la tienda y comprar cartas del /mercado."
+            ),
+            "help_faq_gemas": (
+                "💎 <b>¿Para qué sirven las gemas?</b>\n"
+                "Las gemas son una moneda premium que permite comprar objetos o acelerar el progreso de recolección de cartas."
+            ),
+            "help_faq_set": (
+                "📚 <b>¿Qué sucede si completo un set?</b>\n"
+                "Completar un set otorga recompensas en forma de dinero del bot Kponey$, cada idol de un grupo equivale a 500 Kponey, entonces si completas por ejemplo el set de VIVIZ ganarias 1500 Kponey."
+            ),
+            "help_faq_mision": (
+                "🎯 <b>¿Qué sucede si completo una misión diaria?</b>\n"
+                "Ganas premios adicionales como gemas, Kponey u objetos especiales."
+            )
+        }
 
-    # Botones FAQ + Comandos
-    faqs = [
-        [InlineKeyboardButton("¿Qué uso se le da al dinero Kponey?", callback_data="help_faq_kponey")],
-        [InlineKeyboardButton("¿Para qué sirven las gemas?", callback_data="help_faq_gemas")],
-        [InlineKeyboardButton("¿Qué sucede si completo un set?", callback_data="help_faq_set")],
-        [InlineKeyboardButton("¿Qué sucede si completo una misión diaria?", callback_data="help_faq_mision")],
-        [InlineKeyboardButton("📋 Comandos", callback_data="help_comandos")]
-    ]
-    faqs_markup = InlineKeyboardMarkup(faqs)
+        # Botones FAQ + Comandos
+        faqs = [
+            [InlineKeyboardButton("¿Qué uso se le da al dinero Kponey en Karukpop?", callback_data="help_faq_kponey")],
+            [InlineKeyboardButton("¿Para qué sirven las gemas en Karukpop?", callback_data="help_faq_gemas")],
+            [InlineKeyboardButton("¿Qué sucede si completo un set de cartas?", callback_data="help_faq_set")],
+            [InlineKeyboardButton("¿Qué sucede si completo una misión diaria?", callback_data="help_faq_mision")],
+            [InlineKeyboardButton("📋 Comandos", callback_data="help_comandos")]
+        ]
+        faqs_markup = InlineKeyboardMarkup(faqs)
 
-    # Menú comandos
-    comandos = [
-        [InlineKeyboardButton("🌸 /idolday", callback_data="help_idolday")],
-        [InlineKeyboardButton("📗 /album", callback_data="help_album")],
-        [InlineKeyboardButton("🔎 /ampliar", callback_data="help_ampliar")],
-        [InlineKeyboardButton("🎒 /inventario", callback_data="help_inventario")],
-        [InlineKeyboardButton("⭐ /fav", callback_data="help_fav")],
-        [InlineKeyboardButton("🌟 /favoritos", callback_data="help_favoritos")],
-        [InlineKeyboardButton("📚 /set", callback_data="help_set")],
-        [InlineKeyboardButton("📈 /setsprogreso", callback_data="help_setsprogreso")],
-        [InlineKeyboardButton("🤝 /trk", callback_data="help_trk")],
-        [InlineKeyboardButton("💰 /vender", callback_data="help_vender")],
-        [InlineKeyboardButton("🛒 /comprar", callback_data="help_comprar")],
-        [InlineKeyboardButton("🏦 /retirar", callback_data="help_retirar")],
-        [InlineKeyboardButton("💵 /kkp", callback_data="help_kkp")],
-        [InlineKeyboardButton("💸 /precio", callback_data="help_precio")],
-        [InlineKeyboardButton("⬅️ Volver", callback_data="help_volver_faq")]
-    ]
-    comandos_markup = InlineKeyboardMarkup(comandos)
+        # Menú comandos
+        comandos = [
+            [InlineKeyboardButton("🌸 /idolday", callback_data="help_idolday")],
+            [InlineKeyboardButton("📗 /album", callback_data="help_album")],
+            [InlineKeyboardButton("🔎 /ampliar", callback_data="help_ampliar")],
+            [InlineKeyboardButton("🎒 /inventario", callback_data="help_inventario")],
+            [InlineKeyboardButton("⭐ /fav", callback_data="help_fav")],
+            [InlineKeyboardButton("🌟 /favoritos", callback_data="help_favoritos")],
+            [InlineKeyboardButton("📚 /set", callback_data="help_set")],
+            [InlineKeyboardButton("📈 /setsprogreso", callback_data="help_setsprogreso")],
+            [InlineKeyboardButton("🤝 /trk", callback_data="help_trk")],
+            [InlineKeyboardButton("💰 /vender", callback_data="help_vender")],
+            [InlineKeyboardButton("🛒 /comprar", callback_data="help_comprar")],
+            [InlineKeyboardButton("🎴 /retirar", callback_data="help_retirar")],
+            [InlineKeyboardButton("💵 /kkp", callback_data="help_kkp")],
+            [InlineKeyboardButton("💸 /precio", callback_data="help_precio")],
+            [InlineKeyboardButton("⬅️ Volver", callback_data="help_volver_faq")]
+        ]
+        comandos_markup = InlineKeyboardMarkup(comandos)
 
-    textos_comandos = {
-        "help_idolday": (
-            "🌸 <b>/idolday</b>\n"
-            "Dropea cartas de idols en el grupo (en el tema correspondiente). Usa este comando para conseguir cartas nuevas cada día. ¡Solo puedes usarlo una vez cada 6 horas!"
-        ),
-        "help_album": (
-            "📗 <b>/album</b>\n"
-            "Muestra tu colección de cartas. Usa los botones para filtrar, ordenar o ver tus cartas por grupo o estrellas."
-        ),
-        "help_ampliar": (
-            "🔎 <b>/ampliar &lt;id_unico&gt;</b>\n"
-            "Muestra los detalles de una carta específica de tu álbum, usando el <code>id_unico</code> que aparece junto a cada carta."
-        ),
-        "help_inventario": (
-            "🎒 <b>/inventario</b>\n"
-            "Muestra tus objetos y consumibles (bonos, tickets, etc)."
-        ),
-        "help_fav": (
-            "⭐ <b>/fav &lt;grupo&gt; [Vn] Nombre</b>\n"
-            "Agrega o quita una carta de tu lista de favoritas. Ejemplo: <code>/fav Twice [V1] Dahyun</code>"
-        ),
-        "help_favoritos": (
-            "🌟 <b>/favoritos</b>\n"
-            "Muestra la lista de tus cartas favoritas actuales."
-        ),
-        "help_set": (
-            "📚 <b>/set &lt;grupo/set&gt;</b>\n"
-            "Muestra tu progreso y las cartas de un grupo o set específico. Ejemplo: <code>/set Twice</code>"
-        ),
-        "help_setsprogreso": (
-            "📈 <b>/setsprogreso</b>\n"
-            "Muestra el avance en todos tus sets/grupos: cuántas cartas tienes de cada uno, y cuáles te faltan."
-        ),
-        "help_trk": (
-            "🤝 <b>/trk @usuario</b>\n"
-            "Inicia un intercambio de cartas con otro usuario. Ambos deben ingresar el <code>id_unico</code> de la carta a intercambiar, y confirmar con los botones."
-        ),
-        "help_vender": (
-            "💰 <b>/vender &lt;id_unico&gt;</b>\n"
-            "Vende una carta específica usando su <code>id_unico</code> para obtener Kponey (dinero del juego)."
-        ),
-        "help_comprar": (
-            "🛒 <b>/comprar &lt;id_objeto&gt;</b>\n"
-            "Compra objetos de la tienda (Kponey). Usa <code>/tienda</code> para ver la lista de objetos disponibles."
-        ),
-        "help_retirar": (
-            "🏦 <b>/retirar</b>\n"
-            "Retira el dinero ganado en el bot a tu cuenta si está disponible esa opción."
-        ),
-        "help_kkp": (
-            "💵 <b>/kkp</b>\n"
-            "Muestra tu saldo actual de Kponey."
-        ),
-        "help_precio": (
-            "💸 <b>/precio &lt;id_unico&gt;</b>\n"
-            "Consulta el valor de una carta según su estado, grupo y rareza."
-        ),
-    }
+        textos_comandos = {
+            "help_idolday": (
+                "🌸 <b>/idolday</b>\n"
+                "Dropea cartas de idols en el grupo (en el tema correspondiente). Usa este comando para conseguir cartas nuevas cada día. ¡Solo puedes usarlo una vez cada 6 horas!"
+            ),
+            "help_album": (
+                "📗 <b>/album</b>\n"
+                "Muestra tu colección de cartas. Usa los botones para filtrar, ordenar o ver tus cartas por grupo o estrellas."
+            ),
+            "help_ampliar": (
+                "🔎 <b>/ampliar &lt;id_unico&gt;</b>\n"
+                "Muestra los detalles de una carta específica de tu álbum y también desde este apartado puedes añadirla al mercado directamente, debes usar el <code>id_unico</code> que aparece junto a cada carta."
+            ),
+            "help_inventario": (
+                "🎒 <b>/inventario</b>\n"
+                "Muestra tus objetos y consumibles (bonos, tickets, gemas, etc)."
+            ),
+            "help_fav": (
+                "⭐ <b>/fav &lt;grupo&gt; [Vn] Nombre</b>\n"
+                "Agrega o quita una carta de tu lista de favoritas. Ejemplo: <code>/fav Twice [V1] Dahyun</code>, esto hace que cada vez que alguien reclame tu carta favorita te avise directamente"
+            ),
+            "help_favoritos": (
+                "🌟 <b>/favoritos</b>\n"
+                "Muestra la lista de tus cartas favoritas actuales."
+            ),
+            "help_set": (
+                "📚 <b>/set &lt;grupo/set&gt;</b>\n"
+                "Muestra tu progreso y las cartas de un grupo o set específico. Ejemplo: <code>/set Twice</code>"
+            ),
+            "help_setsprogreso": (
+                "📈 <b>/setsprogreso</b>\n"
+                "Muestra el avance en todos tus sets/grupos: cuántas cartas tienes de cada uno, y cuáles te faltan."
+            ),
+            "help_trk": (
+                "🤝 <b>/trk @usuario</b>\n"
+                "Inicia un intercambio de cartas con otro usuario. una vez usado el comando ambos deben ingresar el <code>id_unico</code> de la carta a intercambiar, y luego ambos deben confirmar con los botones."
+            ),
+            "help_vender": (
+                "💰 <b>/vender &lt;id_unico&gt;</b>\n"
+                "Añade al mercado una carta específica usando su <code>id_unico</code> para obtener Kponey (dinero del juego)."
+            ),
+            "help_comprar": (
+                "🛒 <b>/comprar &lt;id_carta&gt;</b>\n"
+                "Compra una carta disponible en el mercado (Kponey). Usa <code>/mercado</code> para ver la lista de cartas disponibles."
+            ),
+            "help_retirar": (
+                "🎴 <b>/retirar &lt;id_carta&gt;</b>\n"
+                "Retira una carta que tengas en venta en el mercado."
+            ),
+            "help_kkp": (
+                "⌛ <b>/kkp</b>\n"
+                "Es un recordatorio de KaruKpop, donde podrás ver cuánto falta para usar /idolday, el progreso de tus misiones diarias y el tiempo restante para completar estas misiones."
+            ),
+            "help_precio": (
+                "💸 <b>/precio &lt;id_unico&gt;</b>\n"
+                "Consulta el valor de una carta según su estado, grupo y rareza."
+            ),
+        }
 
-    # Manejador del menú principal
-    if data == "help_comandos":
-        query.edit_message_text(
-            "📋 <b>Comandos disponibles:</b>\nSelecciona uno para ver su explicación.",
-            reply_markup=comandos_markup,
-            parse_mode="HTML"
-        )
-    elif data == "help_volver_faq":
-        query.edit_message_text(
-            "❓ <b>help - Preguntas frecuentes</b>\nSelecciona una pregunta o pulsa <b>Comandos</b> para ver la explicación de cada uno.",
-            reply_markup=faqs_markup,
-            parse_mode="HTML"
-        )
-    elif data in textos_faq:
-        query.edit_message_text(
-            textos_faq[data],
-            reply_markup=faqs_markup,
-            parse_mode="HTML"
-        )
-    elif data in textos_comandos:
-        query.edit_message_text(
-            textos_comandos[data],
-            reply_markup=comandos_markup,
-            parse_mode="HTML"
-        )
-    else:
-        query.answer("Comando no reconocido.")
+        # Manejador del menú principal
+        try:
+            if data == "help_comandos":
+                query.edit_message_text(
+                    "📋 <b>Comandos disponibles:</b>\nSelecciona uno para ver su explicación.",
+                    reply_markup=comandos_markup,
+                    parse_mode="HTML"
+                )
+            elif data == "help_volver_faq":
+                query.edit_message_text(
+                    "❓ <b>help - Preguntas frecuentes</b>\nSelecciona una pregunta o pulsa <b>Comandos</b> para ver la explicación de cada uno.",
+                    reply_markup=faqs_markup,
+                    parse_mode="HTML"
+                )
+            elif data in textos_faq:
+                query.edit_message_text(
+                    textos_faq[data],
+                    reply_markup=faqs_markup,
+                    parse_mode="HTML"
+                )
+            elif data in textos_comandos:
+                query.edit_message_text(
+                    textos_comandos[data],
+                    reply_markup=comandos_markup,
+                    parse_mode="HTML"
+                )
+            else:
+                query.answer("Comando no reconocido.")
+        except Exception as e:
+            print(f"[callback_help] Error al editar mensaje: {e}")
+            try:
+                query.answer("Error al mostrar el mensaje. Intenta de nuevo.", show_alert=True)
+            except Exception:
+                pass
+
+    except Exception as e:
+        print(f"[callback_help] Error inesperado: {e}")
+        try:
+            update.effective_message.reply_text("Ocurrió un error inesperado. Por favor, intenta de nuevo más tarde.")
+        except Exception:
+            pass
+
 
 
 
