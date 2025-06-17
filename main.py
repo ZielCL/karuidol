@@ -217,44 +217,34 @@ def solo_en_tema_asignado(comando):
         @wraps(func)
         def wrapper(update, context, *args, **kwargs):
             chat_id = update.effective_chat.id if update.effective_chat else None
-
-            # Busca el/los thread_id permitidos en Mongo
             tema_asignado = col_temas_comandos.find_one({"chat_id": chat_id, "comando": comando})
-            # Soporta tanto "thread_ids" (lista) como "thread_id" (legacy)
             threads_permitidos = set()
             if tema_asignado:
                 if "thread_ids" in tema_asignado:
-                    threads_permitidos = set(str(tid) for tid in tema_asignado["thread_ids"])
+                    threads_permitidos = {str(tid) for tid in tema_asignado["thread_ids"]}
                 elif "thread_id" in tema_asignado:
                     threads_permitidos = {str(tema_asignado["thread_id"])}
-            else:
-                threads_permitidos = set()
-
-            # Detecta thread actual según si es comando o callback
             thread_id_actual = None
             if getattr(update, 'message', None):
                 thread_id_actual = str(getattr(update.message, "message_thread_id", None))
             elif getattr(update, 'callback_query', None):
                 thread_id_actual = str(getattr(update.callback_query.message, "message_thread_id", None))
-
-            # Si thread_id_actual NO está entre los permitidos, bloquea
             if thread_id_actual not in threads_permitidos:
                 try:
                     if getattr(update, 'message', None):
                         update.message.delete()
                     elif getattr(update, 'callback_query', None):
                         update.callback_query.answer(
-                            "❌ Solo disponible en el tema asignado.", show_alert=True
+                            "❌ Solo disponible en los temas asignados.", show_alert=True
                         )
-                        # Opcional: borra el mensaje del botón fuera de thread
                         # update.callback_query.message.delete()
                 except Exception:
                     pass
-                return  # No sigue
-            # Si todo OK
+                return
             return func(update, context, *args, **kwargs)
         return wrapper
     return decorator
+
 
 
 
@@ -1049,8 +1039,9 @@ def comando_vertemas(update, context):
             threads = f"<code>{d['thread_id']}</code>"
         else:
             threads = "<i>No asignado</i>"
-        texto += f"/{d['comando']}: {threads}\n"
+        texto += f"<b>/{d['comando']}</b>: {threads}\n"
     update.message.reply_text(texto, parse_mode='HTML')
+
 
 
 
