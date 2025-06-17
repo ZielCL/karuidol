@@ -2248,9 +2248,9 @@ def manejador_callback_album(update, context):
 
 
 
-@solo_en_tema_asignado("trk")
+@solo_en_tema_asignado("trade")
 @cooldown_critico
-def comando_trk(update, context):
+def comando_trade(update, context):
     user_id = update.message.from_user.id
     chat_id = update.effective_chat.id
     thread_id = getattr(update.message, "message_thread_id", None)
@@ -4951,6 +4951,7 @@ dispatcher.add_handler(CommandHandler('album', comando_album))
 dispatcher.add_handler(CommandHandler('miid', comando_miid))
 dispatcher.add_handler(CommandHandler('bonoidolday', comando_bonoidolday))
 dispatcher.add_handler(CommandHandler('comandos', comando_comandos))
+dispatcher.add_handler(CommandHandler('trade', comando_trade))
 dispatcher.add_handler(CommandHandler('giveidol', comando_giveidol))
 dispatcher.add_handler(CommandHandler('setsprogreso', comando_setsprogreso))
 dispatcher.add_handler(CommandHandler('set', comando_set_detalle))
