@@ -255,8 +255,6 @@ def mensaje_tutorial_privado(update, context):
     try:
         user_id = update.message.from_user.id
         chat_id = update.message.chat_id
-
-        # Solo responde si el chat es privado
         if update.message.chat.type != "private":
             return
 
@@ -266,7 +264,6 @@ def mensaje_tutorial_privado(update, context):
 
         if is_es:
             if doc:
-                # --- Usuario antiguo (español) ---
                 texto = (
                     "👋 <b>¡Hola de nuevo, coleccionista!</b>\n\n"
                     "Recuerda que este bot funciona principalmente en el <a href='https://t.me/karukpop'>grupo oficial</a>.\n\n"
@@ -276,7 +273,6 @@ def mensaje_tutorial_privado(update, context):
                     "¿Tienes dudas? Pregunta en el grupo o usa /help aquí mismo."
                 )
             else:
-                # --- Usuario nuevo (español) ---
                 texto = (
                     "👋 <b>¡Bienvenido a KaruKpop Bot!</b>\n\n"
                     "Este bot funciona principalmente en el <a href='https://t.me/karukpop'>grupo oficial</a>.\n\n"
@@ -284,58 +280,49 @@ def mensaje_tutorial_privado(update, context):
                     "🔹 Colecciona cartas de idols con <b>/idolday</b> (solo en el grupo)\n"
                     "🔹 Intercambia cartas usando <b>/trk</b>\n"
                     "🔹 Revisa tu álbum con <b>/album</b>\n"
-                    "🔹 Compra objetos en <b>la tienda</b> con Kponey o gemas\n"
-                    "🔹 Agrega cartas a tu lista de favoritos con <b>/fav</b> y revisa tu progreso con <b>/setsprogreso</b>\n\n"
+                    "🔹 Compra objetos en <b>los temas con la tienda disponible con dinero Kponey</b> o <b>compra gemas para que todo sea más fácil</b>\n"
+                    "🔹 Agrega cartas a tu lista de favoritos con <b>/fav</b> y revisa el progreso de tu colección con <b>/setsprogreso</b>\n\n"
                     "<b>¿Cómo empiezo?</b>\n"
                     "1️⃣ Únete al grupo oficial\n"
                     "2️⃣ Usa /idolday en el tema de cartas para conseguir cartas\n"
                     "3️⃣ ¡Colecciona, intercambia, y sé el mejor coleccionista!\n\n"
-                    "<i>¡Haz clic en el botón para unirte y explora!</i>"
+                    "<i>¡Haz clic en los botones y explora!</i>"
                 )
-            boton_texto = "🟢 Unirse al grupo oficial"
         else:
             if doc:
-                # --- Returning user (English) ---
                 texto = (
                     "👋 <b>Welcome back, collector!</b>\n\n"
                     "Remember, this bot works mainly in the <a href='https://t.me/karukpop'>official group</a>.\n\n"
-                    "🔹 You can review your card album with <b>/album</b> (read-only here)\n"
-                    "🔹 Use <b>/idolday</b> and collection commands in the group to play, get cards, and more.\n"
-                    "🔹 Explore the shop, trade with others, and keep completing your idol sets!\n\n"
-                    "Questions? Ask in the group or use /help here."
+                    "🔹 You can view your card album with <b>/album</b> (read-only here)\n"
+                    "🔹 Use <b>/idolday</b> and all collection commands in the official group to play, get new cards, and more.\n"
+                    "🔹 Explore shops, trade with others, and keep completing your idol sets!\n\n"
+                    "Any questions? Ask in the group or use /help here."
                 )
             else:
-                # --- New user (English) ---
                 texto = (
                     "👋 <b>Welcome to KaruKpop Bot!</b>\n\n"
                     "This bot works mainly in the <a href='https://t.me/karukpop'>official group</a>.\n\n"
                     "<b>What can you do here?</b>\n"
-                    "🔹 Collect idol cards with <b>/idolday</b> (only in the group)\n"
+                    "🔹 Collect idol cards using <b>/idolday</b> (group only)\n"
                     "🔹 Trade cards using <b>/trk</b>\n"
                     "🔹 Check your album with <b>/album</b>\n"
-                    "🔹 Buy items in the <b>shop</b> with Kponey or gems\n"
-                    "🔹 Add cards to your favorites with <b>/fav</b> and track your progress with <b>/setsprogreso</b>\n\n"
+                    "🔹 Buy items in topics with the shop using Kponey or buy gems for more features\n"
+                    "🔹 Add cards to your favorites with <b>/fav</b> and track your collection progress with <b>/setsprogreso</b>\n\n"
                     "<b>How to start?</b>\n"
                     "1️⃣ Join the official group\n"
                     "2️⃣ Use /idolday in the card topic to get cards\n"
-                    "3️⃣ Collect, trade, and become the best collector!\n\n"
-                    "<i>Click the button to join and explore!</i>"
+                    "3️⃣ Collect, trade, and become the top collector!\n\n"
+                    "<i>Click the buttons and explore!</i>"
                 )
-            boton_texto = "🟢 Join the official group"
-
-        boton_url = "https://t.me/karukpop"
-        keyboard = [[InlineKeyboardButton(boton_texto, url=boton_url)]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
 
         context.bot.send_message(
-            chat_id=chat_id,
-            text=texto,
+            chat_id=chat_id, text=texto,
             parse_mode="HTML",
-            reply_markup=reply_markup,
             disable_web_page_preview=True
         )
     except Exception as e:
         print("[/start privado] Error:", e)
+
 
 
 
@@ -1100,7 +1087,7 @@ def callback_help(update, context):
         lang = (getattr(query.from_user, "language_code", "") or "").lower()
         is_es = lang.startswith("es")
 
-        # Textos FAQ
+        # Textos FAQ multilenguaje
         textos_faq = {
             "help_faq_kponey": (
                 "💵 <b>¿Qué uso se le da al dinero Kponey?</b>\n"
