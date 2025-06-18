@@ -1201,37 +1201,28 @@ def callback_invitamenu(update, context):
 
 def comando_help(update, context):
     user_id = update.effective_user.id
-    lang = get_user_lang(user_id, update)
-    is_es = lang.startswith("es")
+    texto = t(user_id, update)  # t() ya resuelve el idioma según la lógica centralizada
 
     # Si no es privado, avisa en el idioma correcto
     if update.message.chat.type != "private":
-        msg = (
-            "Usa /help en el chat privado del bot para ver la guía y la explicación de cada comando."
-            if is_es else
-            "Use /help in the bot's private chat to see the guide and explanation for each command."
-        )
-        update.message.reply_text(msg)
+        update.message.reply_text(texto["help_message_group"])
         return
 
-    # Traducciones de botones (puedes importar de tu diccionario)
-    t = translations["es"] if is_es else translations["en"]
-
-    # Preguntas frecuentes
+    # Botones FAQ y botones de invitación/progreso:
     faqs = [
-        [InlineKeyboardButton(t["faq_kponey"], callback_data="help_faq_kponey")],
-        [InlineKeyboardButton(t["faq_gemas"], callback_data="help_faq_gemas")],
-        [InlineKeyboardButton(t["faq_set"], callback_data="help_faq_set")],
-        [InlineKeyboardButton(t["faq_mision"], callback_data="help_faq_mision")],
-        [InlineKeyboardButton(t["commands_button"], callback_data="help_comandos")],
-        [InlineKeyboardButton(t["button_invite"], callback_data="menu_invitacion")],  # <-- ¡Aquí integras tu botón de invitación!
-        [InlineKeyboardButton(t["button_progress"], callback_data="menu_progress")],   # <-- ¡Y aquí el de progreso!
+        [InlineKeyboardButton(texto["faq_kponey"], callback_data="help_faq_kponey")],
+        [InlineKeyboardButton(texto["faq_gemas"], callback_data="help_faq_gemas")],
+        [InlineKeyboardButton(texto["faq_set"], callback_data="help_faq_set")],
+        [InlineKeyboardButton(texto["faq_mision"], callback_data="help_faq_mision")],
+        [InlineKeyboardButton(texto["commands_button"], callback_data="help_comandos")],
+        [InlineKeyboardButton(texto["button_invite"], callback_data="menu_invitacion")],
+        [InlineKeyboardButton(texto["button_progress"], callback_data="menu_progress")],
     ]
-
     reply_markup = InlineKeyboardMarkup(faqs)
+
     context.bot.send_message(
         chat_id=update.message.chat_id,
-        text=t["help_title"],
+        text=texto["help_title"],
         reply_markup=reply_markup,
         parse_mode="HTML"
     )
