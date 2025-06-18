@@ -1049,26 +1049,45 @@ def estados_disponibles_para_carta(nombre, version):
 
 
 def comando_help(update, context):
+    lang = (getattr(update.effective_user, "language_code", "") or "").lower()
+    is_es = lang.startswith("es")
+
     if update.message.chat.type != "private":
-        update.message.reply_text(
-            "Usa /help en el chat privado del bot para ver la guía y la explicación de cada comando."
-        )
+        if is_es:
+            msg = "Usa /help en el chat privado del bot para ver la guía y la explicación de cada comando."
+        else:
+            msg = "Use /help in the bot's private chat to see the guide and explanation for each command."
+        update.message.reply_text(msg)
         return
 
-    faqs = [
-        [InlineKeyboardButton("¿Qué uso se le da al dinero Kponey?", callback_data="help_faq_kponey")],
-        [InlineKeyboardButton("¿Para qué sirven las gemas?", callback_data="help_faq_gemas")],
-        [InlineKeyboardButton("¿Qué sucede si completo un set?", callback_data="help_faq_set")],
-        [InlineKeyboardButton("¿Qué sucede si completo una misión diaria?", callback_data="help_faq_mision")],
-        [InlineKeyboardButton("📋 Comandos", callback_data="help_comandos")]
-    ]
+    # Preguntas frecuentes
+    if is_es:
+        faqs = [
+            [InlineKeyboardButton("¿Qué uso se le da al dinero Kponey?", callback_data="help_faq_kponey")],
+            [InlineKeyboardButton("¿Para qué sirven las gemas?", callback_data="help_faq_gemas")],
+            [InlineKeyboardButton("¿Qué sucede si completo un set?", callback_data="help_faq_set")],
+            [InlineKeyboardButton("¿Qué sucede si completo una misión diaria?", callback_data="help_faq_mision")],
+            [InlineKeyboardButton("📋 Comandos", callback_data="help_comandos")]
+        ]
+        txt = "❓ <b>help - Preguntas frecuentes</b>\nSelecciona una pregunta o pulsa <b>Comandos</b> para ver la explicación de cada uno."
+    else:
+        faqs = [
+            [InlineKeyboardButton("What is Kponey money for?", callback_data="help_faq_kponey")],
+            [InlineKeyboardButton("What are gems for?", callback_data="help_faq_gemas")],
+            [InlineKeyboardButton("What happens if I complete a set?", callback_data="help_faq_set")],
+            [InlineKeyboardButton("What happens if I complete a daily mission?", callback_data="help_faq_mision")],
+            [InlineKeyboardButton("📋 Commands", callback_data="help_comandos")]
+        ]
+        txt = "❓ <b>help - Frequently Asked Questions</b>\nSelect a question or tap <b>Commands</b> to see each explanation."
+
     reply_markup = InlineKeyboardMarkup(faqs)
     context.bot.send_message(
         chat_id=update.message.chat_id,
-        text="❓ <b>help - Preguntas frecuentes</b>\nSelecciona una pregunta o pulsa <b>Comandos</b> para ver la explicación de cada uno.",
+        text=txt,
         reply_markup=reply_markup,
         parse_mode="HTML"
     )
+
 
 
 
@@ -1078,35 +1097,61 @@ def callback_help(update, context):
     try:
         query = update.callback_query
         data = query.data
+        lang = (getattr(query.from_user, "language_code", "") or "").lower()
+        is_es = lang.startswith("es")
 
-        # Mensajes FAQ
+        # Textos FAQ
         textos_faq = {
             "help_faq_kponey": (
                 "💵 <b>¿Qué uso se le da al dinero Kponey?</b>\n"
                 "El Kponey es la moneda principal del bot. Sirve para comprar objetos en la tienda y comprar cartas del /mercado."
+            ) if is_es else (
+                "💵 <b>What is Kponey money for?</b>\n"
+                "Kponey is the bot's main currency. Use it to buy items in the shop and to buy cards from the /market."
             ),
             "help_faq_gemas": (
                 "💎 <b>¿Para qué sirven las gemas?</b>\n"
                 "Las gemas son una moneda premium que permite comprar objetos o acelerar el progreso de recolección de cartas."
+            ) if is_es else (
+                "💎 <b>What are gems for?</b>\n"
+                "Gems are a premium currency used to buy special items or speed up card collection."
             ),
             "help_faq_set": (
                 "📚 <b>¿Qué sucede si completo un set?</b>\n"
-                "Completar un set otorga recompensas en forma de dinero del bot Kponey$, cada idol de un grupo equivale a 500 Kponey, entonces si completas por ejemplo el set de VIVIZ ganarias 1500 Kponey."
+                "Completar un set otorga recompensas en Kponey$. Cada idol de un grupo equivale a 500 Kponey, por ejemplo, completar el set de VIVIZ te da 1500 Kponey."
+            ) if is_es else (
+                "📚 <b>What happens if I complete a set?</b>\n"
+                "Completing a set gives you Kponey$ rewards. Each idol in a group is worth 500 Kponey, so if you complete the VIVIZ set you'll get 1500 Kponey."
             ),
             "help_faq_mision": (
                 "🎯 <b>¿Qué sucede si completo una misión diaria?</b>\n"
                 "Ganas premios adicionales como gemas, Kponey u objetos especiales."
+            ) if is_es else (
+                "🎯 <b>What happens if I complete a daily mission?</b>\n"
+                "You get additional rewards like gems, Kponey or special items."
             )
         }
 
         # Botones FAQ + Comandos
-        faqs = [
-            [InlineKeyboardButton("¿Qué uso se le da al dinero Kponey en Karukpop?", callback_data="help_faq_kponey")],
-            [InlineKeyboardButton("¿Para qué sirven las gemas en Karukpop?", callback_data="help_faq_gemas")],
-            [InlineKeyboardButton("¿Qué sucede si completo un set de cartas?", callback_data="help_faq_set")],
-            [InlineKeyboardButton("¿Qué sucede si completo una misión diaria?", callback_data="help_faq_mision")],
-            [InlineKeyboardButton("📋 Comandos", callback_data="help_comandos")]
-        ]
+        if is_es:
+            faqs = [
+                [InlineKeyboardButton("¿Qué uso se le da al dinero Kponey?", callback_data="help_faq_kponey")],
+                [InlineKeyboardButton("¿Para qué sirven las gemas?", callback_data="help_faq_gemas")],
+                [InlineKeyboardButton("¿Qué sucede si completo un set?", callback_data="help_faq_set")],
+                [InlineKeyboardButton("¿Qué sucede si completo una misión diaria?", callback_data="help_faq_mision")],
+                [InlineKeyboardButton("📋 Comandos", callback_data="help_comandos")]
+            ]
+            volver = "⬅️ Volver"
+        else:
+            faqs = [
+                [InlineKeyboardButton("What is Kponey money for?", callback_data="help_faq_kponey")],
+                [InlineKeyboardButton("What are gems for?", callback_data="help_faq_gemas")],
+                [InlineKeyboardButton("What happens if I complete a set?", callback_data="help_faq_set")],
+                [InlineKeyboardButton("What happens if I complete a daily mission?", callback_data="help_faq_mision")],
+                [InlineKeyboardButton("📋 Commands", callback_data="help_comandos")]
+            ]
+            volver = "⬅️ Back"
+
         faqs_markup = InlineKeyboardMarkup(faqs)
 
         # Menú comandos
@@ -1125,7 +1170,7 @@ def callback_help(update, context):
             [InlineKeyboardButton("🎴 /retirar", callback_data="help_retirar")],
             [InlineKeyboardButton("⌛ /kkp", callback_data="help_kkp")],
             [InlineKeyboardButton("💸 /precio", callback_data="help_precio")],
-            [InlineKeyboardButton("⬅️ Volver", callback_data="help_volver_faq")]
+            [InlineKeyboardButton(volver, callback_data="help_volver_faq")]
         ]
         comandos_markup = InlineKeyboardMarkup(comandos)
 
@@ -1133,102 +1178,142 @@ def callback_help(update, context):
             "help_idolday": (
                 "🌸 <b>/idolday</b>\n"
                 "Dropea cartas de idols en el grupo (en el tema correspondiente). Usa este comando para conseguir cartas nuevas cada día. ¡Solo puedes usarlo una vez cada 6 horas!"
+            ) if is_es else (
+                "🌸 <b>/idolday</b>\n"
+                "Drops idol cards in the group (in the correct topic). Use this command to get new cards every day. You can only use it once every 6 hours!"
             ),
             "help_album": (
                 "📗 <b>/album</b>\n"
                 "Muestra tu colección de cartas. Usa los botones para filtrar, ordenar o ver tus cartas por grupo o estrellas."
+            ) if is_es else (
+                "📗 <b>/album</b>\n"
+                "Shows your card collection. Use the buttons to filter, sort, or view your cards by group or stars."
             ),
             "help_ampliar": (
                 "🔎 <b>/ampliar &lt;id_unico&gt;</b>\n"
                 "Muestra los detalles de una carta específica de tu álbum y también desde este apartado puedes añadirla al mercado directamente, debes usar el <code>id_unico</code> que aparece junto a cada carta."
+            ) if is_es else (
+                "🔎 <b>/ampliar &lt;id_unico&gt;</b>\n"
+                "Shows details of a specific card in your album and lets you add it to the market directly. Use the <code>id_unico</code> shown next to each card."
             ),
             "help_inventario": (
                 "🎒 <b>/inventario</b>\n"
                 "Muestra tus objetos y consumibles (bonos, tickets, gemas, etc)."
+            ) if is_es else (
+                "🎒 <b>/inventario</b>\n"
+                "Shows your items and consumables (bonuses, tickets, gems, etc)."
             ),
             "help_fav": (
                 "⭐ <b>/fav &lt;grupo&gt; [Vn] Nombre</b>\n"
-                "Agrega o quita una carta de tu lista de favoritas. Ejemplo: <code>/fav Twice [V1] Dahyun</code>, esto hace que cada vez que alguien reclame tu carta favorita te avise directamente"
+                "Agrega o quita una carta de tu lista de favoritas. Ejemplo: <code>/fav Twice [V1] Dahyun</code>, esto hace que cada vez que alguien reclame tu carta favorita te avise directamente."
+            ) if is_es else (
+                "⭐ <b>/fav &lt;group&gt; [Vn] Name</b>\n"
+                "Add or remove a card from your favorites list. E.g.: <code>/fav Twice [V1] Dahyun</code>."
             ),
             "help_favoritos": (
                 "🌟 <b>/favoritos</b>\n"
                 "Muestra la lista de tus cartas favoritas actuales."
+            ) if is_es else (
+                "🌟 <b>/favoritos</b>\n"
+                "Shows your current list of favorite cards."
             ),
             "help_set": (
                 "📚 <b>/set &lt;grupo/set&gt;</b>\n"
                 "Muestra tu progreso y las cartas de un grupo o set específico. Ejemplo: <code>/set Twice</code>"
+            ) if is_es else (
+                "📚 <b>/set &lt;group/set&gt;</b>\n"
+                "Shows your progress and the cards of a specific group or set. E.g.: <code>/set Twice</code>"
             ),
             "help_setsprogreso": (
                 "📈 <b>/setsprogreso</b>\n"
                 "Muestra el avance en todos tus sets/grupos: cuántas cartas tienes de cada uno, y cuáles te faltan."
+            ) if is_es else (
+                "📈 <b>/setsprogreso</b>\n"
+                "Shows your progress in all your sets/groups: how many cards you have from each, and which ones you're missing."
             ),
             "help_trk": (
                 "🤝 <b>/trk @usuario</b>\n"
                 "Inicia un intercambio de cartas con otro usuario. una vez usado el comando ambos deben ingresar el <code>id_unico</code> de la carta a intercambiar, y luego ambos deben confirmar con los botones."
+            ) if is_es else (
+                "🤝 <b>/trk @user</b>\n"
+                "Start a card trade with another user. After using the command, both must enter the <code>id_unico</code> of the card to trade, then both confirm with the buttons."
             ),
             "help_vender": (
                 "💰 <b>/vender &lt;id_unico&gt;</b>\n"
                 "Añade al mercado una carta específica usando su <code>id_unico</code> para obtener Kponey (dinero del juego)."
+            ) if is_es else (
+                "💰 <b>/vender &lt;id_unico&gt;</b>\n"
+                "List a specific card on the market using its <code>id_unico</code> to get Kponey (game currency)."
             ),
             "help_comprar": (
                 "🛒 <b>/comprar &lt;id_carta&gt;</b>\n"
                 "Compra una carta disponible en el mercado (Kponey). Usa <code>/mercado</code> para ver la lista de cartas disponibles."
+            ) if is_es else (
+                "🛒 <b>/comprar &lt;id_carta&gt;</b>\n"
+                "Buy a card available on the market (Kponey). Use <code>/mercado</code> to see the list of available cards."
             ),
             "help_retirar": (
                 "🎴 <b>/retirar &lt;id_carta&gt;</b>\n"
                 "Retira una carta que tengas en venta en el mercado."
+            ) if is_es else (
+                "🎴 <b>/retirar &lt;id_carta&gt;</b>\n"
+                "Remove a card you have listed for sale in the market."
             ),
             "help_kkp": (
                 "⌛ <b>/kkp</b>\n"
                 "Es un recordatorio de KaruKpop, donde podrás ver cuánto falta para usar /idolday, el progreso de tus misiones diarias y el tiempo restante para completar estas misiones."
+            ) if is_es else (
+                "⌛ <b>/kkp</b>\n"
+                "A KaruKpop reminder, showing how much time until you can use /idolday, your daily mission progress, and remaining time to complete these missions."
             ),
             "help_precio": (
                 "💸 <b>/precio &lt;id_unico&gt;</b>\n"
                 "Consulta el valor de una carta según su estado, grupo y rareza."
+            ) if is_es else (
+                "💸 <b>/precio &lt;id_unico&gt;</b>\n"
+                "Check the value of a card based on its condition, group, and rarity."
             ),
         }
 
-        # Manejador del menú principal
-        try:
-            if data == "help_comandos":
-                query.edit_message_text(
-                    "📋 <b>Comandos disponibles:</b>\nSelecciona uno para ver su explicación.",
-                    reply_markup=comandos_markup,
-                    parse_mode="HTML"
-                )
-            elif data == "help_volver_faq":
-                query.edit_message_text(
-                    "❓ <b>help - Preguntas frecuentes</b>\nSelecciona una pregunta o pulsa <b>Comandos</b> para ver la explicación de cada uno.",
-                    reply_markup=faqs_markup,
-                    parse_mode="HTML"
-                )
-            elif data in textos_faq:
-                query.edit_message_text(
-                    textos_faq[data],
-                    reply_markup=faqs_markup,
-                    parse_mode="HTML"
-                )
-            elif data in textos_comandos:
-                query.edit_message_text(
-                    textos_comandos[data],
-                    reply_markup=comandos_markup,
-                    parse_mode="HTML"
-                )
-            else:
-                query.answer("Comando no reconocido.")
-        except Exception as e:
-            print(f"[callback_help] Error al editar mensaje: {e}")
-            try:
-                query.answer("Error al mostrar el mensaje. Intenta de nuevo.", show_alert=True)
-            except Exception:
-                pass
-
+        # MENÚ
+        if data == "help_comandos":
+            query.edit_message_text(
+                "📋 <b>Comandos disponibles:</b>\nSelecciona uno para ver su explicación." if is_es else
+                "📋 <b>Available commands:</b>\nSelect one to see its explanation.",
+                reply_markup=comandos_markup,
+                parse_mode="HTML"
+            )
+        elif data == "help_volver_faq":
+            query.edit_message_text(
+                "❓ <b>help - Preguntas frecuentes</b>\nSelecciona una pregunta o pulsa <b>Comandos</b> para ver la explicación de cada uno." if is_es else
+                "❓ <b>help - Frequently Asked Questions</b>\nSelect a question or tap <b>Commands</b> to see each explanation.",
+                reply_markup=faqs_markup,
+                parse_mode="HTML"
+            )
+        elif data in textos_faq:
+            query.edit_message_text(
+                textos_faq[data],
+                reply_markup=faqs_markup,
+                parse_mode="HTML"
+            )
+        elif data in textos_comandos:
+            query.edit_message_text(
+                textos_comandos[data],
+                reply_markup=comandos_markup,
+                parse_mode="HTML"
+            )
+        else:
+            query.answer("Comando no reconocido." if is_es else "Unknown command.")
     except Exception as e:
         print(f"[callback_help] Error inesperado: {e}")
         try:
-            update.effective_message.reply_text("Ocurrió un error inesperado. Por favor, intenta de nuevo más tarde.")
+            update.effective_message.reply_text(
+                "Ocurrió un error inesperado. Por favor, intenta de nuevo más tarde." if is_es else
+                "An unexpected error occurred. Please try again later."
+            )
         except Exception:
             pass
+
 
 
 
