@@ -1398,73 +1398,73 @@ def actualiza_mision_diaria(user_id, context=None):
 
 # --- Llamada en tu lógica de /idolday ---
 
-if cooldown_listo:
-    puede_tirar = True
-    col_usuarios.update_one(
-        {"user_id": user_id},
-        {"$set": {"last_idolday": ahora}},
-        upsert=True
-    )
-    mision_completada_hoy, premio_entregado, premio_primer_drop = actualiza_mision_diaria(user_id, context)
-elif bono_listo:
-    puede_tirar = True
-    objetos = user_doc.get('objetos', {})
-    bonos_inventario = objetos.get('bono_idolday', 0)
-    if bonos_inventario and bonos_inventario > 0:
+    if cooldown_listo:
+        puede_tirar = True
         col_usuarios.update_one(
             {"user_id": user_id},
-            {"$inc": {"objetos.bono_idolday": -1}},
+            {"$set": {"last_idolday": ahora}},
             upsert=True
         )
-    else:
-        col_usuarios.update_one(
-            {"user_id": user_id},
-            {"$inc": {"bono": -1}},
-            upsert=True
-        )
-    mision_completada_hoy, premio_entregado, premio_primer_drop = actualiza_mision_diaria(user_id, context)
+        mision_completada_hoy, premio_entregado, premio_primer_drop = actualiza_mision_diaria(user_id, context)
+    elif bono_listo:
+        puede_tirar = True
+        objetos = user_doc.get('objetos', {})
+        bonos_inventario = objetos.get('bono_idolday', 0)
+        if bonos_inventario and bonos_inventario > 0:
+            col_usuarios.update_one(
+                {"user_id": user_id},
+                {"$inc": {"objetos.bono_idolday": -1}},
+                upsert=True
+            )
+        else:
+            col_usuarios.update_one(
+                {"user_id": user_id},
+                {"$inc": {"bono": -1}},
+                upsert=True
+            )
+        mision_completada_hoy, premio_entregado, premio_primer_drop = actualiza_mision_diaria(user_id, context)
 # ... lo demás igual
 
 
     # --- Actualiza el cooldown global ---
-    COOLDOWN_GRUPO[chat_id] = ahora_ts
+        COOLDOWN_GRUPO[chat_id] = ahora_ts
 
     # SOLO cartas en estado "Excelente estado"
-    cartas_excelentes = [c for c in cartas if c.get("estado") == "Excelente estado"]
-    if len(cartas_excelentes) < 2:
-        cartas_excelentes = cartas_excelentes * 2
+        cartas_excelentes = [c for c in cartas if c.get("estado") == "Excelente estado"]
+        if len(cartas_excelentes) < 2:
+            cartas_excelentes = cartas_excelentes * 2
 
-    cartas_drop = random.choices(cartas_excelentes, k=2)
-    media_group = []
-    cartas_info = []
-    for carta in cartas_drop:
-        nombre = carta['nombre']
-        version = carta['version']
-        grupo = carta.get('grupo', '')
-        imagen_url = carta.get('imagen')
-        doc_cont = col_contadores.find_one_and_update(
-            {"nombre": nombre, "version": version},
-            {"$inc": {"contador": 1}},
-            upsert=True,
-            return_document=True
-        )
-        nuevo_id = doc_cont['contador'] if doc_cont else 1
+        cartas_drop = random.choices(cartas_excelentes, k=2)
+        media_group = []
+        cartas_info = []
+        for carta in cartas_drop:
+            nombre = carta['nombre']
+            version = carta['version']
+            grupo = carta.get('grupo', '')
+            imagen_url = carta.get('imagen')
+            doc_cont = col_contadores.find_one_and_update(
+                {"nombre": nombre, "version": version},
+                {"$inc": {"contador": 1}},
+                upsert=True,
+                return_document=True
+            )
+            nuevo_id = doc_cont['contador'] if doc_cont else 1
 
         # Genera la imagen con el número
-        imagen_con_numero = agregar_numero_a_imagen(imagen_url, nuevo_id)
+            imagen_con_numero = agregar_numero_a_imagen(imagen_url, nuevo_id)
 
-        caption = f"<b>{nombre}</b>\n{grupo} [{version}]"
-        media_group.append(InputMediaPhoto(media=imagen_con_numero, caption=caption, parse_mode="HTML"))
-        cartas_info.append({
-            "nombre": nombre,
-            "version": version,
-            "grupo": grupo,
-            "imagen": imagen_url,
-            "reclamada": False,
-            "usuario": None,
-            "hora_reclamada": None,
-            "card_id": nuevo_id
-        })
+            caption = f"<b>{nombre}</b>\n{grupo} [{version}]"
+            media_group.append(InputMediaPhoto(media=imagen_con_numero, caption=caption, parse_mode="HTML"))
+            cartas_info.append({
+                "nombre": nombre,
+                "version": version,
+                "grupo": grupo,
+                "imagen": imagen_url,
+                "reclamada": False,
+                "usuario": None,
+                "hora_reclamada": None,
+                "card_id": nuevo_id
+            })
 
     # Envía el grupo de imágenes de las cartas en el thread correcto
     msgs = context.bot.send_media_group(
