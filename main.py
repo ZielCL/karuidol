@@ -1033,17 +1033,28 @@ def estados_disponibles_para_carta(nombre, version):
     return [c for c in cartas if c['nombre'] == nombre and c['version'] == version]
 
 
+def get_user_lang(user_id, update):
+    doc = col_usuarios.find_one({"user_id": user_id}) or {}
+    # Si ya tiene idioma guardado, úsalo
+    lang_db = doc.get("lang")
+    if lang_db:
+        return lang_db
+    # Si no, usa el language_code de Telegram
+    return (getattr(update.effective_user, "language_code", "") or "").lower()
+
 
 
 def comando_help(update, context):
-    lang = (getattr(update.effective_user, "language_code", "") or "").lower()
+    user_id = update.effective_user.id
+    lang = get_user_lang(user_id, update)
     is_es = lang.startswith("es")
 
     if update.message.chat.type != "private":
-        if is_es:
-            msg = "Usa /help en el chat privado del bot para ver la guía y la explicación de cada comando."
-        else:
-            msg = "Use /help in the bot's private chat to see the guide and explanation for each command."
+        msg = (
+            "Usa /help en el chat privado del bot para ver la guía y la explicación de cada comando."
+            if is_es else
+            "Use /help in the bot's private chat to see the guide and explanation for each command."
+        )
         update.message.reply_text(msg)
         return
 
@@ -1074,6 +1085,7 @@ def comando_help(update, context):
         reply_markup=reply_markup,
         parse_mode="HTML"
     )
+
 
 
 
