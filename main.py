@@ -1293,62 +1293,11 @@ def comando_vertemas(update, context):
 
 
 
-# -- IDOLDAY DROP 2 CARTAS (Drop siempre muestra excelente estado, pero al reclamar puede variar) ---
-@grupo_oficial
-@solo_en_chat_general
-def comando_idolday(update, context):
-    # 🚫 Restringe a grupos y supergrupos solamente
-    if update.effective_chat.type not in ["group", "supergroup"]:
-        update.message.reply_text("Este comando solo está disponible en el grupo oficial.")
-        return
-
-    user_id = update.message.from_user.id
-    chat_id = update.effective_chat.id
-    thread_id = getattr(update.message, "message_thread_id", None)   # <--- thread_id aquí
-    ahora = datetime.utcnow()
-    ahora_ts = time.time()
-    user_doc = col_usuarios.find_one({"user_id": user_id}) or {}
-    bono = user_doc.get('bono', 0)
-    last = user_doc.get('last_idolday')
-    puede_tirar = False
-
-    # --- Cooldown global por grupo (30 seg) ---
-    ultimo_drop = COOLDOWN_GRUPO.get(chat_id, 0)
-    if ahora_ts - ultimo_drop < COOLDOWN_GRUPO_SEG:
-        faltante = int(COOLDOWN_GRUPO_SEG - (ahora_ts - ultimo_drop))
-        try:
-            update.message.delete()
-        except Exception as e:
-            print("[idolday] Error al borrar el mensaje:", e)
-        try:
-            msg_cooldown = context.bot.send_message(
-                chat_id=chat_id,
-                text=f"⏳ Espera {faltante} segundos antes de volver a dropear cartas en este grupo.",
-                message_thread_id=thread_id   # <--- Cambiado!
-            )
-            def borrar_mensaje(m):
-                try:
-                    context.bot.delete_message(chat_id=chat_id, message_id=m.message_id)
-                except Exception as e:
-                    print("[idolday] Error al borrar mensaje de cooldown:", e)
-            threading.Timer(10, borrar_mensaje, args=(msg_cooldown,)).start()
-        except Exception as e:
-            print("[idolday] Error al mandar mensaje de cooldown:", e)
-        return
-
-    # --- Cooldown por usuario (6 horas o bono) ---
-    cooldown_listo, bono_listo = puede_usar_idolday(user_id)
-    mision_completada_hoy = False
-    premio_entregado = False
-
- 
-
 def actualiza_mision_diaria(user_id, context=None):
     user_doc = col_usuarios.find_one({"user_id": user_id}) or {}
     misiones = user_doc.get("misiones", {})
     hoy_str = datetime.utcnow().strftime('%Y-%m-%d')
     ultima_mision = misiones.get("ultima_mision_idolday", "")
-    entregada = misiones.get("idolday_entregada", "")
 
     # --- Reinicio de día ---
     if ultima_mision != hoy_str:
@@ -1359,7 +1308,6 @@ def actualiza_mision_diaria(user_id, context=None):
     # ---- Misión: Primer drop del día ----
     premio_primer_drop = False
     if not misiones.get("primer_drop", {}).get("fecha") == hoy_str:
-        # Si es el primer drop del día, da el premio
         col_usuarios.update_one({"user_id": user_id}, {"$inc": {"kponey": 50}})
         misiones["primer_drop"] = {"fecha": hoy_str, "premio": True}
         premio_primer_drop = True
@@ -1396,18 +1344,58 @@ def actualiza_mision_diaria(user_id, context=None):
     col_usuarios.update_one({"user_id": user_id}, {"$set": {"misiones": misiones}})
     return mision_completada, premio_tres_drops, premio_primer_drop
 
-# --- Llamada en tu lógica de /idolday ---
+@grupo_oficial
+@solo_en_chat_general
+def comando_idolday(update, context):
+    # 🚫 Restringe a grupos y supergrupos solamente
+    if update.effective_chat.type not in ["group", "supergroup"]:
+        update.message.reply_text("Este comando solo está disponible en el grupo oficial.")
+        return
+
+    user_id = update.message.from_user.id
+    chat_id = update.effective_chat.id
+    thread_id = getattr(update.message, "message_thread_id", None)
+    ahora = datetime.utcnow()
+    ahora_ts = time.time()
+    user_doc = col_usuarios.find_one({"user_id": user_id}) or {}
+    bono = user_doc.get('bono', 0)
+    last = user_doc.get('last_idolday')
+
+    # --- Cooldown global por grupo (30 seg) ---
+    ultimo_drop = COOLDOWN_GRUPO.get(chat_id, 0)
+    if ahora_ts - ultimo_drop < COOLDOWN_GRUPO_SEG:
+        faltante = int(COOLDOWN_GRUPO_SEG - (ahora_ts - ultimo_drop))
+        try:
+            update.message.delete()
+        except Exception as e:
+            print("[idolday] Error al borrar el mensaje:", e)
+        try:
+            msg_cooldown = context.bot.send_message(
+                chat_id=chat_id,
+                text=f"⏳ Espera {faltante} segundos antes de volver a dropear cartas en este grupo.",
+                message_thread_id=thread_id
+            )
+            def borrar_mensaje(m):
+                try:
+                    context.bot.delete_message(chat_id=chat_id, message_id=m.message_id)
+                except Exception as e:
+                    print("[idolday] Error al borrar mensaje de cooldown:", e)
+            threading.Timer(10, borrar_mensaje, args=(msg_cooldown,)).start()
+        except Exception as e:
+            print("[idolday] Error al mandar mensaje de cooldown:", e)
+        return
+
+    # --- Cooldown por usuario (6 horas o bono) ---
+    cooldown_listo, bono_listo = puede_usar_idolday(user_id)
 
     if cooldown_listo:
-        puede_tirar = True
         col_usuarios.update_one(
             {"user_id": user_id},
             {"$set": {"last_idolday": ahora}},
             upsert=True
         )
-        mision_completada_hoy, premio_entregado, premio_primer_drop = actualiza_mision_diaria(user_id, context)
+        actualiza_mision_diaria(user_id, context)
     elif bono_listo:
-        puede_tirar = True
         objetos = user_doc.get('objetos', {})
         bonos_inventario = objetos.get('bono_idolday', 0)
         if bonos_inventario and bonos_inventario > 0:
@@ -1422,55 +1410,93 @@ def actualiza_mision_diaria(user_id, context=None):
                 {"$inc": {"bono": -1}},
                 upsert=True
             )
-        mision_completada_hoy, premio_entregado, premio_primer_drop = actualiza_mision_diaria(user_id, context)
-# ... lo demás igual
-
+        actualiza_mision_diaria(user_id, context)
+    else:
+        try:
+            update.message.delete()
+        except Exception as e:
+            print("[idolday] Error al borrar el mensaje del usuario (cooldown usuario):", e)
+        if last:
+            faltante = 6*3600 - (ahora - last).total_seconds()
+            horas = int(faltante // 3600)
+            minutos = int((faltante % 3600) // 60)
+            segundos = int(faltante % 60)
+            try:
+                msg_cd = context.bot.send_message(
+                    chat_id=chat_id,
+                    text=f"Ya usaste /idolday. Intenta de nuevo en {horas}h {minutos}m {segundos}s.",
+                    message_thread_id=thread_id
+                )
+                def borrar_mensaje_cd(m):
+                    try:
+                        context.bot.delete_message(chat_id=chat_id, message_id=m.message_id)
+                    except Exception as e:
+                        print("[idolday] Error al borrar mensaje de cooldown usuario:", e)
+                threading.Timer(10, borrar_mensaje_cd, args=(msg_cd,)).start()
+            except Exception as e:
+                print("[idolday] Error al mandar mensaje cooldown usuario:", e)
+        else:
+            try:
+                msg_cd = context.bot.send_message(
+                    chat_id=chat_id,
+                    text=f"Ya usaste /idolday.",
+                    message_thread_id=thread_id
+                )
+                def borrar_mensaje_cd(m):
+                    try:
+                        context.bot.delete_message(chat_id=chat_id, message_id=m.message_id)
+                    except Exception as e:
+                        print("[idolday] Error al borrar mensaje cooldown usuario (sin tiempo):", e)
+                threading.Timer(10, borrar_mensaje_cd, args=(msg_cd,)).start()
+            except Exception as e:
+                print("[idolday] Error al mandar mensaje cooldown usuario (sin tiempo):", e)
+        return
 
     # --- Actualiza el cooldown global ---
-        COOLDOWN_GRUPO[chat_id] = ahora_ts
+    COOLDOWN_GRUPO[chat_id] = ahora_ts
 
     # SOLO cartas en estado "Excelente estado"
-        cartas_excelentes = [c for c in cartas if c.get("estado") == "Excelente estado"]
-        if len(cartas_excelentes) < 2:
-            cartas_excelentes = cartas_excelentes * 2
+    cartas_excelentes = [c for c in cartas if c.get("estado") == "Excelente estado"]
+    if len(cartas_excelentes) < 2:
+        cartas_excelentes = cartas_excelentes * 2
 
-        cartas_drop = random.choices(cartas_excelentes, k=2)
-        media_group = []
-        cartas_info = []
-        for carta in cartas_drop:
-            nombre = carta['nombre']
-            version = carta['version']
-            grupo = carta.get('grupo', '')
-            imagen_url = carta.get('imagen')
-            doc_cont = col_contadores.find_one_and_update(
-                {"nombre": nombre, "version": version},
-                {"$inc": {"contador": 1}},
-                upsert=True,
-                return_document=True
-            )
-            nuevo_id = doc_cont['contador'] if doc_cont else 1
+    cartas_drop = random.choices(cartas_excelentes, k=2)
+    media_group = []
+    cartas_info = []
+    for carta in cartas_drop:
+        nombre = carta['nombre']
+        version = carta['version']
+        grupo = carta.get('grupo', '')
+        imagen_url = carta.get('imagen')
+        doc_cont = col_contadores.find_one_and_update(
+            {"nombre": nombre, "version": version},
+            {"$inc": {"contador": 1}},
+            upsert=True,
+            return_document=True
+        )
+        nuevo_id = doc_cont['contador'] if doc_cont else 1
 
         # Genera la imagen con el número
-            imagen_con_numero = agregar_numero_a_imagen(imagen_url, nuevo_id)
+        imagen_con_numero = agregar_numero_a_imagen(imagen_url, nuevo_id)
 
-            caption = f"<b>{nombre}</b>\n{grupo} [{version}]"
-            media_group.append(InputMediaPhoto(media=imagen_con_numero, caption=caption, parse_mode="HTML"))
-            cartas_info.append({
-                "nombre": nombre,
-                "version": version,
-                "grupo": grupo,
-                "imagen": imagen_url,
-                "reclamada": False,
-                "usuario": None,
-                "hora_reclamada": None,
-                "card_id": nuevo_id
-            })
+        caption = f"<b>{nombre}</b>\n{grupo} [{version}]"
+        media_group.append(InputMediaPhoto(media=imagen_con_numero, caption=caption, parse_mode="HTML"))
+        cartas_info.append({
+            "nombre": nombre,
+            "version": version,
+            "grupo": grupo,
+            "imagen": imagen_url,
+            "reclamada": False,
+            "usuario": None,
+            "hora_reclamada": None,
+            "card_id": nuevo_id
+        })
 
     # Envía el grupo de imágenes de las cartas en el thread correcto
     msgs = context.bot.send_media_group(
         chat_id=chat_id,
         media=media_group,
-        message_thread_id=thread_id    # <--- Cambiado!
+        message_thread_id=thread_id
     )
 
     texto_drop = f"@{update.effective_user.username or update.effective_user.first_name} está dropeando 2 cartas!"
@@ -1483,7 +1509,7 @@ def actualiza_mision_diaria(user_id, context=None):
                 InlineKeyboardButton("2️⃣", callback_data=f"reclamar_{chat_id}_{0}_1"),
             ]
         ]),
-        message_thread_id=thread_id   # <--- Cambiado!
+        message_thread_id=thread_id
     )
 
     botones_reclamar = [
@@ -1531,13 +1557,22 @@ def actualiza_mision_diaria(user_id, context=None):
 
     threading.Thread(target=desbloquear_drop, args=(drop_id,), daemon=True).start()
 
-    
+
 FRASES_ESTADO = {
     "Excelente estado": "Genial!",
     "Buen estado": "Nada mal.",
     "Mal estado": "Podría estar mejor...",
     "Muy mal estado": "¡Oh no!"
 }
+
+
+
+
+
+
+
+
+
 @solo_en_tema_asignado("chatid")
 @grupo_oficial
 def comando_chatid(update, context):
