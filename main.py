@@ -273,7 +273,7 @@ def mensaje_tutorial_privado(update, context):
                     "🔹 Puedes revisar tu álbum de cartas con <b>/album</b> (aquí solo modo lectura)\n"
                     "🔹 Usa <b>/idolday</b> y los comandos de colección en el grupo oficial para jugar, conseguir cartas, y mucho más.\n"
                     "🔹 ¡Explora las tiendas, intercambia con otros, y sigue completando tus sets de idols!\n\n"
-                    "¿Tienes dudas? Pregunta en el grupo o usa /ayuda aquí mismo."
+                    "¿Tienes dudas? Pregunta en el grupo o usa /help aquí mismo."
                 )
             else:
                 # --- Usuario nuevo (español) ---
