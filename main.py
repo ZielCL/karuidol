@@ -5,6 +5,7 @@ import telegram
 from flask import Flask, request, jsonify, redirect
 from telegram.error import BadRequest, RetryAfter
 from telegram import ParseMode
+from translations import translations
 from telegram.ext import MessageHandler, Filters
 from telegram import (
     Bot,
@@ -1033,14 +1034,168 @@ def estados_disponibles_para_carta(nombre, version):
     return [c for c in cartas if c['nombre'] == nombre and c['version'] == version]
 
 
+
 def get_user_lang(user_id, update):
-    doc = col_usuarios.find_one({"user_id": user_id}) or {}
-    # Si ya tiene idioma guardado, úsalo
-    lang_db = doc.get("lang")
-    if lang_db:
-        return lang_db
-    # Si no, usa el language_code de Telegram
-    return (getattr(update.effective_user, "language_code", "") or "").lower()
+    user = col_usuarios.find_one({"user_id": user_id})
+    # Si tienes guardado el idioma en Mongo (ej: user['lang']), usa eso. Si no, toma el de Telegram.
+    return (user.get("lang") or getattr(update.effective_user, "language_code", "") or "en")[:2]
+
+def t(user_id, update):
+    lang = get_user_lang(user_id, update)
+    return translations.get(lang, translations["en"])
+
+def callback_invitamenu(update, context):
+    try:
+        query = update.callback_query
+        user_id = query.from_user.id
+        texto = t(user_id, update)
+
+        if query.data == "menu_invitacion":
+            link = f"https://t.me/{context.bot.username}?start=ref{user_id}"
+            botones = [
+                [InlineKeyboardButton(texto["button_progress"], callback_data="menu_progress")],
+                [InlineKeyboardButton("🔗 Compartir", url=f"https://t.me/share/url?url={link}")]
+            ]
+            query.edit_message_text(
+                texto["invite_link"].format(link=link),
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup(botones),
+                disable_web_page_preview=True
+            )
+
+        elif query.data == "menu_progress":
+            user_doc = col_usuarios.find_one({"user_id": user_id}) or {}
+            referidos = user_doc.get("referidos", [])
+            ref_premios = user_doc.get("ref_premios", [])
+            total = len(referidos)
+            rewards_text = ""
+            premios_obtenidos = ref_premios or []
+
+            for cantidad, nombre, obj_dict in REFERRAL_REWARDS:
+                if total >= cantidad:
+                    if cantidad not in premios_obtenidos:
+                        # Da el premio automáticamente solo una vez
+                        col_usuarios.update_one(
+                            {"user_id": user_id},
+                            {"$addToSet": {"ref_premios": cantidad}}
+                        )
+                        col_usuarios.update_one(
+                            {"user_id": user_id},
+                            {"$inc": obj_dict}
+                        )
+                        rewards_text += texto["reward_now"].format(prize=nombre, count=cantidad) + "\n"
+                        premios_obtenidos.append(cantidad)
+                    else:
+                        rewards_text += texto["reward_already"].format(prize=nombre) + "\n"
+                else:
+                    rewards_text += texto["reward_locked"].format(prize=nombre, count=cantidad) + "\n"
+
+            reply = texto["invite_info"].format(
+                count=total,
+                rewards=rewards_text
+            )
+            botones = [
+                [InlineKeyboardButton(texto["button_invite"], callback_data="menu_invitacion")]
+            ]
+            query.edit_message_text(reply, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(botones))
+        query.answer()
+    except Exception as e:
+        print(f"[callback_invitamenu] Error: {e}")
+        try:
+            update.effective_message.reply_text(t(user_id, update)["invite_error"])
+        except Exception:
+            pass
+
+
+
+# Diccionario de recompensas por cantidad de invitados
+# Formato: (cantidad, "Nombre Premio", {"campo_objeto": cantidad_a_otorgar})
+REFERRAL_REWARDS = [
+    (5, "Abrazo de Bias x5", {"objetos.abrazo_bias": 5}),
+    (15, "Bono Idolday x2", {"objetos.bono_idolday": 2}),
+    (30, "Lightstick x2", {"objetos.lightstick": 2}),
+    (50, "Abrazo de Bias x10", {"objetos.abrazo_bias": 10}),
+    (70, "Bono Idolday x5", {"objetos.bono_idolday": 5}),
+    (100, "Lightstick x6", {"objetos.lightstick": 6}),
+]
+
+def t(user_id, update):
+    user = col_usuarios.find_one({"user_id": user_id})
+    lang = (user.get("lang") if user else None) or getattr(update.effective_user, "language_code", "en") or "en"
+    return translations.get(lang[:2], translations["en"])
+
+
+def callback_invitamenu(update, context):
+    try:
+        query = update.callback_query
+        user_id = query.from_user.id
+        texto = t(user_id, update)
+
+        if query.data == "menu_invitacion":
+            link = f"https://t.me/{context.bot.username}?start=ref{user_id}"
+            # Opcional: puedes agregar un botón para copiar el link
+            botones = [
+                [InlineKeyboardButton(texto["button_progress"], callback_data="menu_progress")],
+                [InlineKeyboardButton("🔗 Compartir", url=f"https://t.me/share/url?url={link}")]
+            ]
+            query.edit_message_text(
+                texto["invite_link"].format(link=link),
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup(botones),
+                disable_web_page_preview=True
+            )
+
+        elif query.data == "menu_progress":
+            user_doc = col_usuarios.find_one({"user_id": user_id}) or {}
+            referidos = user_doc.get("referidos", [])
+            ref_premios = user_doc.get("ref_premios", [])
+            total = len(referidos)
+            rewards_text = ""
+            premios_obtenidos = ref_premios or []
+
+            for cantidad, nombre, obj_dict in REFERRAL_REWARDS:
+                if total >= cantidad:
+                    if cantidad not in premios_obtenidos:
+                        # Da el premio automáticamente solo una vez
+                        col_usuarios.update_one(
+                            {"user_id": user_id},
+                            {"$addToSet": {"ref_premios": cantidad}}
+                        )
+                        col_usuarios.update_one(
+                            {"user_id": user_id},
+                            {"$inc": obj_dict}
+                        )
+                        rewards_text += texto["reward_now"].format(prize=nombre, count=cantidad) + "\n"
+                        premios_obtenidos.append(cantidad)
+                    else:
+                        rewards_text += texto["reward_already"].format(prize=nombre) + "\n"
+                else:
+                    rewards_text += texto["reward_locked"].format(prize=nombre, count=cantidad) + "\n"
+
+            reply = texto["invite_info"].format(
+                count=total,
+                rewards=rewards_text
+            )
+            botones = [
+                [InlineKeyboardButton(texto["button_invite"], callback_data="menu_invitacion")]
+            ]
+            query.edit_message_text(reply, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(botones))
+        query.answer()
+    except Exception as e:
+        print(f"[callback_invitamenu] Error: {e}")
+        try:
+            update.effective_message.reply_text(t(user_id, update)["invite_error"])
+        except Exception:
+            pass
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1049,6 +1204,7 @@ def comando_help(update, context):
     lang = get_user_lang(user_id, update)
     is_es = lang.startswith("es")
 
+    # Si no es privado, avisa en el idioma correcto
     if update.message.chat.type != "private":
         msg = (
             "Usa /help en el chat privado del bot para ver la guía y la explicación de cada comando."
@@ -1058,33 +1214,28 @@ def comando_help(update, context):
         update.message.reply_text(msg)
         return
 
+    # Traducciones de botones (puedes importar de tu diccionario)
+    t = translations["es"] if is_es else translations["en"]
+
     # Preguntas frecuentes
-    if is_es:
-        faqs = [
-            [InlineKeyboardButton("¿Qué uso se le da al dinero Kponey?", callback_data="help_faq_kponey")],
-            [InlineKeyboardButton("¿Para qué sirven las gemas?", callback_data="help_faq_gemas")],
-            [InlineKeyboardButton("¿Qué sucede si completo un set?", callback_data="help_faq_set")],
-            [InlineKeyboardButton("¿Qué sucede si completo una misión diaria?", callback_data="help_faq_mision")],
-            [InlineKeyboardButton("📋 Comandos", callback_data="help_comandos")]
-        ]
-        txt = "❓ <b>help - Preguntas frecuentes</b>\nSelecciona una pregunta o pulsa <b>Comandos</b> para ver la explicación de cada uno."
-    else:
-        faqs = [
-            [InlineKeyboardButton("What is Kponey money for?", callback_data="help_faq_kponey")],
-            [InlineKeyboardButton("What are gems for?", callback_data="help_faq_gemas")],
-            [InlineKeyboardButton("What happens if I complete a set?", callback_data="help_faq_set")],
-            [InlineKeyboardButton("What happens if I complete a daily mission?", callback_data="help_faq_mision")],
-            [InlineKeyboardButton("📋 Commands", callback_data="help_comandos")]
-        ]
-        txt = "❓ <b>help - Frequently Asked Questions</b>\nSelect a question or tap <b>Commands</b> to see each explanation."
+    faqs = [
+        [InlineKeyboardButton(t["faq_kponey"], callback_data="help_faq_kponey")],
+        [InlineKeyboardButton(t["faq_gemas"], callback_data="help_faq_gemas")],
+        [InlineKeyboardButton(t["faq_set"], callback_data="help_faq_set")],
+        [InlineKeyboardButton(t["faq_mision"], callback_data="help_faq_mision")],
+        [InlineKeyboardButton(t["commands_button"], callback_data="help_comandos")],
+        [InlineKeyboardButton(t["button_invite"], callback_data="menu_invitacion")],  # <-- ¡Aquí integras tu botón de invitación!
+        [InlineKeyboardButton(t["button_progress"], callback_data="menu_progress")],   # <-- ¡Y aquí el de progreso!
+    ]
 
     reply_markup = InlineKeyboardMarkup(faqs)
     context.bot.send_message(
         chat_id=update.message.chat_id,
-        text=txt,
+        text=t["help_title"],
         reply_markup=reply_markup,
         parse_mode="HTML"
     )
+
 
 
 
@@ -5330,7 +5481,9 @@ def comando_apodo(update, context):
         parse_mode="HTML"
     )
 
+
 dispatcher.add_handler(CallbackQueryHandler(callback_help, pattern=r"^help_"))
+dispatcher.add_handler(CallbackQueryHandler(callback_invitamenu, pattern="^menu_invitacion|menu_progress$"))
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback_album, pattern="^album_"))
 dispatcher.add_handler(CallbackQueryHandler(manejador_reclamar, pattern="^reclamar_"))
 dispatcher.add_handler(CallbackQueryHandler(callback_comprarobj, pattern="^comprarobj_"))
