@@ -1744,10 +1744,88 @@ def comando_topicid(update, context):
 
 @solo_en_tema_asignado("kkp")
 def comando_kkp(update, context):
+    user_id = update.message.from_user.id
+    texto, reply_markup, _ = get_kkp_menu(user_id, update)
+    update.message.reply_text(texto, parse_mode="HTML", reply_markup=reply_markup)
+
+def callback_kkp_notify(update, context):
+    query = update.callback_query
+    user_id = query.from_user.id
+
+    # Cambia el estado del aviso en base a la acción
+    toggled = None
+    if query.data == "kkp_notify_on":
+        col_usuarios.update_one({"user_id": user_id}, {"$set": {"notify_idolday": True}})
+        toggled = True
+    elif query.data == "kkp_notify_off":
+        col_usuarios.update_one({"user_id": user_id}, {"$set": {"notify_idolday": False}})
+        toggled = False
+
+    textos = t(user_id, update)
+    msg = (
+        textos["kkp_notify_toggled_on"] if toggled is True
+        else textos["kkp_notify_toggled_off"] if toggled is False
+        else "❓"
+    )
+    query.answer(msg, show_alert=True)
+
+    # Refresca el menú
+    texto, reply_markup, restante = get_kkp_menu(user_id, update)
+    try:
+        query.edit_message_text(text=texto, parse_mode="HTML", reply_markup=reply_markup)
+    except Exception as e:
+        # Si no se puede editar, manda uno nuevo
+        try:
+            context.bot.send_message(chat_id=user_id, text=texto, parse_mode="HTML", reply_markup=reply_markup)
+        except Exception as err:
+            print(f"[callback_kkp_notify] Error enviando mensaje nuevo: {err}")
+
+    # Agenda la notificación solo si se activa y hay cooldown pendiente
+    if toggled is True and restante > 0:
+        agendar_notificacion_idolday(user_id, restante, context)
+
+
+
+
+def agendar_notificacion_idolday(user_id, segundos, context):
+    def tarea():
+        try:
+            # Espera exactamente lo que falta (por seguridad, máximo 7 horas)
+            time.sleep(max(0, min(segundos, 7*3600)))
+            user_doc = col_usuarios.find_one({"user_id": user_id}) or {}
+            # Confirma que sigue activado
+            if not user_doc.get("notify_idolday"):
+                return
+            # Reconfirma cooldown terminado con margen de error <= 5s
+            last = user_doc.get("last_idolday")
+            now = time.time()
+            last_ts = 0
+            if last:
+                try:
+                    last_ts = last.timestamp() if hasattr(last, "timestamp") else float(last)
+                except Exception:
+                    pass
+            # Si aún no se cumplen las 6 horas (alguien reseteó su /idolday)
+            if now - last_ts < 6 * 3600 - 5:
+                return
+            lang = (user_doc.get("lang") or "en")[:2]
+            textos = translations.get(lang, translations["en"])
+            context.bot.send_message(
+                chat_id=user_id,
+                text=textos["kkp_notify_sent"],
+                parse_mode="HTML"
+            )
+            # Desactiva el aviso hasta que el usuario lo active otra vez
+            col_usuarios.update_one({"user_id": user_id}, {"$set": {"notify_idolday": False}})
+        except Exception as e:
+            print("[agendar_notificacion_idolday] Error:", e)
+    threading.Thread(target=tarea, daemon=True).start()
+
+
+def get_kkp_menu(user_id, update):
     from datetime import datetime, timedelta
     import time
 
-    user_id = update.message.from_user.id
     user_doc = col_usuarios.find_one({"user_id": user_id}) or {}
     misiones = user_doc.get("misiones", {})
     notif = user_doc.get("notify_idolday", False)
@@ -1800,7 +1878,6 @@ def comando_kkp(update, context):
     if falta_reset < 0:
         falta_reset = 0
 
-    # Mensaje visual estilo Karuta (ambas misiones)
     texto = "<b>⏰ Recordatorio KaruKpop</b>\n"
     texto += f"🎲 <b>/idolday</b>: "
     if restante > 0:
@@ -1808,15 +1885,12 @@ def comando_kkp(update, context):
     else:
         texto += "<b>¡Disponible ahora!</b>\n"
 
-    # ---- Progreso misiones ----
     texto += "📝 <b>Misiones diarias:</b>\n"
-    # Primer drop
     if primer_drop_done:
         texto += "✔️ Primer drop del día: <b>¡Completada! (+50 Kponey)</b>\n"
     else:
         texto += "🔸 Primer drop del día: <b>Pendiente</b> (Haz tu primer /idolday hoy)\n"
 
-    # Tres drops
     texto += f"🔹 3 drops hoy: <b>{idolday_hoy}</b>/3"
     if idolday_hoy >= 3:
         texto += "  ✅ <b>¡Completada! (+150 Kponey)</b>\n"
@@ -1834,67 +1908,7 @@ def comando_kkp(update, context):
         boton = InlineKeyboardButton(textos["kkp_notify_enable"], callback_data="kkp_notify_on")
     reply_markup = InlineKeyboardMarkup([[boton]])
 
-    update.message.reply_text(texto, parse_mode="HTML", reply_markup=reply_markup)
-
-
-def callback_kkp_notify(update, context):
-    query = update.callback_query
-    user_id = query.from_user.id
-    user_doc = col_usuarios.find_one({"user_id": user_id}) or {}
-    notif = user_doc.get("notify_idolday", False)
-    textos = t(user_id, update)
-
-    if query.data == "kkp_notify_on":
-        col_usuarios.update_one({"user_id": user_id}, {"$set": {"notify_idolday": True}})
-        msg = textos["kkp_notify_toggled_on"]
-    elif query.data == "kkp_notify_off":
-        col_usuarios.update_one({"user_id": user_id}, {"$set": {"notify_idolday": False}})
-        msg = textos["kkp_notify_toggled_off"]
-    else:
-        msg = "❓"
-
-    query.answer(msg, show_alert=True)
-    # Refresca el menú de /kkp (puedes recargarlo entero si quieres)
-    context.bot.delete_message(chat_id=query.message.chat_id, message_id=query.message.message_id)
-    # O simplemente manda /kkp de nuevo, para actualizar el botón y estado
-    fake_update = update
-    fake_update.message = query.message  # hack para que funcione igual que update.message
-    comando_kkp(fake_update, context)
-
-
-def agendar_notificacion_idolday(user_id, segundos, context):
-    def tarea():
-        try:
-            time.sleep(segundos)
-            user_doc = col_usuarios.find_one({"user_id": user_id}) or {}
-            # Confirma que sigue activado
-            if not user_doc.get("notify_idolday"):
-                return
-            # Reconfirma cooldown terminado
-            last = user_doc.get("last_idolday")
-            now = time.time()
-            last_ts = 0
-            if last:
-                try:
-                    last_ts = last.timestamp() if hasattr(last, "timestamp") else float(last)
-                except Exception:
-                    pass
-            if now - last_ts < 6 * 3600 - 5:
-                return
-            lang = (user_doc.get("lang") or "en")[:2]
-            textos = translations.get(lang, translations["en"])
-            context.bot.send_message(
-                chat_id=user_id,
-                text=textos["kkp_notify_sent"],
-                parse_mode="HTML"
-            )
-            # Desactiva el aviso hasta que el usuario lo active otra vez
-            col_usuarios.update_one({"user_id": user_id}, {"$set": {"notify_idolday": False}})
-        except Exception as e:
-            print("[agendar_notificacion_idolday] Error:", e)
-    threading.Thread(target=tarea, daemon=True).start()
-
-
+    return texto, reply_markup, restante
 
 
 
