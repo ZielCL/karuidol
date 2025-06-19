@@ -1752,12 +1752,21 @@ def callback_kkp_notify(update, context):
     query = update.callback_query
     user_id = query.from_user.id
 
-    # Cambia el estado del aviso en base a la acción
+    # Extrae acción y dueño del botón
+    parts = query.data.split("|")
+    action = parts[0]
+    owner_id = int(parts[1]) if len(parts) > 1 else None
+
+    # Solo permite que el dueño del menú use el botón
+    if user_id != owner_id:
+        query.answer("Solo puedes usar este botón desde tu propio menú /kkp.", show_alert=True)
+        return
+
     toggled = None
-    if query.data == "kkp_notify_on":
+    if action == "kkp_notify_on":
         col_usuarios.update_one({"user_id": user_id}, {"$set": {"notify_idolday": True}})
         toggled = True
-    elif query.data == "kkp_notify_off":
+    elif action == "kkp_notify_off":
         col_usuarios.update_one({"user_id": user_id}, {"$set": {"notify_idolday": False}})
         toggled = False
 
@@ -1774,15 +1783,14 @@ def callback_kkp_notify(update, context):
     try:
         query.edit_message_text(text=texto, parse_mode="HTML", reply_markup=reply_markup)
     except Exception as e:
-        # Si no se puede editar, manda uno nuevo
         try:
             context.bot.send_message(chat_id=user_id, text=texto, parse_mode="HTML", reply_markup=reply_markup)
         except Exception as err:
             print(f"[callback_kkp_notify] Error enviando mensaje nuevo: {err}")
 
-    # Agenda la notificación solo si se activa y hay cooldown pendiente
     if toggled is True and restante > 0:
         agendar_notificacion_idolday(user_id, restante, context)
+
 
 
 
@@ -1899,16 +1907,23 @@ def get_kkp_menu(user_id, update):
 
     texto += f"⏳ Tiempo restante para resetear misiones: <b>{format_tiempo(falta_reset)}</b>\n\n"
 
-    # --- Estado del aviso y botón ---
+    # --- Estado del aviso y botón SOLO PARA ESE USUARIO ---
     if notif:
         texto += textos["kkp_notify_on"]
-        boton = InlineKeyboardButton(textos["kkp_notify_disable"], callback_data="kkp_notify_off")
+        boton = InlineKeyboardButton(
+            textos["kkp_notify_disable"], 
+            callback_data=f"kkp_notify_off|{user_id}"
+        )
     else:
         texto += textos["kkp_notify_off"]
-        boton = InlineKeyboardButton(textos["kkp_notify_enable"], callback_data="kkp_notify_on")
+        boton = InlineKeyboardButton(
+            textos["kkp_notify_enable"], 
+            callback_data=f"kkp_notify_on|{user_id}"
+        )
     reply_markup = InlineKeyboardMarkup([[boton]])
 
     return texto, reply_markup, restante
+
 
 
 
