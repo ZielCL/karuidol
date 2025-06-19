@@ -1540,6 +1540,11 @@ def comando_idolday(update, context):
             upsert=True
         )
         actualiza_mision_diaria(user_id, context)
+        # --- Agendar notificación si corresponde ---
+        user_doc = col_usuarios.find_one({"user_id": user_id}) or {}
+        restante = 6 * 3600  # 6 horas en segundos
+        if user_doc.get("notify_idolday"):
+            agendar_notificacion_idolday(user_id, restante, context)
     elif bono_listo:
         objetos = user_doc.get('objetos', {})
         bonos_inventario = objetos.get('bono_idolday', 0)
@@ -1599,6 +1604,7 @@ def comando_idolday(update, context):
 
     # --- Actualiza el cooldown global ---
     COOLDOWN_GRUPO[chat_id] = ahora_ts
+
 
     # SOLO cartas en estado "Excelente estado"
     cartas_excelentes = [c for c in cartas if c.get("estado") == "Excelente estado"]
