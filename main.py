@@ -5416,7 +5416,7 @@ def comando_apodo(update, context):
         parse_mode="HTML"
     )
 
-
+dispatcher.add_handler(CallbackQueryHandler(callback_kkp_notify, pattern="^kkp_notify_"))
 dispatcher.add_handler(CallbackQueryHandler(callback_help, pattern=r"^help_"))
 dispatcher.add_handler(CallbackQueryHandler(callback_invitamenu, pattern="^menu_invitacion|menu_progress$"))
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback_album, pattern="^album_"))
