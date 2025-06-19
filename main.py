@@ -1739,10 +1739,6 @@ def comando_topicid(update, context):
 
 
 
-
-
-
-@solo_en_tema_asignado("kkp")
 def comando_kkp(update, context):
     user_id = update.message.from_user.id
     texto, reply_markup, _ = get_kkp_menu(user_id, update)
