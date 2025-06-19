@@ -45,6 +45,14 @@ translations = {
         "button_invite": "🌟 Consigue tu enlace de invitación",
         "button_progress": "👀 Ver mi progreso",
         "invite_error": "Ocurrió un error. Intenta de nuevo más tarde.",
+                # ...otros textos...
+        "kkp_notify_enable": "🔔 Aviso cuando termine el cooldown de /idolday",
+        "kkp_notify_disable": "🚫 No avisar cuando termine el cooldown",
+        "kkp_notify_on": "🔔 Recibir aviso cuando termine el cooldown: <b>ACTIVADO</b>",
+        "kkp_notify_off": "🔔 Recibir aviso cuando termine el cooldown: <b>DESACTIVADO</b>",
+        "kkp_notify_sent": "⏰ ¡Ya puedes volver a usar <b>/idolday</b>! ¡No olvides dropear cartas en el grupo! 🌸",
+        "kkp_notify_toggled_on": "Ahora recibirás un aviso cuando termine el cooldown de /idolday.",
+        "kkp_notify_toggled_off": "No recibirás más avisos cuando termine el cooldown de /idolday.",
     },
 
     "en": {
@@ -93,5 +101,13 @@ translations = {
         "button_invite": "🌟 Get my invite link",
         "button_progress": "👀 See my progress",
         "invite_error": "An error occurred. Please try again later.",
+        # ...other texts...
+        "kkp_notify_enable": "🔔 Notify me when /idolday cooldown ends",
+        "kkp_notify_disable": "🚫 Don’t notify me when cooldown ends",
+        "kkp_notify_on": "🔔 Notify when cooldown ends: <b>ON</b>",
+        "kkp_notify_off": "🔔 Notify when cooldown ends: <b>OFF</b>",
+        "kkp_notify_sent": "⏰ You can use <b>/idolday</b> again! Don’t forget to drop your cards in the group! 🌸",
+        "kkp_notify_toggled_on": "You will now be notified when your /idolday cooldown ends.",
+        "kkp_notify_toggled_off": "You will no longer be notified when your /idolday cooldown ends.",
     }
 }
