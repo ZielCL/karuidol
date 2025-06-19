@@ -1744,6 +1744,8 @@ def comando_kkp(update, context):
     user_id = update.message.from_user.id
     user_doc = col_usuarios.find_one({"user_id": user_id}) or {}
     misiones = user_doc.get("misiones", {})
+    notif = user_doc.get("notify_idolday", False)
+    textos = t(user_id, update)
 
     # Cooldown /idolday (6 horas)
     last_idolday = user_doc.get("last_idolday")
@@ -1815,13 +1817,76 @@ def comando_kkp(update, context):
     else:
         texto += "\n"
 
-    texto += f"⏳ Tiempo restante para resetear misiones: <b>{format_tiempo(falta_reset)}</b>\n"
+    texto += f"⏳ Tiempo restante para resetear misiones: <b>{format_tiempo(falta_reset)}</b>\n\n"
 
-    update.message.reply_text(texto, parse_mode="HTML")
+    # --- Estado del aviso y botón ---
+    if notif:
+        texto += textos["kkp_notify_on"]
+        boton = InlineKeyboardButton(textos["kkp_notify_disable"], callback_data="kkp_notify_off")
+    else:
+        texto += textos["kkp_notify_off"]
+        boton = InlineKeyboardButton(textos["kkp_notify_enable"], callback_data="kkp_notify_on")
+    reply_markup = InlineKeyboardMarkup([[boton]])
+
+    update.message.reply_text(texto, parse_mode="HTML", reply_markup=reply_markup)
 
 
+def callback_kkp_notify(update, context):
+    query = update.callback_query
+    user_id = query.from_user.id
+    user_doc = col_usuarios.find_one({"user_id": user_id}) or {}
+    notif = user_doc.get("notify_idolday", False)
+    textos = t(user_id, update)
+
+    if query.data == "kkp_notify_on":
+        col_usuarios.update_one({"user_id": user_id}, {"$set": {"notify_idolday": True}})
+        msg = textos["kkp_notify_toggled_on"]
+    elif query.data == "kkp_notify_off":
+        col_usuarios.update_one({"user_id": user_id}, {"$set": {"notify_idolday": False}})
+        msg = textos["kkp_notify_toggled_off"]
+    else:
+        msg = "❓"
+
+    query.answer(msg, show_alert=True)
+    # Refresca el menú de /kkp (puedes recargarlo entero si quieres)
+    context.bot.delete_message(chat_id=query.message.chat_id, message_id=query.message.message_id)
+    # O simplemente manda /kkp de nuevo, para actualizar el botón y estado
+    fake_update = update
+    fake_update.message = query.message  # hack para que funcione igual que update.message
+    comando_kkp(fake_update, context)
 
 
+def agendar_notificacion_idolday(user_id, segundos, context):
+    def tarea():
+        try:
+            time.sleep(segundos)
+            user_doc = col_usuarios.find_one({"user_id": user_id}) or {}
+            # Confirma que sigue activado
+            if not user_doc.get("notify_idolday"):
+                return
+            # Reconfirma cooldown terminado
+            last = user_doc.get("last_idolday")
+            now = time.time()
+            last_ts = 0
+            if last:
+                try:
+                    last_ts = last.timestamp() if hasattr(last, "timestamp") else float(last)
+                except Exception:
+                    pass
+            if now - last_ts < 6 * 3600 - 5:
+                return
+            lang = (user_doc.get("lang") or "en")[:2]
+            textos = translations.get(lang, translations["en"])
+            context.bot.send_message(
+                chat_id=user_id,
+                text=textos["kkp_notify_sent"],
+                parse_mode="HTML"
+            )
+            # Desactiva el aviso hasta que el usuario lo active otra vez
+            col_usuarios.update_one({"user_id": user_id}, {"$set": {"notify_idolday": False}})
+        except Exception as e:
+            print("[agendar_notificacion_idolday] Error:", e)
+    threading.Thread(target=tarea, daemon=True).start()
 
 
 
