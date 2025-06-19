@@ -843,7 +843,6 @@ def manejador_tienda_paypal(update, context):
     _, _, pack, amount = data.split("_")
     amount = float(amount)
 
-    # Llama a tu backend para crear la orden de PayPal
     import requests
     try:
         resp = requests.post(
@@ -858,18 +857,35 @@ def manejador_tienda_paypal(update, context):
         if resp.ok:
             url = resp.json().get("url")
             if url:
-                query.answer()
-                query.edit_message_text(
-                    f"🔗 Haz clic aquí para pagar tu pack de gemas:\n\n<a href='{url}'>Pagar con PayPal</a>\n\n"
-                    "Cuando el pago esté confirmado recibirás las gemas automáticamente.",
-                    parse_mode="HTML", disable_web_page_preview=True
-                )
+                # 1. Alerta solo para el usuario (no se edita el mensaje)
+                query.answer("¡Revisa tu chat privado con el bot!", show_alert=True)
+                # 2. Envía el mensaje PRIVADO con el enlace de pago
+                try:
+                    context.bot.send_message(
+                        chat_id=user_id,
+                        text=(
+                            f"🔗 <b>Pago de Gemas KaruKpop</b>\n\n"
+                            f"Pack: <b>{pack}</b>\n"
+                            f"Monto: <b>USD ${amount:.2f}</b>\n\n"
+                            f"<a href='{url}'>Haz clic aquí para pagar con PayPal</a>\n\n"
+                            "Cuando el pago esté confirmado, recibirás las gemas automáticamente."
+                        ),
+                        parse_mode="HTML",
+                        disable_web_page_preview=True
+                    )
+                except Exception:
+                    # No pudo mandar mensaje privado
+                    query.answer(
+                        "No pude enviarte el link. Debes iniciar el chat privado con @karukpop_bot para recibir el enlace de pago.",
+                        show_alert=True
+                    )
             else:
                 query.answer("No se pudo generar el enlace de pago.", show_alert=True)
         else:
             query.answer("Error al conectar con PayPal.", show_alert=True)
     except Exception as e:
         query.answer("Fallo al generar enlace de pago.", show_alert=True)
+
 
 
 
