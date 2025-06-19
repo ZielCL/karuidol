@@ -248,6 +248,48 @@ def solo_en_tema_asignado(comando):
 
 
 
+def en_tema_asignado_o_privado(comando):
+    def decorator(func):
+        @wraps(func)
+        def wrapper(update, context, *args, **kwargs):
+            chat = update.effective_chat
+            chat_id = chat.id if chat else None
+
+            # Permitir siempre si es chat privado
+            if chat and chat.type == "private":
+                return func(update, context, *args, **kwargs)
+
+            # Permitir solo en el tema asignado
+            tema_asignado = col_temas_comandos.find_one({"chat_id": chat_id, "comando": comando})
+            threads_permitidos = set()
+            if tema_asignado:
+                if "thread_ids" in tema_asignado:
+                    threads_permitidos = {str(tid) for tid in tema_asignado["thread_ids"]}
+                elif "thread_id" in tema_asignado:
+                    threads_permitidos = {str(tema_asignado["thread_id"])}
+            thread_id_actual = None
+            if getattr(update, 'message', None):
+                thread_id_actual = str(getattr(update.message, "message_thread_id", None))
+            elif getattr(update, 'callback_query', None):
+                thread_id_actual = str(getattr(update.callback_query.message, "message_thread_id", None))
+
+            if thread_id_actual in threads_permitidos:
+                return func(update, context, *args, **kwargs)
+
+            # Si no está permitido, elimina o muestra alerta (opcional)
+            try:
+                if getattr(update, 'message', None):
+                    update.message.delete()
+                elif getattr(update, 'callback_query', None):
+                    update.callback_query.answer(
+                        "❌ Solo disponible en su tema asignado o en privado.", show_alert=True
+                    )
+            except Exception:
+                pass
+            return
+        return wrapper
+    return decorator
+
 
 
 
@@ -1738,7 +1780,7 @@ def comando_topicid(update, context):
     update.message.reply_text(f"Thread ID de este tema: <code>{topic_id}</code>", parse_mode="HTML")
 
 
-
+@en_tema_asignado_o_privado("kkp")
 def comando_kkp(update, context):
     user_id = update.message.from_user.id
     texto, reply_markup, _ = get_kkp_menu(user_id, update)
