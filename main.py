@@ -1598,13 +1598,27 @@ def comando_idolday(update, context):
             upsert=True
         )
         actualiza_mision_diaria(user_id, context)
-        # --- Agendar notificación si corresponde ---
+
+    # --- Agendar recordatorio si el usuario lo tiene activado ---
         user_doc = col_usuarios.find_one({"user_id": user_id}) or {}
-        restante = 6 * 3600  # 6 horas en segundos
-        if user_doc.get("notify_idolday"):
+        last_idolday = user_doc.get("last_idolday")
+        ahora_ts = time.time()
+        if last_idolday:
+            if hasattr(last_idolday, "timestamp"):
+                last_ts = last_idolday.timestamp()
+                else:
+                try:
+                    last_ts = float(last_idolday)
+                except Exception:
+                    last_ts = ahora_ts
+            restante = max(0, 6 * 3600 - (ahora_ts - last_ts))
+        else:
+            restante = 0
+        if user_doc.get("notify_idolday") and restante > 0:
             agendar_notificacion_idolday(user_id, restante, context)
+
     elif bono_listo:
-        objetos = user_doc.get('objetos', {})
+           objetos = user_doc.get('objetos', {})
         bonos_inventario = objetos.get('bono_idolday', 0)
         if bonos_inventario and bonos_inventario > 0:
             col_usuarios.update_one(
@@ -1796,6 +1810,11 @@ def comando_topicid(update, context):
     update.message.reply_text(f"Thread ID de este tema: <code>{topic_id}</code>", parse_mode="HTML")
 
 
+
+
+
+
+
 @en_tema_asignado_o_privado("kkp")
 def comando_kkp(update, context):
     user_id = update.message.from_user.id
@@ -1852,13 +1871,10 @@ def callback_kkp_notify(update, context):
 def agendar_notificacion_idolday(user_id, segundos, context):
     def tarea():
         try:
-            # Espera exactamente lo que falta (por seguridad, máximo 7 horas)
             time.sleep(max(0, min(segundos, 7*3600)))
             user_doc = col_usuarios.find_one({"user_id": user_id}) or {}
-            # Confirma que sigue activado
             if not user_doc.get("notify_idolday"):
                 return
-            # Reconfirma cooldown terminado con margen de error <= 5s
             last = user_doc.get("last_idolday")
             now = time.time()
             last_ts = 0
@@ -1867,7 +1883,6 @@ def agendar_notificacion_idolday(user_id, segundos, context):
                     last_ts = last.timestamp() if hasattr(last, "timestamp") else float(last)
                 except Exception:
                     pass
-            # Si aún no se cumplen las 6 horas (alguien reseteó su /idolday)
             if now - last_ts < 6 * 3600 - 5:
                 return
             lang = (user_doc.get("lang") or "en")[:2]
@@ -1877,11 +1892,11 @@ def agendar_notificacion_idolday(user_id, segundos, context):
                 text=textos["kkp_notify_sent"],
                 parse_mode="HTML"
             )
-            # Desactiva el aviso hasta que el usuario lo active otra vez
-            col_usuarios.update_one({"user_id": user_id}, {"$set": {"notify_idolday": False}})
+            # YA NO se desactiva el flag aquí
         except Exception as e:
             print("[agendar_notificacion_idolday] Error:", e)
     threading.Thread(target=tarea, daemon=True).start()
+
 
 
 def get_kkp_menu(user_id, update):
