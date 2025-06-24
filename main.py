@@ -1599,14 +1599,14 @@ def comando_idolday(update, context):
         )
         actualiza_mision_diaria(user_id, context)
 
-    # --- Agendar recordatorio si el usuario lo tiene activado ---
+        # --- Agendar recordatorio si el usuario lo tiene activado ---
         user_doc = col_usuarios.find_one({"user_id": user_id}) or {}
         last_idolday = user_doc.get("last_idolday")
         ahora_ts = time.time()
         if last_idolday:
             if hasattr(last_idolday, "timestamp"):
                 last_ts = last_idolday.timestamp()
-                else:
+            else:
                 try:
                     last_ts = float(last_idolday)
                 except Exception:
@@ -1618,7 +1618,7 @@ def comando_idolday(update, context):
             agendar_notificacion_idolday(user_id, restante, context)
 
     elif bono_listo:
-           objetos = user_doc.get('objetos', {})
+        objetos = user_doc.get('objetos', {})
         bonos_inventario = objetos.get('bono_idolday', 0)
         if bonos_inventario and bonos_inventario > 0:
             col_usuarios.update_one(
