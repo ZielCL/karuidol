@@ -375,26 +375,18 @@ def mensaje_tutorial_privado(update, context):
 #----------PAYPALAPP-------------------
 
 
-# Pon aquí tus credenciales de PayPal sandbox
-PAYPAL_CLIENT_ID = os.getenv("PAYPAL_CLIENT_ID")
-PAYPAL_CLIENT_SECRET = os.getenv("PAYPAL_CLIENT_SECRET")
-
-app = Flask(__name__)
-
-# ==== Helper: Obtener token de acceso OAuth2 de PayPal ====
 def get_paypal_token():
     url = "https://api-m.paypal.com/v1/oauth2/token"
     resp = requests.post(url, auth=(PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET), data={"grant_type": "client_credentials"})
     resp.raise_for_status()
     return resp.json()["access_token"]
 
-# ==== Endpoint para crear una orden de pago ====
 @app.route("/paypal/create_order", methods=["POST"])
 def create_order():
     data = request.json
     user_id = data["user_id"]
-    pack_gemas = data["pack"]  # Ej: "x100"
-    amount = data["amount"]    # Ej: 1.99
+    pack_gemas = data["pack"]
+    amount = data["amount"]
 
     access_token = get_paypal_token()
     headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
@@ -404,45 +396,33 @@ def create_order():
         "purchase_units": [{
             "reference_id": f"user_{user_id}_{pack_gemas}",
             "amount": {"currency_code": "USD", "value": str(amount)},
-            "custom_id": str(user_id)  # Así asocias el pago al user_id de Telegram
+            "custom_id": str(user_id)
         }],
         "application_context": {
-            "return_url": "https://karuidol.onrender.com/paypal/return",   # Cambia por tu url
-            "cancel_url": "https://karuidol.onrender.com/paypal/cancel"    # Cambia por tu url
+            "return_url": "https://karuidol.onrender.com/paypal/return",
+            "cancel_url": "https://karuidol.onrender.com/paypal/cancel"
         }
     }
 
-    # AQUÍ EL ENDPOINT DE PRODUCCIÓN (NO SANDBOX)
     resp = requests.post("https://api-m.paypal.com/v2/checkout/orders", headers=headers, json=order_data)
     resp.raise_for_status()
     order = resp.json()
-    # Devuelve el link para redirigir al usuario a PayPal
     for link in order["links"]:
         if link["rel"] == "approve":
             return jsonify({"url": link["href"], "order_id": order["id"]})
     return "No approve link", 400
 
-# ==== Endpoint para el webhook de PayPal (tienes que registrarlo en developer.paypal.com) ====
-
-
-# --- Configuración ---
-ADMIN_USER_ID = 1111798714  # <-- Cambia por tu user_id real de Telegram
-
-# --- WEBHOOK PAYPAL: Suma gemas, guarda historial y notifica usuario y admin ---
 @app.route("/paypal/webhook", methods=["POST"])
 def paypal_webhook():
     data = request.json
     print("Webhook recibido:", data)
-
     if data.get("event_type") == "PAYMENT.CAPTURE.COMPLETED":
         resource = data["resource"]
         try:
-            # 1. Extraer user_id (custom_id) y monto
             user_id = int(resource["custom_id"])
             amount = resource["amount"]["value"]
-            pago_id = resource.get("id")  # ID único del pago
+            pago_id = resource.get("id")
 
-            # 2. Mapear monto a gemas (ajusta según tus precios reales)
             gemas_por_monto = {
                 "1.00": 50,
                 "2.00": 100,
@@ -456,19 +436,15 @@ def paypal_webhook():
                 print(f"❌ Monto no reconocido: {amount} USD")
                 return "", 200
 
-            # 3. Previene doble entrega
             if db.historial_compras_gemas.find_one({"pago_id": pago_id}):
                 print("Ya entregado previamente.")
                 return "", 200
 
-            # 4. Suma gemas
             col_usuarios.update_one(
                 {"user_id": user_id},
                 {"$inc": {"gemas": cantidad_gemas}},
                 upsert=True
             )
-
-            # 5. Guarda historial
             db.historial_compras_gemas.insert_one({
                 "pago_id": pago_id,
                 "user_id": user_id,
@@ -477,7 +453,6 @@ def paypal_webhook():
                 "fecha": datetime.utcnow()
             })
 
-            # 6. Notifica al usuario
             try:
                 bot.send_message(
                     chat_id=user_id,
@@ -486,7 +461,6 @@ def paypal_webhook():
             except Exception as e:
                 print("No se pudo notificar al usuario:", e)
 
-            # 7. Notifica al admin
             try:
                 bot.send_message(
                     chat_id=ADMIN_USER_ID,
@@ -501,7 +475,6 @@ def paypal_webhook():
             print("❌ Error en webhook:", e)
     return "", 200
 
-# --- ENDPOINT DE RETORNO DESPUÉS DE PAGAR ---
 @app.route("/paypal/return")
 def paypal_return():
     return "¡Gracias por tu compra! Puedes volver a Telegram."
@@ -509,6 +482,7 @@ def paypal_return():
 @app.route("/paypal/cancel")
 def paypal_cancel():
     return "Pago cancelado."
+
 
 
 
