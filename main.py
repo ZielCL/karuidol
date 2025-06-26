@@ -478,12 +478,29 @@ def paypal_webhook():
 
 @app.route("/paypal/return")
 def paypal_return():
-    return "¡Gracias por tu compra! Puedes volver a Telegram."
+    order_id = request.args.get("token")
+    if not order_id:
+        return "Error: No se recibió el order_id de PayPal."
+    try:
+        access_token = get_paypal_token()
+        headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
+        # CAPTURA la orden al volver del pago
+        resp = requests.post(
+            f"https://api-m.paypal.com/v2/checkout/orders/{order_id}/capture",
+            headers=headers
+        )
+        resp.raise_for_status()
+        print("[PayPal] Orden capturada correctamente:", resp.json())
+        return "¡Gracias por tu compra! Puedes volver a Telegram."
+    except Exception as e:
+        print("[PayPal] Error capturando orden:", e)
+        return "Hubo un error al procesar tu pago. Contacta soporte."
 
 @app.route("/paypal/cancel")
 def paypal_cancel():
     return "Pago cancelado."
 
+   
 
 
 
