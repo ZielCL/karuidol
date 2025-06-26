@@ -373,7 +373,8 @@ def mensaje_tutorial_privado(update, context):
 
 
 #----------PAYPALAPP-------------------
-
+PAYPAL_CLIENT_ID = os.environ.get("PAYPAL_CLIENT_ID")
+PAYPAL_CLIENT_SECRET = os.environ.get("PAYPAL_CLIENT_SECRET")
 
 def get_paypal_token():
     url = "https://api-m.paypal.com/v1/oauth2/token"
