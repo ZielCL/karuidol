@@ -382,6 +382,26 @@ def get_paypal_token():
     resp.raise_for_status()
     return resp.json()["access_token"]
 
+# Helper para buscar gemas por monto tolerando formatos
+def buscar_gemas(monto):
+    montos_validos = {
+        "1.00": 50, "1": 50, 1: 50, 1.00: 50,
+        "2.00": 100, "2": 100, 2: 100, 2.00: 100,
+        "8.00": 500, "8": 500, 8: 500, 8.00: 500,
+        "13.00": 1000, "13": 1000, 13: 1000, 13.00: 1000,
+        "60.00": 5000, "60": 5000, 60: 5000, 60.00: 5000,
+        "100.00": 10000, "100": 10000, 100: 10000, 100.00: 10000
+    }
+    if monto in montos_validos:
+        return montos_validos[monto]
+    try:
+        return montos_validos[str(monto)]
+    except:
+        try:
+            return montos_validos[float(monto)]
+        except:
+            return None
+
 @app.route("/paypal/create_order", methods=["POST"])
 def create_order():
     data = request.json
@@ -420,27 +440,20 @@ def paypal_webhook():
     if data.get("event_type") == "PAYMENT.CAPTURE.COMPLETED":
         resource = data["resource"]
         try:
-            user_id = int(resource["custom_id"])
+            user_id = int(resource.get("custom_id", 0))
             amount = resource["amount"]["value"]
             pago_id = resource.get("id")
-
-            gemas_por_monto = {
-                "1.00": 50,
-                "2.00": 100,
-                "8.00": 500,
-                "13.00": 1000,
-                "60.00": 5000,
-                "100.00": 10000
-            }
-            cantidad_gemas = gemas_por_monto.get(str(amount))
+            cantidad_gemas = buscar_gemas(amount)
             if not cantidad_gemas:
                 print(f"❌ Monto no reconocido: {amount} USD")
                 return "", 200
 
+            # Previene doble entrega
             if db.historial_compras_gemas.find_one({"pago_id": pago_id}):
                 print("Ya entregado previamente.")
                 return "", 200
 
+            # Entrega gemas
             col_usuarios.update_one(
                 {"user_id": user_id},
                 {"$inc": {"gemas": cantidad_gemas}},
@@ -484,13 +497,15 @@ def paypal_return():
     try:
         access_token = get_paypal_token()
         headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
-        # CAPTURA la orden al volver del pago
+        # CAPTURA la orden al volver del pago (solo si no fue capturada antes)
         resp = requests.post(
             f"https://api-m.paypal.com/v2/checkout/orders/{order_id}/capture",
             headers=headers
         )
-        resp.raise_for_status()
-        print("[PayPal] Orden capturada correctamente:", resp.json())
+        if resp.ok:
+            print("[PayPal] Orden capturada correctamente:", resp.json())
+        else:
+            print("[PayPal] Orden ya estaba capturada o falló:", resp.text)
         return "¡Gracias por tu compra! Puedes volver a Telegram."
     except Exception as e:
         print("[PayPal] Error capturando orden:", e)
@@ -499,6 +514,7 @@ def paypal_return():
 @app.route("/paypal/cancel")
 def paypal_cancel():
     return "Pago cancelado."
+
 
    
 
