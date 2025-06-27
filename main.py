@@ -3886,27 +3886,65 @@ def comando_miid(update, context):
 def comando_bonoidolday(update, context):
     user_id = update.message.from_user.id
     chat = update.effective_chat
+
     if chat.type not in ["group", "supergroup"]:
         update.message.reply_text("Este comando solo puede usarse en grupos.")
         return
     if not es_admin(update):
         update.message.reply_text("Solo los administradores pueden usar este comando.")
         return
-    args = context.args
-    if len(args) != 2:
-        update.message.reply_text("Uso: /bonoidolday <user_id> <cantidad>")
-        return
-    try:
-        dest_id = int(args[0])
-        cantidad = int(args[1])
-        if cantidad < 1:
-            update.message.reply_text("La cantidad debe ser mayor que 0.")
+
+    # 1. Si es respuesta a un mensaje, toma ese usuario como destino
+    if update.message.reply_to_message:
+        dest_user = update.message.reply_to_message.from_user
+        dest_id = dest_user.id
+        # Toma cantidad desde el argumento, si existe
+        args = context.args
+        if len(args) != 1:
+            update.message.reply_text("Uso: responde a un mensaje y pon: /bonoidolday <cantidad>")
             return
-    except:
-        update.message.reply_text("Uso: /bonoidolday <user_id> <cantidad>")
-        return
+        try:
+            cantidad = int(args[0])
+            if cantidad < 1:
+                update.message.reply_text("La cantidad debe ser mayor que 0.")
+                return
+        except:
+            update.message.reply_text("Uso: responde a un mensaje y pon: /bonoidolday <cantidad>")
+            return
+    else:
+        # Modo clásico: /bonoidolday <user_id> <cantidad>
+        args = context.args
+        if len(args) != 2:
+            update.message.reply_text("Uso: /bonoidolday <user_id> <cantidad>")
+            return
+        try:
+            dest_id = int(args[0])
+            cantidad = int(args[1])
+            if cantidad < 1:
+                update.message.reply_text("La cantidad debe ser mayor que 0.")
+                return
+        except:
+            update.message.reply_text("Uso: /bonoidolday <user_id> <cantidad>")
+            return
+
+    # Suma el bono
     col_usuarios.update_one({"user_id": dest_id}, {"$inc": {"bono": cantidad}}, upsert=True)
-    update.message.reply_text(f"✅ Bono de {cantidad} tiradas de /idolday entregado a <code>{dest_id}</code>.", parse_mode='HTML')
+
+    # Busca username si existe
+    usuario = col_usuarios.find_one({"user_id": dest_id}) or {}
+    username = usuario.get("username")
+    if username:
+        mencion = f"@{username}"
+    else:
+        mencion = f"<code>{dest_id}</code>"
+
+    # Responde mencionando y respondiendo al mensaje original si aplica
+    update.message.reply_text(
+        f"✅ Bono de {cantidad} tiradas de /idolday entregado a {mencion}.",
+        parse_mode='HTML',
+        reply_to_message_id=update.message.reply_to_message.message_id if update.message.reply_to_message else None
+    )
+
 
 @log_command
 @solo_en_tema_asignado("ampliar")
