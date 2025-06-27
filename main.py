@@ -5588,9 +5588,17 @@ dispatcher.add_handler(CommandHandler('mejorar', comando_mejorar))
 dispatcher.add_handler(MessageHandler(Filters.all, borrar_mensajes_no_idolday), group=99)
 
 
+
+
 @app.route("/", methods=["GET"])
 def home():
     return "Bot activo."
+
+@app.route(f"/{TOKEN}", methods=["POST"])
+def telegram_webhook():
+    update = Update.de_json(request.get_json(force=True), bot)
+    dispatcher.process_update(update)
+    return "OK"
 
 if __name__ == '__main__':
     puerto = int(os.environ.get('PORT', 5000))
