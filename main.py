@@ -440,7 +440,11 @@ def paypal_webhook():
     if data.get("event_type") == "PAYMENT.CAPTURE.COMPLETED":
         resource = data["resource"]
         try:
-            user_id = int(resource.get("custom_id", 0))
+            custom_id = resource.get("custom_id", "")
+            if not str(custom_id).isdigit():
+                print(f"❌ custom_id no es numérico (ignorado): {custom_id}")
+                return "", 200
+            user_id = int(custom_id)
             amount = resource["amount"]["value"]
             pago_id = resource.get("id")
             cantidad_gemas = buscar_gemas(amount)
@@ -488,6 +492,7 @@ def paypal_webhook():
         except Exception as e:
             print("❌ Error en webhook:", e)
     return "", 200
+
 
 @app.route("/paypal/return")
 def paypal_return():
