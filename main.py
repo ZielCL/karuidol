@@ -520,7 +520,6 @@ def paypal_cancel():
 
 
 
-
 def actualizar_mision_diaria_idolday(user_id, context):
     """
     Suma el contador de drops de misión diaria y da recompensa SOLO si corresponde.
