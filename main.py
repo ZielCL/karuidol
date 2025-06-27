@@ -3104,7 +3104,7 @@ def comando_mejorar(update, context):
 
 
 
-
+@en_tema_asignado_o_privado("inventario")
 @solo_en_tema_asignado("inventario")
 @cooldown_critico
 def comando_inventario(update, context):
@@ -3409,6 +3409,7 @@ def mostrar_menu_grupos(user_id, pagina, grupos, thread_id=None):
 
 
 #----------Comando FAV1---------------
+@en_tema_asignado_o_privado("favoritos")
 @solo_en_tema_asignado("favoritos")
 @cooldown_critico
 def comando_favoritos(update, context):
@@ -3746,6 +3747,7 @@ def comando_retirar(update, context):
 
 
 #---------Dinero del bot------------
+@en_tema_asignado_o_privado("saldo")
 @solo_en_tema_asignado("saldo")
 @cooldown_critico
 def comando_saldo(update, context):
@@ -3754,6 +3756,7 @@ def comando_saldo(update, context):
     kponey = usuario.get("kponey", 0)
     update.message.reply_text(f"💸 <b>Tus Kponey:</b> <code>{kponey}</code>", parse_mode="HTML")
 
+@en_tema_asignado_o_privado("gemas")
 @solo_en_tema_asignado("gemas")
 @grupo_oficial
 def comando_gemas(update, context):
@@ -3845,6 +3848,7 @@ def mostrar_carta_individual(chat_id, user_id, lista_cartas, idx, context, mensa
 
 # ... Aquí pegas la versión nueva de comando_giveidol y resto de comandos extras adaptados ...
 # Si quieres esa parte dime y te la entrego lista para copiar y pegar
+@en_tema_asignado_o_privado("miid")
 @solo_en_tema_asignado("miid")
 def comando_miid(update, context):
     usuario = update.effective_user
