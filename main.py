@@ -437,14 +437,18 @@ def create_order():
 def paypal_webhook():
     data = request.json
     print("Webhook recibido:", data)
-    if data.get("event_type") == "PAYMENT.CAPTURE.COMPLETED":
-        resource = data["resource"]
+    event_type = data.get("event_type")
+    resource = data.get("resource", {})
+
+    # Entrega gemas si:
+    # - Es PAYMENT.CAPTURE.COMPLETED
+    # - O es PAYMENT.CAPTURE.PENDING pero el status interno es COMPLETED
+    if (
+        event_type == "PAYMENT.CAPTURE.COMPLETED" or
+        (event_type == "PAYMENT.CAPTURE.PENDING" and resource.get("status") == "COMPLETED")
+    ):
         try:
-            custom_id = resource.get("custom_id", "")
-            if not str(custom_id).isdigit():
-                print(f"❌ custom_id no es numérico (ignorado): {custom_id}")
-                return "", 200
-            user_id = int(custom_id)
+            user_id = int(resource.get("custom_id", 0))
             amount = resource["amount"]["value"]
             pago_id = resource.get("id")
             cantidad_gemas = buscar_gemas(amount)
@@ -491,7 +495,10 @@ def paypal_webhook():
             print(f"✅ Entregadas {cantidad_gemas} gemas a user_id={user_id} por {amount} USD")
         except Exception as e:
             print("❌ Error en webhook:", e)
+    else:
+        print("Evento ignorado:", event_type)
     return "", 200
+
 
 
 @app.route("/paypal/return")
