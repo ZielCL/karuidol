@@ -17,6 +17,7 @@ from telegram import (
 from telegram.ext import Dispatcher, CommandHandler, CallbackQueryHandler
 import json
 import uuid
+import logging
 import urllib.parse
 import random
 from datetime import datetime, timedelta
@@ -161,6 +162,20 @@ def borrar_mensajes_no_idolday(update, context):
     except Exception as e:
         print("[Borrador mensajes] Error al borrar:", e)
 
+
+logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(message)s')
+
+def log_command(func):
+    @wraps(func)
+    def wrapper(update, context, *args, **kwargs):
+        user = update.effective_user
+        chat = update.effective_chat
+        command = func.__name__
+        logging.info(
+            f"Comando: {command} | Usuario: {user.id} ({user.username}) | Chat: {chat.id} ({chat.title if chat else ''})"
+        )
+        return func(update, context, *args, **kwargs)
+    return wrapper
 
 
 
@@ -1275,7 +1290,7 @@ def callback_invitamenu(update, context):
 
 
 
-
+@log_command
 def comando_help(update, context):
     user_id = update.effective_user.id
     texto = t(user_id, update)  # t() ya resuelve el idioma según la lógica centralizada
@@ -1566,6 +1581,7 @@ def actualiza_mision_diaria(user_id, context=None):
     col_usuarios.update_one({"user_id": user_id}, {"$set": {"misiones": misiones}})
     return mision_completada, premio_tres_drops, premio_primer_drop
 
+@log_command
 @grupo_oficial
 @solo_en_chat_general
 def comando_idolday(update, context):
@@ -1833,7 +1849,7 @@ def comando_topicid(update, context):
 
 
 
-
+@log_command
 @en_tema_asignado_o_privado("kkp")
 def comando_kkp(update, context):
     user_id = update.message.from_user.id
@@ -2110,7 +2126,7 @@ def comando_darGemas(update, context):
 
 
 
-
+@log_command
 @solo_en_tema_asignado("usar")
 @grupo_oficial
 @cooldown_critico
@@ -2598,6 +2614,7 @@ def mostrar_lista_mejorables(update, context, user_id, cartas_mejorables, pagina
 
 
 # Aquí pego la versión adaptada de /album para usar id_unico, estrellas y letra pegada a la izquierda:
+@log_command
 @solo_en_temas_permitidos("album")
 @cooldown_critico
 def comando_album(update, context):
@@ -2877,7 +2894,7 @@ def manejador_callback_album(update, context):
         return
 
 
-
+@log_command
 @solo_en_tema_asignado("trk")
 @cooldown_critico
 def comando_trk(update, context):
@@ -3062,6 +3079,7 @@ dispatcher.add_handler(CallbackQueryHandler(callback_trade_confirm, pattern=r"^t
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
+@log_command
 @solo_en_tema_asignado("mejorar")
 @cooldown_critico
 def comando_mejorar(update, context):
@@ -3103,7 +3121,7 @@ def comando_mejorar(update, context):
 
 
 
-
+@log_command
 @en_tema_asignado_o_privado("inventario")
 @solo_en_tema_asignado("inventario")
 @cooldown_critico
@@ -3138,7 +3156,7 @@ def comando_inventario(update, context):
 
 
 
-
+@log_command
 @solo_en_tema_asignado("tienda")
 @cooldown_critico
 def comando_tienda(update, context):
@@ -3186,7 +3204,7 @@ def comprar_objeto(user_id, obj_id, context, chat_id, reply_func):
         parse_mode="HTML"
     )
 
-
+@log_command
 @solo_en_tema_asignado("comprarobjeto")
 @cooldown_critico
 def comando_comprarobjeto(update, context):
@@ -3409,6 +3427,7 @@ def mostrar_menu_grupos(user_id, pagina, grupos, thread_id=None):
 
 
 #----------Comando FAV1---------------
+@log_command
 @en_tema_asignado_o_privado("favoritos")
 @solo_en_tema_asignado("favoritos")
 @cooldown_critico
@@ -3436,6 +3455,7 @@ def comando_favoritos(update, context):
 
 
 #----------Comando FAV---------------
+@log_command
 @solo_en_tema_asignado("fav")
 @cooldown_critico
 def comando_fav(update, context):
@@ -3491,6 +3511,7 @@ def comando_fav(update, context):
         )
 
 #------------COMANDO PRECIO---------------------
+@log_command
 @solo_en_tema_asignado("precio")
 @cooldown_critico
 def comando_precio(update, context):
@@ -3526,6 +3547,7 @@ def comando_precio(update, context):
 
 
 #------Comando vender--------------------
+@log_command
 @solo_en_tema_asignado("vender")
 @cooldown_critico
 def comando_vender(update, context):
@@ -3580,6 +3602,7 @@ def comando_vender(update, context):
 
 
 #----------Comprar carta del mercado------------------
+@log_command
 @solo_en_tema_asignado("comprar")
 @cooldown_critico
 def comando_comprar(update, context):
@@ -3711,6 +3734,7 @@ def comando_rankingmercado(update, context):
 
 
 #----------Retirar carta del mercado------------------
+@log_command
 @solo_en_tema_asignado("retirar")
 def comando_retirar(update, context):
     user_id = update.message.from_user.id
@@ -3747,6 +3771,7 @@ def comando_retirar(update, context):
 
 
 #---------Dinero del bot------------
+@log_command
 @en_tema_asignado_o_privado("saldo")
 @solo_en_tema_asignado("saldo")
 @cooldown_critico
@@ -3755,7 +3780,8 @@ def comando_saldo(update, context):
     usuario = col_usuarios.find_one({"user_id": user_id}) or {}
     kponey = usuario.get("kponey", 0)
     update.message.reply_text(f"💸 <b>Tus Kponey:</b> <code>{kponey}</code>", parse_mode="HTML")
-
+    
+@log_command
 @en_tema_asignado_o_privado("gemas")
 @solo_en_tema_asignado("gemas")
 @grupo_oficial
@@ -3767,6 +3793,7 @@ def comando_gemas(update, context):
 
 
 #---------Para dar dinero------------
+@log_command
 @grupo_oficial
 def comando_darKponey(update, context):
     TU_USER_ID = 1111798714  # <-- Reemplaza por tu verdadero ID de Telegram
@@ -3853,7 +3880,8 @@ def mostrar_carta_individual(chat_id, user_id, lista_cartas, idx, context, mensa
 def comando_miid(update, context):
     usuario = update.effective_user
     update.message.reply_text(f"Tu ID de Telegram es: {usuario.id}")
-
+    
+@log_command
 @grupo_oficial
 def comando_bonoidolday(update, context):
     user_id = update.message.from_user.id
@@ -3880,6 +3908,7 @@ def comando_bonoidolday(update, context):
     col_usuarios.update_one({"user_id": dest_id}, {"$inc": {"bono": cantidad}}, upsert=True)
     update.message.reply_text(f"✅ Bono de {cantidad} tiradas de /idolday entregado a <code>{dest_id}</code>.", parse_mode='HTML')
 
+@log_command
 @solo_en_tema_asignado("ampliar")
 def comando_ampliar(update, context):
     if not context.args:
@@ -3946,6 +3975,7 @@ def comando_ampliar(update, context):
         reply_markup=teclado
     )
 
+@log_command
 @solo_en_tema_asignado("comandos")
 @grupo_oficial
 @cooldown_critico
@@ -3979,7 +4009,8 @@ def comando_comandos(update, context):
         "/bonoidolday <code>user_id</code> <code>cantidad</code> — (Admin) Dar bonos de tiradas extra\n"
     )
     update.message.reply_text(texto, parse_mode='HTML')
-    
+
+@log_command
 @solo_en_temas_permitidos("mercado")
 @cooldown_critico
 def comando_mercado(update, context):
@@ -3999,7 +4030,7 @@ def comando_mercado(update, context):
 
 
 
-
+@log_command
 @grupo_oficial
 def comando_giveidol(update, context):
     # Uso: /giveidol <id_unico> @usuario_destino
@@ -4351,7 +4382,7 @@ def mostrar_setsprogreso(update, context, pagina=1, mensaje=None, editar=False, 
         )
 
 
-
+@log_command
 @solo_en_tema_asignado("set")
 def comando_set_detalle(update, context):
     user_id = update.effective_user.id
@@ -5487,13 +5518,13 @@ def handler_regalo_respuesta(update, context):
 
 
 
-
+@log_command
 @solo_en_tema_asignado("setsprogreso")
 def comando_setsprogreso(update, context):
     thread_id = getattr(update.message, "message_thread_id", None)
     mostrar_setsprogreso(update, context, pagina=1, thread_id=thread_id)
 
-
+@log_command
 @solo_en_tema_asignado("apodo")
 @cooldown_critico
 def comando_apodo(update, context):
