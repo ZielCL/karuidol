@@ -2955,6 +2955,22 @@ def mensaje_trade_id(update, context):
     thread_id = getattr(update.message, "message_thread_id", None)
     texto_ingresado = update.message.text.strip()
 
+    # CANCELAR: permite cancelar en cualquier momento
+    if texto_ingresado.lower() in ("cancel", "cancelar"):
+        trade_id = TRADES_POR_USUARIO.pop(user_id, None)
+        if trade_id and trade_id in TRADES_EN_CURSO:
+            trade = TRADES_EN_CURSO.pop(trade_id)
+            for uid in trade["usuarios"]:
+                TRADES_POR_USUARIO.pop(uid, None)
+            context.bot.send_message(
+                chat_id=chat_id,
+                text="❌ El intercambio fue cancelado por uno de los participantes.",
+                message_thread_id=thread_id
+            )
+        else:
+            update.message.reply_text("No tienes ningún intercambio activo.")
+        return
+
     trade_id = TRADES_POR_USUARIO.get(user_id)
     if not trade_id:
         return
@@ -2984,6 +3000,7 @@ def mensaje_trade_id(update, context):
         mostrar_trade_resumen(context, trade_id)
     else:
         update.message.reply_text("Carta seleccionada, esperando al otro usuario...")
+
 
 
 
