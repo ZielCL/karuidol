@@ -1827,6 +1827,116 @@ FRASES_ESTADO = {
 
 
 
+@log_command
+@grupo_oficial
+def comando_darobjeto(update, context):
+    ADMIN_USER_ID = update.message.from_user.id
+    if not es_admin(update):
+        update.message.reply_text("Solo los administradores pueden usar este comando.")
+        return
+
+    dest_id = None
+    objeto = None
+    cantidad = None
+    args = context.args
+
+    # 1. Si está respondiendo a un mensaje
+    if update.message.reply_to_message:
+        dest_id = update.message.reply_to_message.from_user.id
+        if len(args) != 2:
+            update.message.reply_text(
+                "Uso: responde a un mensaje y escribe /darobjeto <objeto> <cantidad>\n"
+                "Ejemplo: /darobjeto bono_idolday 2"
+            )
+            return
+        objeto = args[0]
+        try:
+            cantidad = int(args[1])
+        except:
+            update.message.reply_text("La cantidad debe ser un número mayor que 0.")
+            return
+
+    # 2. Si el primer argumento es @username
+    elif args and args[0].startswith("@"):
+        user_doc = col_usuarios.find_one({"username": args[0][1:].lower()})
+        if not user_doc:
+            update.message.reply_text("Usuario no encontrado o no ha usado el bot.")
+            return
+        dest_id = user_doc["user_id"]
+        if len(args) != 3:
+            update.message.reply_text(
+                "Uso: /darobjeto @usuario <objeto> <cantidad>"
+            )
+            return
+        objeto = args[1]
+        try:
+            cantidad = int(args[2])
+        except:
+            update.message.reply_text("La cantidad debe ser un número mayor que 0.")
+            return
+
+    # 3. Si el primer argumento es un user_id (modo clásico)
+    elif len(args) == 3:
+        try:
+            dest_id = int(args[0])
+            objeto = args[1]
+            cantidad = int(args[2])
+        except:
+            update.message.reply_text(
+                "Uso: /darobjeto <user_id> <objeto> <cantidad>"
+            )
+            return
+
+    else:
+        update.message.reply_text(
+            "Uso válido:\n"
+            "• Responde a un mensaje: /darobjeto <objeto> <cantidad>\n"
+            "• Con @usuario: /darobjeto @usuario <objeto> <cantidad>\n"
+            "• Con user_id: /darobjeto <user_id> <objeto> <cantidad>"
+        )
+        return
+
+    if cantidad < 1:
+        update.message.reply_text("La cantidad debe ser mayor que 0.")
+        return
+
+    # Valida objeto
+    if objeto not in CATALOGO_OBJETOS:
+        lista_obj = "\n".join(
+            [f"• {k} {v['emoji']}: {v['nombre']}" for k, v in CATALOGO_OBJETOS.items()]
+        )
+        update.message.reply_text(
+            "Objeto no válido. Objetos disponibles:\n" + lista_obj
+        )
+        return
+
+    # Suma el objeto al inventario del usuario
+    col_usuarios.update_one(
+        {"user_id": dest_id},
+        {"$inc": {f"objetos.{objeto}": cantidad}},
+        upsert=True
+    )
+
+    info_obj = CATALOGO_OBJETOS[objeto]
+    update.message.reply_text(
+        f"✅ {info_obj['emoji']} {cantidad} x {info_obj['nombre']} entregado(s) a <code>{dest_id}</code>.",
+        parse_mode='HTML'
+    )
+
+    # Opcional: notifica por privado al usuario
+    try:
+        context.bot.send_message(
+            chat_id=dest_id,
+            text=f"🎁 Has recibido {info_obj['emoji']} {cantidad} x {info_obj['nombre']} por parte de un admin."
+        )
+    except Exception as e:
+        print("[darobjeto] No se pudo notificar al usuario:", e)
+
+
+
+
+
+
 
 
 
@@ -5668,6 +5778,7 @@ dispatcher.add_handler(CommandHandler("tiendaG", comando_tiendaG))
 dispatcher.add_handler(CommandHandler('comprarobjeto', comando_comprarobjeto))
 dispatcher.add_handler(CommandHandler('idolday', comando_idolday))
 dispatcher.add_handler(CommandHandler('album', comando_album))
+dispatcher.add_handler(CommandHandler('darobjeto', comando_darobjeto))
 dispatcher.add_handler(CommandHandler('miid', comando_miid))
 dispatcher.add_handler(CommandHandler('bonoidolday', comando_bonoidolday))
 dispatcher.add_handler(CommandHandler('comandos', comando_comandos))
