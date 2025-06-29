@@ -3174,6 +3174,8 @@ def callback_trade_confirm(update, context):
                 carta_b["user_id"] = a
                 col_cartas_usuario.insert_one(carta_a)
                 col_cartas_usuario.insert_one(carta_b)
+                revisar_sets_completados(a, context)
+                revisar_sets_completados(b, context)
                 txt = "✅ ¡Intercambio realizado exitosamente!"
             else:
                 txt = "❌ Error: una de las cartas ya no está disponible."
