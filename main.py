@@ -4095,22 +4095,32 @@ def comando_ampliar(update, context):
         update.message.reply_text("No tienes esta carta.")
         return
 
-    # Traer datos principales
-    imagen_url = carta.get('imagen', imagen_de_carta(carta['nombre'], carta['version']))
+    # Traer datos principales SIEMPRE del objeto carta
+    imagen_url = carta.get('imagen')  # <--- SIEMPRE la de la carta
     nombre = carta.get('nombre', '')
     apodo = carta.get('apodo', '')
     nombre_mostrar = f'({apodo}) {nombre}' if apodo else nombre
     version = carta.get('version', '')
-    grupo = grupo_de_carta(nombre, version)
+    grupo = carta.get('grupo', version)  # Si tienes campo 'grupo', úsalo; si no, usa version
     estrellas = carta.get('estrellas', '☆☆☆')
     estado = carta.get('estado', '')
     card_id = carta.get('card_id') or extraer_card_id_de_id_unico(id_unico)
-    total_copias = col_cartas_usuario.count_documents({"nombre": nombre, "version": version})
+    # Ahora cuenta copias por nombre+version+grupo (o lo que corresponda)
+    total_copias = col_cartas_usuario.count_documents({
+        "nombre": nombre,
+        "version": version,
+        "grupo": grupo
+    })
 
     # Saber si es favorita (solo si está en el álbum)
     doc_user = col_usuarios.find_one({"user_id": user_id}) or {}
     favoritos = doc_user.get("favoritos", [])
-    es_fav = any(fav.get("nombre") == nombre and fav.get("version") == version for fav in favoritos)
+    es_fav = any(
+        fav.get("nombre") == nombre
+        and fav.get("version") == version
+        and fav.get("grupo", version) == grupo
+        for fav in favoritos
+    )
     estrella_fav = "⭐ " if es_fav else ""
 
     # --- CALCULA SIEMPRE EL PRECIO REAL ---
@@ -4141,6 +4151,7 @@ def comando_ampliar(update, context):
         parse_mode='HTML',
         reply_markup=teclado
     )
+
 
 @log_command
 @solo_en_tema_asignado("comandos")
@@ -4721,11 +4732,13 @@ def callback_ampliar_vender(update, context):
         return
 
     nombre = carta['nombre']
-    version = carta['version']
+    version = carta['version']      # Puede ser el grupo
+    grupo = carta.get('grupo', version)  # Usa grupo si existe, si no, versión
     estado = carta['estado']
     estrellas = carta.get('estrellas', '★??')
     card_id = carta.get('card_id', extraer_card_id_de_id_unico(id_unico))
     precio = precio_carta_tabla(estrellas, card_id)
+    imagen = carta.get("imagen")
 
     ya = col_mercado.find_one({"id_unico": id_unico})
     if ya:
@@ -4735,16 +4748,16 @@ def callback_ampliar_vender(update, context):
     col_cartas_usuario.delete_one({"user_id": user_id, "id_unico": id_unico})
     col_mercado.insert_one({
         "id_unico": id_unico,
-        "vendedor_id": user_id,     # ← SIEMPRE lo guarda aquí
+        "vendedor_id": user_id,
         "nombre": nombre,
         "version": version,
+        "grupo": grupo,
         "estado": estado,
         "estrellas": estrellas,
         "precio": precio,
         "card_id": card_id,
         "fecha": datetime.utcnow(),
-        "imagen": carta.get("imagen"),
-        "grupo": carta.get("grupo", "")
+        "imagen": imagen
     })
 
     query.answer("Carta puesta en el mercado.", show_alert=True)
@@ -4752,6 +4765,7 @@ def callback_ampliar_vender(update, context):
         caption="📦 Carta puesta en el mercado.",
         parse_mode='HTML'
     )
+
 
 
 def manejador_tienda_objeto(update, context):
