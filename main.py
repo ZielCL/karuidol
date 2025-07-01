@@ -3275,7 +3275,7 @@ def comando_inventario(update, context):
         texto += "No tienes objetos todavía.\n"
     texto += f"\n💎 <b>Gemas:</b> <code>{gemas}</code>"   # ← AQUÍ
     texto += f"\n💸 <b>Kponey:</b> <code>{kponey}</code>"
-    texto += "\n\nUsa <code>/tienda</code> para comprar objetos."
+    texto += "\n\nVe al tema <code>Tienda KaruKpop</code> para comprar objetos."
     update.message.reply_text(texto, parse_mode="HTML")
 
 
