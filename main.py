@@ -3170,15 +3170,15 @@ def callback_trade_confirm(update, context):
             carta_a = col_cartas_usuario.find_one_and_delete({"user_id": a, "id_unico": id_a})
             carta_b = col_cartas_usuario.find_one_and_delete({"user_id": b, "id_unico": id_b})
 
-            # Chequeo de saldo kponey (deben tener al menos 50 ambos)
+            # Chequeo de saldo kponey (deben tener al menos 100 ambos)
             saldo_a = col_usuarios.find_one({"user_id": a}, {"kponey": 1}) or {}
             saldo_b = col_usuarios.find_one({"user_id": b}, {"kponey": 1}) or {}
             kponey_a = saldo_a.get("kponey", 0)
             kponey_b = saldo_b.get("kponey", 0)
 
-            if kponey_a < 50 or kponey_b < 50:
+            if kponey_a < 100 or kponey_b < 100:
                 txt = (
-                    "❌ Uno de los usuarios no tiene suficiente Kponey (50 🪙) para el intercambio. "
+                    "❌ Uno de los usuarios no tiene suficiente Kponey (100 🪙) para el intercambio. "
                     "Ambos deben tener saldo para completar el trade."
                 )
                 # Devuelve las cartas si ya se borraron
@@ -3197,12 +3197,12 @@ def callback_trade_confirm(update, context):
                 carta_b["user_id"] = a
                 col_cartas_usuario.insert_one(carta_a)
                 col_cartas_usuario.insert_one(carta_b)
-                # Descontar 50 kponey a cada usuario
-                col_usuarios.update_one({"user_id": a}, {"$inc": {"kponey": -50}})
-                col_usuarios.update_one({"user_id": b}, {"$inc": {"kponey": -50}})
+                # Descontar 100 kponey a cada usuario
+                col_usuarios.update_one({"user_id": a}, {"$inc": {"kponey": -100}})
+                col_usuarios.update_one({"user_id": b}, {"$inc": {"kponey": -100}})
                 revisar_sets_completados(a, context)
                 revisar_sets_completados(b, context)
-                txt = "✅ ¡Intercambio realizado exitosamente!\n\n- 50 Kponey descontados a cada usuario."
+                txt = "✅ ¡Intercambio realizado exitosamente!\n\n- 100 Kponey descontados a cada usuario."
             else:
                 txt = "❌ Error: una de las cartas ya no está disponible."
             context.bot.send_message(
