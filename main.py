@@ -4176,7 +4176,7 @@ def comando_ampliar(update, context):
     # Botón de vender (solo si está en álbum)
     if fuente == "album":
         teclado = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🛒 Vender", callback_data=f"ampliar_vender_{id_unico}")]
+            [InlineKeyboardButton("🛒 Poner en el mercado", callback_data=f"ampliar_vender_{id_unico}")]
         ])
     else:
         teclado = None
