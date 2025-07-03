@@ -2640,9 +2640,18 @@ def manejador_reclamar(update, context):
     )
 
     # --- Mensaje de favoritos (en el thread/tema correcto) ---
-    favoritos = list(col_usuarios.find({
-        "favoritos": {"$elemMatch": {"nombre": nombre, "version": version}}
-    }))
+# --- MENSAJE DE FAVORITOS: compara nombre, version y grupo ---
+    favoritos = []
+    for user in col_usuarios.find({}):
+        for fav in user.get("favoritos", []):
+            if (
+                fav.get("nombre", "").lower() == nombre.lower()
+                and fav.get("version", "").lower() == version.lower()
+                and fav.get("grupo", "").lower() == grupo.lower()
+            ):
+                favoritos.append(user)
+                break  # Solo una vez por usuario
+
     if favoritos:
         nombres = [
             f"⭐ @{user.get('username', 'SinUser')}" if user.get("username") else f"⭐ ID:{user['user_id']}"
@@ -2655,6 +2664,7 @@ def manejador_reclamar(update, context):
             parse_mode='HTML',
             message_thread_id=thread_id if thread_id else None
         )
+
 
     query.answer("¡Carta reclamada!", show_alert=True)
 
