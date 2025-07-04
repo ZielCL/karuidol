@@ -2015,7 +2015,42 @@ def callback_kkp_notify(update, context):
 
 
 
+def cargar_alertas_pendientes(context):
+    ahora = int(time.time())
+    pendientes = list(col_alertas.find({"tipo": "idolday"}))
+    for alerta in pendientes:
+        segundos = alerta["timestamp"] - ahora
+        if segundos <= 0:
+            try:
+                user_doc = col_usuarios.find_one({"user_id": alerta["user_id"]}) or {}
+                if user_doc.get("notify_idolday"):
+                    lang = (user_doc.get("lang") or "en")[:2]
+                    textos = translations.get(lang, translations["en"])
+                    context.bot.send_message(
+                        chat_id=alerta["user_id"],
+                        text=textos.get("kkp_notify_sent", "¡Tu cooldown de /idolday ha terminado!"),
+                        parse_mode="HTML"
+                    )
+                col_alertas.delete_one({"_id": alerta["_id"]})
+            except Exception as e:
+                print("[cargar_alertas_pendientes] Error enviando:", e)
+        else:
+            agendar_notificacion_idolday(alerta["user_id"], segundos, context)
+
+# Llama esto DESPUÉS de crear el bot/context (en Flask, pasas context al arrancar)
+# Si usas Dispatcher/Updater puedes hacerlo en el start
+# Ejemplo, con Flask:
+with app.app_context():
+    cargar_alertas_pendientes(context)
+
+
 def agendar_notificacion_idolday(user_id, segundos, context):
+    timestamp_alerta = int(time.time() + segundos)
+    col_alertas.update_one(
+        {"user_id": user_id, "tipo": "idolday"},
+        {"$set": {"timestamp": timestamp_alerta}},
+        upsert=True
+    )
     def tarea():
         try:
             time.sleep(max(0, min(segundos, 7*3600)))
@@ -2036,13 +2071,15 @@ def agendar_notificacion_idolday(user_id, segundos, context):
             textos = translations.get(lang, translations["en"])
             context.bot.send_message(
                 chat_id=user_id,
-                text=textos["kkp_notify_sent"],
+                text=textos.get("kkp_notify_sent", "¡Tu cooldown de /idolday ha terminado!"),
                 parse_mode="HTML"
             )
-            # YA NO se desactiva el flag aquí
+            col_alertas.delete_one({"user_id": user_id, "tipo": "idolday"})
         except Exception as e:
             print("[agendar_notificacion_idolday] Error:", e)
     threading.Thread(target=tarea, daemon=True).start()
+
+
 
 
 
