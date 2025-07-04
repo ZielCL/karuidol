@@ -1713,7 +1713,7 @@ def comando_idolday(update, context):
     COOLDOWN_GRUPO[chat_id] = ahora_ts
 
 
-    # SOLO cartas en estado "Excelente estado"
+# SOLO cartas en estado "Excelente estado"
     cartas_excelentes = [c for c in cartas if c.get("estado") == "Excelente estado"]
     if len(cartas_excelentes) < 2:
         cartas_excelentes = cartas_excelentes * 2
@@ -1726,8 +1726,10 @@ def comando_idolday(update, context):
         version = carta['version']
         grupo = carta.get('grupo', '')
         imagen_url = carta.get('imagen')
+
+    # Ahora siempre usas el formato con grupo (ya migrado)
         doc_cont = col_contadores.find_one_and_update(
-            {"nombre": nombre, "version": version},
+            {"nombre": nombre, "version": version, "grupo": grupo},
             {"$inc": {"contador": 1}},
             upsert=True,
             return_document=True
