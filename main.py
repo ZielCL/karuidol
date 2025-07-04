@@ -2186,6 +2186,67 @@ def comando_estadisticasdrops(update, context):
 
 
 
+def get_last_monday():
+    hoy = datetime.utcnow()
+    # Monday = 0, Sunday = 6
+    last_monday = hoy - timedelta(days=hoy.weekday())
+    last_monday = last_monday.replace(hour=0, minute=0, second=0, microsecond=0)
+    return last_monday
+
+@solo_en_tema_asignado("estadisticasdrops_semanal")
+@grupo_oficial
+def comando_estadisticasdrops_semanal(update, context):
+    if not es_admin(update, context):
+        update.message.reply_text("Este comando solo puede ser usado por administradores del grupo.")
+        return
+
+    inicio_semana = get_last_monday()
+    fin_semana = inicio_semana + timedelta(days=7)  # hasta el próximo lunes
+
+    total_reclamados = col_drops_log.count_documents({
+        "evento": "reclamado",
+        "fecha": {"$gte": inicio_semana, "$lt": fin_semana}
+    })
+    total_expirados = col_drops_log.count_documents({
+        "evento": "expirado",
+        "fecha": {"$gte": inicio_semana, "$lt": fin_semana}
+    })
+
+    pipeline = [
+        {"$match": {
+            "evento": "reclamado",
+            "fecha": {"$gte": inicio_semana, "$lt": fin_semana}
+        }},
+        {"$group": {"_id": {"user_id": "$user_id", "username": "$username"}, "total": {"$sum": 1}}},
+        {"$sort": {"total": -1}},
+        {"$limit": 10}
+    ]
+    resultados = list(col_drops_log.aggregate(pipeline))
+
+    ranking_texto = ""
+    for i, r in enumerate(resultados, 1):
+        user = r['_id']
+        username = user.get('username')
+        if username:
+            user_text = f"@{username}"
+        else:
+            user_text = f"<code>{user['user_id']}</code>"
+        ranking_texto += f"{i}. {user_text} — {r['total']} cartas\n"
+
+    texto = (
+        f"📅 <b>Estadísticas de Drops (semana actual: Lunes a Domingo)</b>:\n"
+        f"• Rango: <b>{inicio_semana.strftime('%d/%m/%Y')}</b> a <b>{(fin_semana - timedelta(seconds=1)).strftime('%d/%m/%Y')}</b>\n"
+        f"• Drops reclamados: <b>{total_reclamados}</b>\n"
+        f"• Drops expirados: <b>{total_expirados}</b>\n"
+        f"\n<b>🏆 Top 10 usuarios con más cartas reclamadas (semana):</b>\n"
+        f"{ranking_texto if ranking_texto else 'Sin datos.'}"
+    )
+
+    update.message.reply_text(texto, parse_mode=ParseMode.HTML)
+
+
+
+
 
 
 @grupo_oficial
@@ -5824,6 +5885,7 @@ dispatcher.add_handler(CommandHandler('tiendagemas', tienda_gemas))
 dispatcher.add_handler(CommandHandler('darGemas', comando_darGemas))
 dispatcher.add_handler(CommandHandler('gemas', comando_gemas))
 dispatcher.add_handler(CommandHandler('estadisticasdrops', comando_estadisticasdrops))
+dispatcher.add_handler(CommandHandler("estadisticasdrops_semanal", comando_estadisticasdrops_semanal))
 dispatcher.add_handler(CommandHandler('usar', comando_usar))
 dispatcher.add_handler(CommandHandler('apodo', comando_apodo))
 dispatcher.add_handler(CommandHandler('inventario', comando_inventario))
