@@ -2013,44 +2013,6 @@ def callback_kkp_notify(update, context):
 
 
 
-def agendar_notificacion_idolday(user_id, segundos, bot):
-    timestamp_alerta = int(time.time() + segundos)
-    col_alertas.update_one(
-        {"user_id": user_id, "tipo": "idolday"},
-        {"$set": {"timestamp": timestamp_alerta}},
-        upsert=True
-    )
-    def tarea():
-        try:
-            time.sleep(max(0, min(segundos, 7*3600)))
-            user_doc = col_usuarios.find_one({"user_id": user_id}) or {}
-            if not user_doc.get("notify_idolday"):
-                return
-            last = user_doc.get("last_idolday")
-            now = time.time()
-            last_ts = 0
-            if last:
-                try:
-                    last_ts = last.timestamp() if hasattr(last, "timestamp") else float(last)
-                except Exception:
-                    pass
-            if now - last_ts < 6 * 3600 - 5:
-                return
-            lang = (user_doc.get("lang") or "en")[:2]
-            textos = translations.get(lang, translations["en"])
-            bot.send_message(
-                chat_id=user_id,
-                text=textos.get("kkp_notify_sent", "¡Tu cooldown de /idolday ha terminado!"),
-                parse_mode="HTML"
-            )
-            col_alertas.delete_one({"user_id": user_id, "tipo": "idolday"})
-        except Exception as e:
-            print("[agendar_notificacion_idolday] Error:", e)
-    threading.Thread(target=tarea, daemon=True).start()
-
-
-
-
 
 def get_kkp_menu(user_id, update):
     from datetime import datetime, timedelta
