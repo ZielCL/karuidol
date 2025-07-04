@@ -2013,30 +2013,6 @@ def callback_kkp_notify(update, context):
 
 
 
-
-
-def cargar_alertas_pendientes(bot):
-    ahora = int(time.time())
-    pendientes = list(col_alertas.find({"tipo": "idolday"}))
-    for alerta in pendientes:
-        segundos = alerta["timestamp"] - ahora
-        if segundos <= 0:
-            try:
-                user_doc = col_usuarios.find_one({"user_id": alerta["user_id"]}) or {}
-                if user_doc.get("notify_idolday"):
-                    lang = (user_doc.get("lang") or "en")[:2]
-                    textos = translations.get(lang, translations["en"])
-                    bot.send_message(
-                        chat_id=alerta["user_id"],
-                        text=textos.get("kkp_notify_sent", "¡Tu cooldown de /idolday ha terminado!"),
-                        parse_mode="HTML"
-                    )
-                col_alertas.delete_one({"_id": alerta["_id"]})
-            except Exception as e:
-                print("[cargar_alertas_pendientes] Error enviando:", e)
-        else:
-            agendar_notificacion_idolday(alerta["user_id"], segundos, bot)
-
 def agendar_notificacion_idolday(user_id, segundos, bot):
     timestamp_alerta = int(time.time() + segundos)
     col_alertas.update_one(
