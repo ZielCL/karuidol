@@ -2179,40 +2179,103 @@ def get_kkp_menu(user_id, update):
 @solo_en_tema_asignado("estadisticasdrops")
 @grupo_oficial
 def comando_estadisticasdrops(update, context):
-    if not es_admin(update, context):
-        update.message.reply_text("Este comando solo puede ser usado por administradores del grupo.")
-        return
+    mostrar_ranking_drops(update, context, pagina=1)
+
+def mostrar_ranking_drops(update, context, pagina=1):
+    PAGE_SIZE = 10
+    skip = (pagina - 1) * PAGE_SIZE
+
+    total_usuarios = col_usuarios.count_documents({})
+    total_paginas = (total_usuarios + PAGE_SIZE - 1) // PAGE_SIZE
+
+    # Obtiene todos los usuarios (aunque tengan 0 drops)
+    pipeline = [
+        {
+            "$lookup": {
+                "from": "col_drops_log",
+                "let": {"uid": "$user_id"},
+                "pipeline": [
+                    {"$match": {"$expr": {"$eq": ["$user_id", "$$uid"]}, "evento": "reclamado"}}
+                ],
+                "as": "drops"
+            }
+        },
+        {
+            "$addFields": {
+                "total": {"$size": "$drops"}
+            }
+        },
+        {
+            "$sort": {"total": -1}
+        },
+        {
+            "$project": {
+                "user_id": 1,
+                "username": 1,
+                "total": 1
+            }
+        },
+        {"$skip": skip},
+        {"$limit": PAGE_SIZE}
+    ]
+
+    usuarios = list(col_usuarios.aggregate(pipeline))
 
     total_reclamados = col_drops_log.count_documents({"evento": "reclamado"})
     total_expirados = col_drops_log.count_documents({"evento": "expirado"})
 
-    pipeline = [
-        {"$match": {"evento": "reclamado"}},
-        {"$group": {"_id": {"user_id": "$user_id", "username": "$username"}, "total": {"$sum": 1}}},
-        {"$sort": {"total": -1}},
-        {"$limit": 10}
-    ]
-    resultados = list(col_drops_log.aggregate(pipeline))
-
     ranking_texto = ""
-    for i, r in enumerate(resultados, 1):
-        user = r['_id']
-        username = user.get('username')
+    base_rank = skip
+    for i, u in enumerate(usuarios, 1):
+        username = u.get("username")
         if username:
             user_text = f"@{username}"
         else:
-            user_text = f"<code>{user['user_id']}</code>"
-        ranking_texto += f"{i}. {user_text} — {r['total']} cartas\n"
+            user_text = f"<code>{u['user_id']}</code>"
+        ranking_texto += f"{base_rank + i}. {user_text} — {u.get('total', 0)} cartas\n"
 
     texto = (
         f"📊 <b>Estadísticas de Drops</b>:\n"
         f"• Drops reclamados: <b>{total_reclamados}</b>\n"
         f"• Drops expirados: <b>{total_expirados}</b>\n"
-        f"\n<b>🏆 Top 10 usuarios con más cartas reclamadas:</b>\n"
+        f"\n<b>🏆 Ranking de usuarios (página {pagina}/{total_paginas}):</b>\n"
         f"{ranking_texto if ranking_texto else 'Sin datos.'}"
     )
 
-    update.message.reply_text(texto, parse_mode=ParseMode.HTML)
+    # Flechas
+    botones = []
+
+    if pagina > 1:
+        botones.append(InlineKeyboardButton("⏮️", callback_data=f"dropspag_1"))
+        botones.append(InlineKeyboardButton("⬅️", callback_data=f"dropspag_{pagina-1}"))
+    if pagina < total_paginas:
+        botones.append(InlineKeyboardButton("➡️", callback_data=f"dropspag_{pagina+1}"))
+        botones.append(InlineKeyboardButton("⏭️", callback_data=f"dropspag_{total_paginas}"))
+
+    reply_markup = InlineKeyboardMarkup([botones]) if botones else None
+
+    # Distingue entre message y callback_query
+    if hasattr(update, "message") and update.message:
+        update.message.reply_text(texto, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
+    elif hasattr(update, "edit_message_text"):
+        update.edit_message_text(texto, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
+    elif hasattr(update, "callback_query"):
+        update.callback_query.edit_message_text(texto, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
+
+
+def callback_ranking_drops(update, context):
+    query = update.callback_query
+    data = query.data
+    if data.startswith("dropspag_"):
+        pagina = int(data.replace("dropspag_", ""))
+        query.answer()
+        mostrar_ranking_drops(query, context, pagina=pagina)
+
+dispatcher.add_handler(CallbackQueryHandler(callback_ranking_drops, pattern=r"^dropspag_"))
+
+
+
+
 
 
 
