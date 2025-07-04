@@ -2015,7 +2015,7 @@ def callback_kkp_notify(update, context):
 
 
 
-def cargar_alertas_pendientes(context):
+def cargar_alertas_pendientes(bot):
     ahora = int(time.time())
     pendientes = list(col_alertas.find({"tipo": "idolday"}))
     for alerta in pendientes:
@@ -2026,7 +2026,7 @@ def cargar_alertas_pendientes(context):
                 if user_doc.get("notify_idolday"):
                     lang = (user_doc.get("lang") or "en")[:2]
                     textos = translations.get(lang, translations["en"])
-                    context.bot.send_message(
+                    bot.send_message(
                         chat_id=alerta["user_id"],
                         text=textos.get("kkp_notify_sent", "¡Tu cooldown de /idolday ha terminado!"),
                         parse_mode="HTML"
@@ -2035,16 +2035,9 @@ def cargar_alertas_pendientes(context):
             except Exception as e:
                 print("[cargar_alertas_pendientes] Error enviando:", e)
         else:
-            agendar_notificacion_idolday(alerta["user_id"], segundos, context)
+            agendar_notificacion_idolday(alerta["user_id"], segundos, bot)
 
-# Llama esto DESPUÉS de crear el bot/context (en Flask, pasas context al arrancar)
-# Si usas Dispatcher/Updater puedes hacerlo en el start
-# Ejemplo, con Flask:
-with app.app_context():
-    cargar_alertas_pendientes(context)
-
-
-def agendar_notificacion_idolday(user_id, segundos, context):
+def agendar_notificacion_idolday(user_id, segundos, bot):
     timestamp_alerta = int(time.time() + segundos)
     col_alertas.update_one(
         {"user_id": user_id, "tipo": "idolday"},
@@ -2069,7 +2062,7 @@ def agendar_notificacion_idolday(user_id, segundos, context):
                 return
             lang = (user_doc.get("lang") or "en")[:2]
             textos = translations.get(lang, translations["en"])
-            context.bot.send_message(
+            bot.send_message(
                 chat_id=user_id,
                 text=textos.get("kkp_notify_sent", "¡Tu cooldown de /idolday ha terminado!"),
                 parse_mode="HTML"
