@@ -179,6 +179,15 @@ def log_command(func):
 
 
 
+
+
+
+
+
+
+
+
+
 # === VARIABLES GLOBALES DE TRADE (INTERCAMBIO DE CARTAS) ===
 TRADES_EN_CURSO = {}  # trade_id: {usuarios: [A, B], chat_id, thread_id, cartas: {A: id_unico, B: id_unico}, confirmado: {A: False, B: False}, estado}
 TRADES_POR_USUARIO = {}  # user_id: trade_id
@@ -3471,6 +3480,192 @@ def comando_tiendaG(update, context):
 
 
 
+@log_command
+@solo_admin
+def comando_sorteo(update, context):
+    args = context.args
+    if len(args) < 4:
+        update.message.reply_text("Uso: /sorteo <Premio> <Cantidad> <Duración horas> <Ganadores>\nEjemplo: /sorteo \"Bono Idolday\" 1 6 2")
+        return
+
+    # Permite premios con espacio en el nombre (ej: "Bono Idolday")
+    premio = " ".join(args[:-3])
+    try:
+        cantidad = int(args[-3])
+        duracion_horas = int(args[-2])
+        num_ganadores = int(args[-1])
+    except Exception:
+        update.message.reply_text("Cantidad, duración y ganadores deben ser números.")
+        return
+
+    if premio.lower() not in [obj["nombre"].lower() for obj in CATALOGO_OBJETOS.values()]:
+        premios_posibles = ", ".join(obj["nombre"] for obj in CATALOGO_OBJETOS.values())
+        update.message.reply_text(f"Premio no válido. Premios permitidos: {premios_posibles}")
+        return
+
+    now = datetime.utcnow()
+    fin = now + timedelta(hours=duracion_horas)
+    sorteo_id = str(int(now.timestamp() * 1000))
+
+    texto = (
+        f"🎉 <b>Sorteo KaruKpop</b> 🎉\n"
+        f"¡Presiona el botón para participar por <b>{cantidad}x {premio}</b>!\n"
+        f"Este sorteo expira en <b>{duracion_horas} horas</b>.\n"
+        f"Habrá <b>{num_ganadores}</b> ganador{'es' if num_ganadores > 1 else ''}.\n\n"
+        f"👥 <b>Participantes:</b>\n<i>Aún no hay participantes.</i>"
+    )
+    botones = [
+        [InlineKeyboardButton("🎉 Participar", callback_data=f"sorteopart_{sorteo_id}")]
+    ]
+    msg = update.message.reply_text(
+        texto, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(botones)
+    )
+    col_sorteos.insert_one({
+        "sorteo_id": sorteo_id,
+        "premio": premio,
+        "cantidad": cantidad,
+        "creador_id": update.message.from_user.id,
+        "chat_id": msg.chat_id,
+        "mensaje_id": msg.message_id,
+        "fin": fin,
+        "num_ganadores": num_ganadores,
+        "participantes": [],
+        "finalizado": False,
+        "ganadores": []
+    })
+
+def callback_sorteo_participar(update, context):
+    query = update.callback_query
+    user_id = query.from_user.id
+    username = query.from_user.username or ""
+    nombre = (query.from_user.first_name or "") + ((" " + query.from_user.last_name) if hasattr(query.from_user, "last_name") and query.from_user.last_name else "")
+
+    data = query.data
+    if not data.startswith("sorteopart_"):
+        return
+    sorteo_id = data.replace("sorteopart_", "")
+    sorteo = col_sorteos.find_one({"sorteo_id": sorteo_id, "finalizado": False})
+    if not sorteo:
+        query.answer("Este sorteo ya terminó o no existe.", show_alert=True)
+        return
+
+    # Evitar doble participación
+    if any(p["user_id"] == user_id for p in sorteo.get("participantes", [])):
+        query.answer("🎉Ya estás participando en este sorteo🎉", show_alert=True)
+        return
+
+    # Agrega participante
+    participante = {
+        "user_id": user_id,
+        "username": username,
+        "nombre": nombre.strip()
+    }
+    col_sorteos.update_one(
+        {"sorteo_id": sorteo_id},
+        {"$push": {"participantes": participante}}
+    )
+
+    # Refresca mensaje con la lista de participantes
+    sorteo = col_sorteos.find_one({"sorteo_id": sorteo_id})
+    participantes = sorteo.get("participantes", [])
+    if participantes:
+        lista = "\n".join([
+            f"• @{p['username']}" if p['username'] else f"• {p['nombre']}"
+            for p in participantes
+        ])
+    else:
+        lista = "<i>Aún no hay participantes.</i>"
+
+    texto = (
+        f"🎉 <b>Sorteo KaruKpop</b> 🎉\n"
+        f"¡Presiona el botón para participar por <b>{sorteo['cantidad']}x {sorteo['premio']}</b>!\n"
+        f"Este sorteo expira en <b>{(sorteo['fin'] - datetime.utcnow()).total_seconds() // 3600:.0f} horas</b>.\n"
+        f"Habrá <b>{sorteo['num_ganadores']}</b> ganador{'es' if sorteo['num_ganadores'] > 1 else ''}.\n\n"
+        f"👥 <b>Participantes:</b>\n{lista}"
+    )
+    try:
+        context.bot.edit_message_text(
+            chat_id=sorteo["chat_id"],
+            message_id=sorteo["mensaje_id"],
+            text=texto,
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🎉 Participar", callback_data=f"sorteopart_{sorteo_id}")]
+            ])
+        )
+    except Exception as e:
+        print(f"[callback_sorteo_participar] Error editando mensaje: {e}")
+
+    query.answer("¡Estás participando en el sorteo!", show_alert=True)
+
+def premio_clave(nombre_premio):
+    for key, obj in CATALOGO_OBJETOS.items():
+        if obj["nombre"].lower() == nombre_premio.lower():
+            return key
+    return nombre_premio.lower().replace(" ", "_")
+
+def proceso_sorteos_auto(context):
+    while True:
+        ahora = datetime.utcnow()
+        sorteos = list(col_sorteos.find({"finalizado": False, "fin": {"$lte": ahora}}))
+        for sorteo in sorteos:
+            participantes = sorteo.get("participantes", [])
+            num_ganadores = sorteo.get("num_ganadores", 1)
+            premio_key = premio_clave(sorteo["premio"])
+            cantidad = int(sorteo["cantidad"])
+            if participantes:
+                ganadores = random.sample(participantes, min(num_ganadores, len(participantes)))
+                ganadores_ids = [g["user_id"] for g in ganadores]
+                col_sorteos.update_one(
+                    {"sorteo_id": sorteo["sorteo_id"]},
+                    {"$set": {"finalizado": True, "ganadores": ganadores_ids}}
+                )
+                # Premia a los ganadores
+                for ganador in ganadores:
+                    col_usuarios.update_one(
+                        {"user_id": ganador["user_id"]},
+                        {"$inc": {f"objetos.{premio_key}": cantidad}},
+                        upsert=True
+                    )
+                    try:
+                        context.bot.send_message(
+                            chat_id=ganador["user_id"],
+                            text=f"🎉 ¡Felicidades! Ganaste el sorteo de <b>{cantidad}x {sorteo['premio']}</b>.",
+                            parse_mode="HTML"
+                        )
+                    except Exception: pass
+
+                # Anuncia en el grupo:
+                ganador_texto = "\n".join([
+                    f"• @{g['username']}" if g['username'] else f"• {g['nombre']}"
+                    for g in ganadores
+                ])
+                context.bot.send_message(
+                    chat_id=sorteo["chat_id"],
+                    text=f"🎉 <b>¡Sorteo Finalizado!</b>\n<b>Ganador{'es' if len(ganadores) > 1 else ''}:</b>\n{ganador_texto}\n\nPremio: <b>{cantidad}x {sorteo['premio']}</b>",
+                    parse_mode="HTML"
+                )
+            else:
+                # Nadie participó
+                col_sorteos.update_one(
+                    {"sorteo_id": sorteo["sorteo_id"]},
+                    {"$set": {"finalizado": True, "ganadores": []}}
+                )
+                context.bot.send_message(
+                    chat_id=sorteo["chat_id"],
+                    text=f"🎉 <b>¡Sorteo Finalizado!</b>\nNadie participó, sin ganador.",
+                    parse_mode="HTML"
+                )
+        time.sleep(60)  # Chequea cada minuto
+
+# Para iniciar el proceso automáticamente al iniciar el bot
+def iniciar_proceso_sorteos(context):
+    hilo = threading.Thread(target=proceso_sorteos_auto, args=(context,), daemon=True)
+    hilo.start()
+
+
+
+
 
 
 
@@ -5851,6 +6046,7 @@ def comando_apodo(update, context):
     )
 
 dispatcher.add_handler(CallbackQueryHandler(callback_kkp_notify, pattern="^kkp_notify_"))
+dispatcher.add_handler(CallbackQueryHandler(callback_sorteo_participar, pattern=r"^sorteopart_"))
 dispatcher.add_handler(CallbackQueryHandler(callback_help, pattern=r"^help_"))
 dispatcher.add_handler(CallbackQueryHandler(callback_invitamenu, pattern="^menu_invitacion|menu_progress$"))
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback_album, pattern="^album_"))
@@ -5874,6 +6070,7 @@ dispatcher.add_handler(CommandHandler('settema', comando_settema))
 dispatcher.add_handler(CommandHandler('removetema', comando_removetema))
 dispatcher.add_handler(CommandHandler('vertemas', comando_vertemas))
 dispatcher.add_handler(CommandHandler('kkp', comando_kkp))
+dispatcher.add_handler(CommandHandler('sorteo', comando_sorteo))
 dispatcher.add_handler(CommandHandler('topicid', comando_topicid))
 dispatcher.add_handler(CommandHandler('mercado', comando_mercado))
 dispatcher.add_handler(CommandHandler('rankingmercado', comando_rankingmercado))
@@ -5912,9 +6109,12 @@ dispatcher.add_handler(CommandHandler('retirar', comando_retirar))
 dispatcher.add_handler(CommandHandler('mejorar', comando_mejorar))
 dispatcher.add_handler(MessageHandler(Filters.all, borrar_mensajes_no_idolday), group=99)
 
+# ... después de todos tus handlers:
 
+# Proceso de sorteos, SIEMPRE antes de arrancar el servidor o polling:
+iniciar_proceso_sorteos(dispatcher)
 
-
+# --- SI USAS FLASK + WEBHOOK, NO uses start_polling() ---
 @app.route("/", methods=["GET"])
 def home():
     return "Bot activo."
