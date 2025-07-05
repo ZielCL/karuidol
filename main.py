@@ -2121,7 +2121,7 @@ def get_kkp_menu(user_id, update):
 
     texto += "📝 <b>Misiones diarias:</b>\n"
     if primer_drop_done:
-        texto += "✔️ Primer drop del día: <b>¡Completada! (+50 Kponey)</b>\n"
+        texto += "✔️ Primer drop del día: ✅ <b>¡Completada! (+50 Kponey)</b>\n"
     else:
         texto += "🔸 Primer drop del día: <b>Pendiente</b> (Haz tu primer /idolday hoy)\n"
 
