@@ -51,6 +51,7 @@ client = MongoClient(MONGO_URI)
 db = client['karuta_bot']
 col_usuarios = db['usuarios']
 col_cartas_usuario = db['cartas_usuario']
+col_sorteos = db['sorteos']
 col_contadores = db['contadores']
 col_mercado = db['mercado_cartas']
 col_historial_ventas = db['historial_ventas']
