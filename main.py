@@ -3476,8 +3476,25 @@ def comando_tiendaG(update, context):
     update.message.reply_text(texto, parse_mode="HTML", reply_markup=teclado)
 
 
+def solo_admin(func):
+    def wrapper(update, context, *args, **kwargs):
+        user_id = None
+        if hasattr(update, "message") and update.message:
+            user_id = update.message.from_user.id
+        elif hasattr(update, "callback_query") and update.callback_query:
+            user_id = update.callback_query.from_user.id
 
+        # Pon aquí tus IDs de admin (agrega los tuyos)
+        ADMIN_IDS = [1111798714]  # ← Reemplaza por tus IDs
 
+        if user_id not in ADMIN_IDS:
+            if hasattr(update, "message") and update.message:
+                update.message.reply_text("Este comando solo puede usarlo un admin.")
+            elif hasattr(update, "callback_query") and update.callback_query:
+                update.callback_query.answer("Este comando solo puede usarlo un admin.", show_alert=True)
+            return
+        return func(update, context, *args, **kwargs)
+    return wrapper
 
 
 @log_command
