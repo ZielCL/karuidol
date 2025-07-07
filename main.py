@@ -3503,14 +3503,16 @@ def solo_admin(func):
 def comando_sorteo(update, context):
     args = context.args
     if len(args) < 4:
-        update.message.reply_text("Uso: /sorteo <Premio> <Cantidad> <Duración horas> <Ganadores>\nEjemplo: /sorteo \"Bono Idolday\" 1 6 2")
+        update.message.reply_text(
+            "Uso: /sorteo <Premio> <Cantidad> <Duración horas> <Ganadores>\n"
+            "Ejemplo: /sorteo \"Bono Idolday\" 1 6 2"
+        )
         return
 
-    # Permite premios con espacio en el nombre (ej: "Bono Idolday")
     premio = " ".join(args[:-3])
     try:
         cantidad = int(args[-3])
-        duracion_horas = int(args[-2])
+        duracion_horas = float(args[-2])
         num_ganadores = int(args[-1])
     except Exception:
         update.message.reply_text("Cantidad, duración y ganadores deben ser números.")
@@ -3524,6 +3526,7 @@ def comando_sorteo(update, context):
     now = datetime.utcnow()
     fin = now + timedelta(hours=duracion_horas)
     sorteo_id = str(int(now.timestamp() * 1000))
+    thread_id = getattr(update.message, "message_thread_id", None)
 
     texto = (
         f"🎉 <b>Sorteo KaruKpop</b> 🎉\n"
@@ -3549,7 +3552,8 @@ def comando_sorteo(update, context):
         "num_ganadores": num_ganadores,
         "participantes": [],
         "finalizado": False,
-        "ganadores": []
+        "ganadores": [],
+        "message_thread_id": thread_id,
     })
 
 def callback_sorteo_participar(update, context):
@@ -3631,6 +3635,8 @@ def proceso_sorteos_auto(context):
             num_ganadores = sorteo.get("num_ganadores", 1)
             premio_key = premio_clave(sorteo["premio"])
             cantidad = int(sorteo["cantidad"])
+            thread_id = sorteo.get("message_thread_id", None)
+
             if participantes:
                 ganadores = random.sample(participantes, min(num_ganadores, len(participantes)))
                 ganadores_ids = [g["user_id"] for g in ganadores]
@@ -3651,35 +3657,69 @@ def proceso_sorteos_auto(context):
                             text=f"🎉 ¡Felicidades! Ganaste el sorteo de <b>{cantidad}x {sorteo['premio']}</b>.",
                             parse_mode="HTML"
                         )
-                    except Exception: pass
+                    except Exception:
+                        pass
 
-                # Anuncia en el grupo:
+                # Anuncia en el mismo tema/hilo del sorteo
                 ganador_texto = "\n".join([
                     f"• @{g['username']}" if g['username'] else f"• {g['nombre']}"
                     for g in ganadores
                 ])
-                context.bot.send_message(
-                    chat_id=sorteo["chat_id"],
-                    text=f"🎉 <b>¡Sorteo Finalizado!</b>\n<b>Ganador{'es' if len(ganadores) > 1 else ''}:</b>\n{ganador_texto}\n\nPremio: <b>{cantidad}x {sorteo['premio']}</b>",
-                    parse_mode="HTML"
+                try:
+                    context.bot.send_message(
+                        chat_id=sorteo["chat_id"],
+                        message_thread_id=thread_id,
+                        text=f"🎉 <b>¡Sorteo Finalizado!</b>\n<b>Ganador{'es' if len(ganadores) > 1 else ''}:</b>\n{ganador_texto}\n\nPremio: <b>{cantidad}x {sorteo['premio']}</b>",
+                        parse_mode="HTML"
+                    )
+                except Exception as e:
+                    print(f"[proceso_sorteos_auto] Error al anunciar ganador en tema: {e}")
+
+                # Edita el mensaje original del sorteo (sin botón ni tiempo)
+                texto_final = (
+                    f"🎉 <b>Sorteo KaruKpop</b> 🎉\n"
+                    f"<b>Finalizado</b>\n\n"
+                    f"Ganador{'es' if len(ganadores) > 1 else ''}:\n{ganador_texto}\n\n"
+                    f"Premio: <b>{cantidad}x {sorteo['premio']}</b>"
                 )
             else:
-                # Nadie participó
                 col_sorteos.update_one(
                     {"sorteo_id": sorteo["sorteo_id"]},
                     {"$set": {"finalizado": True, "ganadores": []}}
                 )
-                context.bot.send_message(
+                # Anuncia en el mismo tema/hilo del sorteo
+                try:
+                    context.bot.send_message(
+                        chat_id=sorteo["chat_id"],
+                        message_thread_id=thread_id,
+                        text=f"🎉 <b>¡Sorteo Finalizado!</b>\nNadie participó, sin ganador.",
+                        parse_mode="HTML"
+                    )
+                except Exception as e:
+                    print(f"[proceso_sorteos_auto] Error al anunciar sin ganador en tema: {e}")
+
+                texto_final = (
+                    f"🎉 <b>Sorteo KaruKpop</b> 🎉\n"
+                    f"<b>Finalizado</b>\n\n"
+                    f"Nadie participó, sin ganador."
+                )
+
+            # Edita el mensaje del sorteo (quita botón y pone resumen final)
+            try:
+                context.bot.edit_message_text(
                     chat_id=sorteo["chat_id"],
-                    text=f"🎉 <b>¡Sorteo Finalizado!</b>\nNadie participó, sin ganador.",
+                    message_id=sorteo["mensaje_id"],
+                    text=texto_final,
                     parse_mode="HTML"
                 )
-        time.sleep(60)  # Chequea cada minuto
+            except Exception as e:
+                print(f"[proceso_sorteos_auto] Error al editar mensaje final de sorteo: {e}")
+        time.sleep(60)
 
-# Para iniciar el proceso automáticamente al iniciar el bot
 def iniciar_proceso_sorteos(context):
     hilo = threading.Thread(target=proceso_sorteos_auto, args=(context,), daemon=True)
     hilo.start()
+
 
 
 
