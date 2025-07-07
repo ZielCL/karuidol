@@ -3635,7 +3635,6 @@ def proceso_sorteos_auto(context):
             num_ganadores = sorteo.get("num_ganadores", 1)
             premio_key = premio_clave(sorteo["premio"])
             cantidad = int(sorteo["cantidad"])
-            thread_id = sorteo.get("message_thread_id", None)
 
             if participantes:
                 ganadores = random.sample(participantes, min(num_ganadores, len(participantes)))
@@ -3660,22 +3659,11 @@ def proceso_sorteos_auto(context):
                     except Exception:
                         pass
 
-                # Anuncia en el mismo tema/hilo del sorteo
+                # Solo edita el mensaje original (no envía mensaje nuevo al grupo)
                 ganador_texto = "\n".join([
                     f"• @{g['username']}" if g['username'] else f"• {g['nombre']}"
                     for g in ganadores
                 ])
-                try:
-                    context.bot.send_message(
-                        chat_id=sorteo["chat_id"],
-                        message_thread_id=thread_id,
-                        text=f"🎉 <b>¡Sorteo Finalizado!</b>\n<b>Ganador{'es' if len(ganadores) > 1 else ''}:</b>\n{ganador_texto}\n\nPremio: <b>{cantidad}x {sorteo['premio']}</b>",
-                        parse_mode="HTML"
-                    )
-                except Exception as e:
-                    print(f"[proceso_sorteos_auto] Error al anunciar ganador en tema: {e}")
-
-                # Edita el mensaje original del sorteo (sin botón ni tiempo)
                 texto_final = (
                     f"🎉 <b>Sorteo KaruKpop</b> 🎉\n"
                     f"<b>Finalizado</b>\n\n"
@@ -3687,16 +3675,6 @@ def proceso_sorteos_auto(context):
                     {"sorteo_id": sorteo["sorteo_id"]},
                     {"$set": {"finalizado": True, "ganadores": []}}
                 )
-                # Anuncia en el mismo tema/hilo del sorteo
-                try:
-                    context.bot.send_message(
-                        chat_id=sorteo["chat_id"],
-                        message_thread_id=thread_id,
-                        text=f"🎉 <b>¡Sorteo Finalizado!</b>\nNadie participó, sin ganador.",
-                        parse_mode="HTML"
-                    )
-                except Exception as e:
-                    print(f"[proceso_sorteos_auto] Error al anunciar sin ganador en tema: {e}")
 
                 texto_final = (
                     f"🎉 <b>Sorteo KaruKpop</b> 🎉\n"
