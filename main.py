@@ -6070,7 +6070,7 @@ def comando_apodo(update, context):
     objetos = doc_usuario.get("objetos", {})
     ticket_apodo = objetos.get("ticket_agregar_apodo", 0)
     if ticket_apodo < 1:
-        update.message.reply_text("No tienes tickets para agregar apodos. Cómpralo en /tienda.")
+        update.message.reply_text("No tienes tickets para agregar apodos. Cómpralo en el tema: Tienda KaruKpop.")
         return
 
     # Consumir ticket
