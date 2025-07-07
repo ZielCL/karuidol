@@ -3512,7 +3512,7 @@ def comando_sorteo(update, context):
     premio = " ".join(args[:-3])
     try:
         cantidad = int(args[-3])
-        duracion_horas = float(args[-2])
+        duracion_horas = float(args[-2])  # Permite decimales (minutos)
         num_ganadores = int(args[-1])
     except Exception:
         update.message.reply_text("Cantidad, duración y ganadores deben ser números.")
@@ -3555,6 +3555,13 @@ def comando_sorteo(update, context):
         "ganadores": [],
         "message_thread_id": thread_id,
     })
+
+    # Borra el mensaje original del comando
+    try:
+        update.message.delete()
+    except Exception as e:
+        print(f"[comando_sorteo] Error al borrar el mensaje del comando: {e}")
+
 
 def callback_sorteo_participar(update, context):
     query = update.callback_query
