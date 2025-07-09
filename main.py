@@ -3113,12 +3113,23 @@ def comando_trk(update, context):
         return
 
     if otro_id == user_id:
-        update.message.reply_text("Usa /trk @user o /trk repondiendo un mensaje.")
+        update.message.reply_text("Usa /trk @user o /trk respondiendo un mensaje.")
         return
 
     if user_id in TRADES_POR_USUARIO or otro_id in TRADES_POR_USUARIO:
         update.message.reply_text("Uno de los dos ya tiene un intercambio pendiente.")
         return
+
+    # Obtiene username o nombre visible de ambos usuarios
+    user_doc_a = col_usuarios.find_one({"user_id": user_id}) or {}
+    user_doc_b = col_usuarios.find_one({"user_id": otro_id}) or {}
+    username_a = user_doc_a.get("username", "")
+    username_b = user_doc_b.get("username", "")
+    nombre_a = user_doc_a.get("nombre", "")
+    nombre_b = user_doc_b.get("nombre", "")
+
+    display_a = f"@{username_a}" if username_a else (nombre_a or str(user_id))
+    display_b = f"@{username_b}" if username_b else (nombre_b or str(otro_id))
 
     trade_id = str(uuid.uuid4())[:8]
     TRADES_EN_CURSO[trade_id] = {
@@ -3128,14 +3139,15 @@ def comando_trk(update, context):
         "id_unico": {user_id: None, otro_id: None},
         "confirmado": {user_id: False, otro_id: False},
         "estado": "esperando_id",
+        "display": {user_id: display_a, otro_id: display_b}
     }
     TRADES_POR_USUARIO[user_id] = trade_id
     TRADES_POR_USUARIO[otro_id] = trade_id
 
     texto = (
         f"🤝 <b>¡Trade iniciado!</b>\n"
-        f"• <a href='tg://user?id={user_id}'>{user_id}</a>\n"
-        f"• <a href='tg://user?id={otro_id}'>{otro_id}</a>\n\n"
+        f"• {display_a}\n"
+        f"• {display_b}\n\n"
         "Ambos deben ingresar el <b>id_unico</b> de la carta que ofrecen para el intercambio (escríbanlo aquí en el tema):"
     )
     context.bot.send_message(
@@ -3143,12 +3155,11 @@ def comando_trk(update, context):
     )
 
 def mensaje_trade_id(update, context):
-    # --- Protección: sólo mensajes de texto ---
     if not getattr(update, "message", None) or not getattr(update.message, "text", None):
         return  # Ignora si no es mensaje de texto
 
     user_id = update.message.from_user.id
-    chat_id = update.effective_chat.id
+    chat_id = update.message.chat_id
     thread_id = getattr(update.message, "message_thread_id", None)
     texto_ingresado = update.message.text.strip()
 
@@ -3180,7 +3191,6 @@ def mensaje_trade_id(update, context):
     if trade["estado"] != "esperando_id":
         return
 
-    # Solo los dos usuarios pueden interactuar
     if user_id not in trade["usuarios"]:
         update.message.reply_text("Solo los usuarios del intercambio pueden participar.")
         return
@@ -3198,12 +3208,6 @@ def mensaje_trade_id(update, context):
     else:
         update.message.reply_text("Carta seleccionada, esperando al otro usuario...")
 
-
-
-
-
-
-
 def mostrar_trade_resumen(context, trade_id):
     trade = TRADES_EN_CURSO[trade_id]
     user_a, user_b = trade["usuarios"]
@@ -3213,10 +3217,13 @@ def mostrar_trade_resumen(context, trade_id):
     chat_id = trade["chat_id"]
     thread_id = trade["thread_id"]
 
+    display_a = trade["display"][user_a]
+    display_b = trade["display"][user_b]
+
     texto = (
         f"🔄 <b>Propuesta de Intercambio</b>\n\n"
-        f"<a href='tg://user?id={user_a}'>{user_a}</a> ofrece <b>[{carta_a['version']}] {carta_a['nombre']}</b> ({id_a})\n"
-        f"<a href='tg://user?id={user_b}'>{user_b}</a> ofrece <b>[{carta_b['version']}] {carta_b['nombre']}</b> ({id_b})\n\n"
+        f"{display_a} ofrece <b>[{carta_a['version']}] {carta_a['nombre']}</b> ({id_a})\n"
+        f"{display_b} ofrece <b>[{carta_b['version']}] {carta_b['nombre']}</b> ({id_b})\n\n"
         "Ambos deben confirmar con el botón para completar el intercambio."
     )
     botones = [
@@ -3229,93 +3236,6 @@ def mostrar_trade_resumen(context, trade_id):
         chat_id=chat_id, text=texto, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(botones),
         message_thread_id=thread_id
     )
-
-
-def callback_trade_confirm(update, context):
-    query = update.callback_query
-    data = query.data
-    partes = data.split("_")
-    trade_id = partes[1]
-    user_id = query.from_user.id
-
-    trade = TRADES_EN_CURSO.get(trade_id)
-    if not trade or trade["estado"] != "confirmacion":
-        query.answer("No hay intercambio pendiente.", show_alert=True)
-        return
-
-    # Solo los usuarios del trade pueden interactuar
-    if user_id not in trade["usuarios"]:
-        query.answer("Solo los usuarios del intercambio pueden interactuar.", show_alert=True)
-        return
-
-    if data.startswith("tradeconf_"):
-        trade["confirmado"][user_id] = True
-        query.answer("Confirmaste el trade.", show_alert=True)
-        if all(trade["confirmado"].values()):
-            a, b = trade["usuarios"]
-            id_a, id_b = trade["id_unico"][a], trade["id_unico"][b]
-            carta_a = col_cartas_usuario.find_one_and_delete({"user_id": a, "id_unico": id_a})
-            carta_b = col_cartas_usuario.find_one_and_delete({"user_id": b, "id_unico": id_b})
-
-            # Chequeo de saldo kponey (deben tener al menos 100 ambos)
-            saldo_a = col_usuarios.find_one({"user_id": a}, {"kponey": 1}) or {}
-            saldo_b = col_usuarios.find_one({"user_id": b}, {"kponey": 1}) or {}
-            kponey_a = saldo_a.get("kponey", 0)
-            kponey_b = saldo_b.get("kponey", 0)
-
-            if kponey_a < 100 or kponey_b < 100:
-                txt = (
-                    "❌ Uno de los usuarios no tiene suficiente Kponey (100 🪙) para el intercambio. "
-                    "Ambos deben tener saldo para completar el trade."
-                )
-                # Devuelve las cartas si ya se borraron
-                if carta_a: col_cartas_usuario.insert_one(carta_a)
-                if carta_b: col_cartas_usuario.insert_one(carta_b)
-                context.bot.send_message(
-                    chat_id=trade["chat_id"], text=txt, message_thread_id=trade["thread_id"]
-                )
-                for uid in trade["usuarios"]:
-                    TRADES_POR_USUARIO.pop(uid, None)
-                TRADES_EN_CURSO.pop(trade_id, None)
-                return
-
-            if carta_a and carta_b:
-                carta_a["user_id"] = b
-                carta_b["user_id"] = a
-                col_cartas_usuario.insert_one(carta_a)
-                col_cartas_usuario.insert_one(carta_b)
-                # Descontar 100 kponey a cada usuario
-                col_usuarios.update_one({"user_id": a}, {"$inc": {"kponey": -100}})
-                col_usuarios.update_one({"user_id": b}, {"$inc": {"kponey": -100}})
-                revisar_sets_completados(a, context)
-                revisar_sets_completados(b, context)
-                txt = "✅ ¡Intercambio realizado exitosamente!\n\n- 100 Kponey descontados a cada usuario."
-            else:
-                txt = "❌ Error: una de las cartas ya no está disponible."
-            context.bot.send_message(
-                chat_id=trade["chat_id"], text=txt, message_thread_id=trade["thread_id"]
-            )
-            for uid in trade["usuarios"]:
-                TRADES_POR_USUARIO.pop(uid, None)
-            TRADES_EN_CURSO.pop(trade_id, None)
-    elif data.startswith("tradecancel_"):
-        context.bot.send_message(
-            chat_id=trade["chat_id"],
-            text="❌ El intercambio fue cancelado.",
-            message_thread_id=trade["thread_id"]
-        )
-        for uid in trade["usuarios"]:
-            TRADES_POR_USUARIO.pop(uid, None)
-        TRADES_EN_CURSO.pop(trade_id, None)
-        query.answer("Trade cancelado.", show_alert=True)
-
-dispatcher.add_handler(CallbackQueryHandler(callback_trade_confirm, pattern=r"^trade(conf|cancel)_"))
-
-
-
-
-
-
 
 
 
