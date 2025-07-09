@@ -3238,6 +3238,93 @@ def mostrar_trade_resumen(context, trade_id):
     )
 
 
+def callback_trade_confirm(update, context):
+    query = update.callback_query
+    data = query.data
+    partes = data.split("_")
+    trade_id = partes[1]
+    user_id = query.from_user.id
+
+    trade = TRADES_EN_CURSO.get(trade_id)
+    if not trade or trade["estado"] != "confirmacion":
+        query.answer("No hay intercambio pendiente.", show_alert=True)
+        return
+
+    # Solo los usuarios del trade pueden interactuar
+    if user_id not in trade["usuarios"]:
+        query.answer("Solo los usuarios del intercambio pueden interactuar.", show_alert=True)
+        return
+
+    if data.startswith("tradeconf_"):
+        trade["confirmado"][user_id] = True
+        query.answer("Confirmaste el trade.", show_alert=True)
+        if all(trade["confirmado"].values()):
+            a, b = trade["usuarios"]
+            id_a, id_b = trade["id_unico"][a], trade["id_unico"][b]
+            carta_a = col_cartas_usuario.find_one_and_delete({"user_id": a, "id_unico": id_a})
+            carta_b = col_cartas_usuario.find_one_and_delete({"user_id": b, "id_unico": id_b})
+
+            # Chequeo de saldo kponey (deben tener al menos 100 ambos)
+            saldo_a = col_usuarios.find_one({"user_id": a}, {"kponey": 1}) or {}
+            saldo_b = col_usuarios.find_one({"user_id": b}, {"kponey": 1}) or {}
+            kponey_a = saldo_a.get("kponey", 0)
+            kponey_b = saldo_b.get("kponey", 0)
+
+            if kponey_a < 100 or kponey_b < 100:
+                txt = (
+                    "❌ Uno de los usuarios no tiene suficiente Kponey (100 🪙) para el intercambio. "
+                    "Ambos deben tener saldo para completar el trade."
+                )
+                # Devuelve las cartas si ya se borraron
+                if carta_a: col_cartas_usuario.insert_one(carta_a)
+                if carta_b: col_cartas_usuario.insert_one(carta_b)
+                context.bot.send_message(
+                    chat_id=trade["chat_id"], text=txt, message_thread_id=trade["thread_id"]
+                )
+                for uid in trade["usuarios"]:
+                    TRADES_POR_USUARIO.pop(uid, None)
+                TRADES_EN_CURSO.pop(trade_id, None)
+                return
+
+            if carta_a and carta_b:
+                carta_a["user_id"] = b
+                carta_b["user_id"] = a
+                col_cartas_usuario.insert_one(carta_a)
+                col_cartas_usuario.insert_one(carta_b)
+                # Descontar 100 kponey a cada usuario
+                col_usuarios.update_one({"user_id": a}, {"$inc": {"kponey": -100}})
+                col_usuarios.update_one({"user_id": b}, {"$inc": {"kponey": -100}})
+                revisar_sets_completados(a, context)
+                revisar_sets_completados(b, context)
+                txt = "✅ ¡Intercambio realizado exitosamente!\n\n- 100 Kponey descontados a cada usuario."
+            else:
+                txt = "❌ Error: una de las cartas ya no está disponible."
+            context.bot.send_message(
+                chat_id=trade["chat_id"], text=txt, message_thread_id=trade["thread_id"]
+            )
+            for uid in trade["usuarios"]:
+                TRADES_POR_USUARIO.pop(uid, None)
+            TRADES_EN_CURSO.pop(trade_id, None)
+    elif data.startswith("tradecancel_"):
+        context.bot.send_message(
+            chat_id=trade["chat_id"],
+            text="❌ El intercambio fue cancelado.",
+            message_thread_id=trade["thread_id"]
+        )
+        for uid in trade["usuarios"]:
+            TRADES_POR_USUARIO.pop(uid, None)
+        TRADES_EN_CURSO.pop(trade_id, None)
+        query.answer("Trade cancelado.", show_alert=True)
+
+dispatcher.add_handler(CallbackQueryHandler(callback_trade_confirm, pattern=r"^trade(conf|cancel)_"))
+
+
+
+
+
+
+
+
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
