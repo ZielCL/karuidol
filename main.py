@@ -3276,8 +3276,10 @@ def callback_trade_confirm(update, context):
                     "Ambos deben tener saldo para completar el trade."
                 )
                 # Devuelve las cartas si ya se borraron
-                if carta_a: col_cartas_usuario.insert_one(carta_a)
-                if carta_b: col_cartas_usuario.insert_one(carta_b)
+                if carta_a:
+                    col_cartas_usuario.insert_one(carta_a)
+                if carta_b:
+                    col_cartas_usuario.insert_one(carta_b)
                 context.bot.send_message(
                     chat_id=trade["chat_id"], text=txt, message_thread_id=trade["thread_id"]
                 )
@@ -3286,24 +3288,23 @@ def callback_trade_confirm(update, context):
                 TRADES_EN_CURSO.pop(trade_id, None)
                 return
 
-        if carta_a and carta_b:
-            carta_a["user_id"] = b
-            carta_b["user_id"] = a
-            col_cartas_usuario.insert_one(carta_a)
-            col_cartas_usuario.insert_one(carta_b)
-    # Descontar 100 kponey a cada usuario
-            col_usuarios.update_one({"user_id": a}, {"$inc": {"kponey": -100}})
-            col_usuarios.update_one({"user_id": b}, {"$inc": {"kponey": -100}})
-            revisar_sets_completados(a, context)
-            revisar_sets_completados(b, context)
-            display_a = trade["display"][a]
-            display_b = trade["display"][b]
-            txt = (
-                f"✅ ¡Intercambio realizado exitosamente!\n"
-                f"{display_a} y {display_b} han intercambiado sus cartas.\n"
-                f"- 100 Kponey descontados a cada usuario."
-            )
-
+            if carta_a and carta_b:
+                carta_a["user_id"] = b
+                carta_b["user_id"] = a
+                col_cartas_usuario.insert_one(carta_a)
+                col_cartas_usuario.insert_one(carta_b)
+                # Descontar 100 kponey a cada usuario
+                col_usuarios.update_one({"user_id": a}, {"$inc": {"kponey": -100}})
+                col_usuarios.update_one({"user_id": b}, {"$inc": {"kponey": -100}})
+                revisar_sets_completados(a, context)
+                revisar_sets_completados(b, context)
+                display_a = trade["display"][a]
+                display_b = trade["display"][b]
+                txt = (
+                    f"✅ ¡Intercambio realizado exitosamente!\n"
+                    f"{display_a} y {display_b} han intercambiado sus cartas.\n"
+                    f"- 100 Kponey descontados a cada usuario."
+                )
             else:
                 txt = "❌ Error: una de las cartas ya no está disponible."
             context.bot.send_message(
@@ -3323,7 +3324,6 @@ def callback_trade_confirm(update, context):
         TRADES_EN_CURSO.pop(trade_id, None)
         query.answer("Trade cancelado.", show_alert=True)
 
-dispatcher.add_handler(CallbackQueryHandler(callback_trade_confirm, pattern=r"^trade(conf|cancel)_"))
 
 
 
