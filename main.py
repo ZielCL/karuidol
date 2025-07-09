@@ -3325,6 +3325,7 @@ def callback_trade_confirm(update, context):
         query.answer("Trade cancelado.", show_alert=True)
 
 
+dispatcher.add_handler(CallbackQueryHandler(callback_trade_confirm, pattern=r"^trade(conf|cancel)_"))
 
 
 
