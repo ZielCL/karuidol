@@ -1842,7 +1842,6 @@ FRASES_ESTADO = {
 @log_command
 @grupo_oficial
 def comando_darobjeto(update, context):
-    ADMIN_USER_ID = update.message.from_user.id
     if not es_admin(update):
         update.message.reply_text("Solo los administradores pueden usar este comando.")
         return
@@ -1850,11 +1849,14 @@ def comando_darobjeto(update, context):
     dest_id = None
     objeto = None
     cantidad = None
+    nombre_dest = None
     args = context.args
 
     # 1. Si está respondiendo a un mensaje
     if update.message.reply_to_message:
-        dest_id = update.message.reply_to_message.from_user.id
+        dest_user = update.message.reply_to_message.from_user
+        dest_id = dest_user.id
+        nombre_dest = dest_user.full_name
         if len(args) != 2:
             update.message.reply_text(
                 "Uso: responde a un mensaje y escribe /darobjeto <objeto> <cantidad>\n"
@@ -1868,24 +1870,30 @@ def comando_darobjeto(update, context):
             update.message.reply_text("La cantidad debe ser un número mayor que 0.")
             return
 
-    # 2. Si el primer argumento es @username
-    elif args and args[0].startswith("@"):
-        user_doc = col_usuarios.find_one({"username": args[0][1:].lower()})
+    # 2. Si el primer argumento es @usuario (posición 0 o última)
+    elif args and (args[0].startswith("@") or (len(args) > 2 and args[2].startswith("@"))):
+        if args[0].startswith("@"):
+            username = args[0][1:].lower()
+            objeto = args[1]
+            try:
+                cantidad = int(args[2])
+            except:
+                update.message.reply_text("La cantidad debe ser un número mayor que 0.")
+                return
+        else:
+            objeto = args[0]
+            try:
+                cantidad = int(args[1])
+            except:
+                update.message.reply_text("La cantidad debe ser un número mayor que 0.")
+                return
+            username = args[2][1:].lower()
+        user_doc = col_usuarios.find_one({"username": username})
         if not user_doc:
             update.message.reply_text("Usuario no encontrado o no ha usado el bot.")
             return
         dest_id = user_doc["user_id"]
-        if len(args) != 3:
-            update.message.reply_text(
-                "Uso: /darobjeto @usuario <objeto> <cantidad>"
-            )
-            return
-        objeto = args[1]
-        try:
-            cantidad = int(args[2])
-        except:
-            update.message.reply_text("La cantidad debe ser un número mayor que 0.")
-            return
+        nombre_dest = user_doc.get("nombre", f"@{username}")
 
     # 3. Si el primer argumento es un user_id (modo clásico)
     elif len(args) == 3:
@@ -1893,6 +1901,7 @@ def comando_darobjeto(update, context):
             dest_id = int(args[0])
             objeto = args[1]
             cantidad = int(args[2])
+            nombre_dest = f"<code>{dest_id}</code>"
         except:
             update.message.reply_text(
                 "Uso: /darobjeto <user_id> <objeto> <cantidad>"
@@ -1903,7 +1912,7 @@ def comando_darobjeto(update, context):
         update.message.reply_text(
             "Uso válido:\n"
             "• Responde a un mensaje: /darobjeto <objeto> <cantidad>\n"
-            "• Con @usuario: /darobjeto @usuario <objeto> <cantidad>\n"
+            "• Con @usuario: /darobjeto @usuario <objeto> <cantidad> o /darobjeto <objeto> <cantidad> @usuario\n"
             "• Con user_id: /darobjeto <user_id> <objeto> <cantidad>"
         )
         return
@@ -1931,10 +1940,9 @@ def comando_darobjeto(update, context):
 
     info_obj = CATALOGO_OBJETOS[objeto]
     update.message.reply_text(
-        f"✅ {info_obj['emoji']} {cantidad} x {info_obj['nombre']} entregado(s) a <code>{dest_id}</code>.",
+        f"✅ {info_obj['emoji']} {cantidad} x {info_obj['nombre']} entregado(s) a {nombre_dest}.",
         parse_mode='HTML'
     )
-
     # Opcional: notifica por privado al usuario
     try:
         context.bot.send_message(
