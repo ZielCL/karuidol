@@ -2160,6 +2160,7 @@ def get_kkp_menu(user_id, update):
 
 
 
+
 @solo_en_tema_asignado("estadisticasdrops")
 @grupo_oficial
 def comando_estadisticasdrops(update, context):
@@ -2167,19 +2168,32 @@ def comando_estadisticasdrops(update, context):
         update.message.reply_text("Este comando solo puede ser usado por administradores del grupo.")
         return
 
+    # Por defecto, la página es 0 (top 10)
+    page = 0
+    if context.args and context.args[0].isdigit():
+        page = int(context.args[0])
+
+    # Conteo global
     total_reclamados = col_drops_log.count_documents({"evento": "reclamado"})
     total_expirados = col_drops_log.count_documents({"evento": "expirado"})
 
-    pipeline = [
+    # Total de usuarios en el ranking
+    pipeline_total = [
         {"$match": {"evento": "reclamado"}},
         {"$group": {"_id": {"user_id": "$user_id", "username": "$username"}, "total": {"$sum": 1}}},
         {"$sort": {"total": -1}},
-        {"$limit": 10}
     ]
-    resultados = list(col_drops_log.aggregate(pipeline))
+    all_results = list(col_drops_log.aggregate(pipeline_total))
+    total_usuarios = len(all_results)
+
+    # Paginación
+    por_pagina = 10
+    inicio = page * por_pagina
+    fin = inicio + por_pagina
+    resultados = all_results[inicio:fin]
 
     ranking_texto = ""
-    for i, r in enumerate(resultados, 1):
+    for i, r in enumerate(resultados, inicio + 1):
         user = r['_id']
         username = user.get('username')
         if username:
@@ -2192,11 +2206,77 @@ def comando_estadisticasdrops(update, context):
         f"📊 <b>Estadísticas de Drops</b>:\n"
         f"• Drops reclamados: <b>{total_reclamados}</b>\n"
         f"• Drops expirados: <b>{total_expirados}</b>\n"
-        f"\n<b>🏆 Top 10 usuarios con más cartas reclamadas:</b>\n"
+        f"\n<b>🏆 Ranking usuarios con más cartas reclamadas (del {inicio+1} al {min(fin, total_usuarios)} de {total_usuarios}):</b>\n"
         f"{ranking_texto if ranking_texto else 'Sin datos.'}"
     )
 
-    update.message.reply_text(texto, parse_mode=ParseMode.HTML)
+    # Botones de paginación
+    botones = []
+    if page > 0:
+        botones.append(InlineKeyboardButton("⬅️", callback_data=f"estadrops_{page-1}"))
+    if fin < total_usuarios:
+        botones.append(InlineKeyboardButton("➡️", callback_data=f"estadrops_{page+1}"))
+    reply_markup = InlineKeyboardMarkup([botones]) if botones else None
+
+    update.message.reply_text(texto, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
+
+# CALLBACK PARA LAS FLECHAS DE PAGINACIÓN
+def callback_estadrops(update, context):
+    query = update.callback_query
+    data = query.data
+    partes = data.split("_")
+    page = int(partes[1])
+
+    # Conteo global
+    total_reclamados = col_drops_log.count_documents({"evento": "reclamado"})
+    total_expirados = col_drops_log.count_documents({"evento": "expirado"})
+
+    pipeline_total = [
+        {"$match": {"evento": "reclamado"}},
+        {"$group": {"_id": {"user_id": "$user_id", "username": "$username"}, "total": {"$sum": 1}}},
+        {"$sort": {"total": -1}},
+    ]
+    all_results = list(col_drops_log.aggregate(pipeline_total))
+    total_usuarios = len(all_results)
+
+    por_pagina = 10
+    inicio = page * por_pagina
+    fin = inicio + por_pagina
+    resultados = all_results[inicio:fin]
+
+    ranking_texto = ""
+    for i, r in enumerate(resultados, inicio + 1):
+        user = r['_id']
+        username = user.get('username')
+        if username:
+            user_text = f"@{username}"
+        else:
+            user_text = f"<code>{user['user_id']}</code>"
+        ranking_texto += f"{i}. {user_text} — {r['total']} cartas\n"
+
+    texto = (
+        f"📊 <b>Estadísticas de Drops</b>:\n"
+        f"• Drops reclamados: <b>{total_reclamados}</b>\n"
+        f"• Drops expirados: <b>{total_expirados}</b>\n"
+        f"\n<b>🏆 Ranking usuarios con más cartas reclamadas (del {inicio+1} al {min(fin, total_usuarios)} de {total_usuarios}):</b>\n"
+        f"{ranking_texto if ranking_texto else 'Sin datos.'}"
+    )
+
+    botones = []
+    if page > 0:
+        botones.append(InlineKeyboardButton("⬅️", callback_data=f"estadrops_{page-1}"))
+    if fin < total_usuarios:
+        botones.append(InlineKeyboardButton("➡️", callback_data=f"estadrops_{page+1}"))
+    reply_markup = InlineKeyboardMarkup([botones]) if botones else None
+
+    try:
+        query.edit_message_text(texto, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
+    except Exception as e:
+        print("[estadisticasdrops] Error al editar mensaje:", e)
+    query.answer()
+
+# Añade el handler para el callback
+dispatcher.add_handler(CallbackQueryHandler(callback_estadrops, pattern=r"^estadrops_\d+"))
 
 
 
