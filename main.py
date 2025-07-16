@@ -2572,6 +2572,7 @@ def manejador_reclamar(update, context):
 
     puede_reclamar = False
 
+    # --- Lógica para el dueño del drop ---
     if usuario_click == drop["dueño"]:
         primer_reclamo = drop.get("primer_reclamo_dueño")
         if primer_reclamo is None:
@@ -2704,11 +2705,10 @@ def manejador_reclamar(update, context):
     nombre = carta['nombre']
     version = carta['version']
     grupo = carta['grupo']
-
     nuevo_id = carta.get("card_id", 1)
     id_unico = random_id_unico(nuevo_id)
 
-    # ------- CORREGIDO: SOLO OPCIONES DEL MISMO GRUPO -------
+    # --- Filtrar solo opciones del mismo grupo ---
     posibles_estados = [
         c for c in estados_disponibles_para_carta(nombre, version)
         if c.get("grupo") == grupo
@@ -2717,9 +2717,8 @@ def manejador_reclamar(update, context):
         posibles_estados = estados_disponibles_para_carta(nombre, version)
     carta_entregada = random.choice(posibles_estados)
     estado = carta_entregada['estado']
-    estrellas = carta_entregada.get('estrellas', '★??')
+    estrellas = carta_entregada.get('estrellas', '★??')  # <-- AQUÍ ESTÁ EL CAMBIO
     imagen_url = carta_entregada['imagen']
-
     intentos = carta.get("intentos", 0)
     precio = precio_carta_karuta(nombre, version, estado, id_unico=id_unico, card_id=nuevo_id) + 200 * max(0, intentos - 1)
 
@@ -2743,7 +2742,7 @@ def manejador_reclamar(update, context):
                 "version": version,
                 "grupo": grupo,
                 "estado": estado,
-                "estrellas": estrellas,
+                "estrellas": estrellas,   # <-- AQUÍ TAMBIÉN
                 "imagen": imagen_url,
                 "card_id": nuevo_id,
                 "count": 1,
@@ -2803,6 +2802,7 @@ def manejador_reclamar(update, context):
         parse_mode='HTML',
         message_thread_id=thread_id if thread_id else None
     )
+
 
     # --- Mensaje de favoritos (en el thread/tema correcto) ---
 # --- MENSAJE DE FAVORITOS: compara nombre, version y grupo ---
