@@ -2945,7 +2945,6 @@ def comando_album2(update, context):
 def mostrar_album2_uno(bot, chat_id, user_id, pagina=1, thread_id=None, mensaje=None, editar=False):
     # OBTIENE Y ORDENA LAS CARTAS
     cartas_usuario = list(col_cartas_usuario.find({"user_id": user_id}))
-    # Ordenar primero por grupo y luego por nombre
     cartas_usuario.sort(key=lambda c: (c.get('grupo', ''), c.get('nombre', '')))
     total = len(cartas_usuario)
     por_pagina = 10
@@ -2964,9 +2963,12 @@ def mostrar_album2_uno(bot, chat_id, user_id, pagina=1, thread_id=None, mensaje=
         return
     img_path = crear_cuadricula_cartas_urls(urls_imgs, output_path=f"cuadricula_album2_{user_id}.png")
 
-    # Un botón por carta, alineados en cuadrícula (vacío para simular UNO)
+    # Un botón por carta con nombre y estrellas
     botones_cartas = [
-        InlineKeyboardButton(" ", callback_data=f"ampliar_{c['id_unico']}")
+        InlineKeyboardButton(
+            f"{c['nombre']} {c.get('estrellas','')}",
+            callback_data=f"ampliar_{c['id_unico']}"
+        )
         for c in cartas_pag
     ]
     columnas = 5
@@ -3022,6 +3024,7 @@ def callback_album2_ampliar(update, context):
         query.answer()
 
 dispatcher.add_handler(CallbackQueryHandler(callback_album2_ampliar, pattern="^(ampliar_|album2_)"))
+
 
 
 
