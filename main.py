@@ -6313,7 +6313,6 @@ dispatcher.add_handler(CallbackQueryHandler(callback_sorteo_participar, pattern=
 dispatcher.add_handler(CallbackQueryHandler(callback_help, pattern=r"^help_"))
 dispatcher.add_handler(CallbackQueryHandler(callback_invitamenu, pattern="^menu_invitacion|menu_progress$"))
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback_album, pattern="^album_"))
-dispatcher.add_handler(CallbackQueryHandler(manejador_callback_album2, pattern="^album2_"))
 dispatcher.add_handler(CallbackQueryHandler(manejador_reclamar, pattern="^reclamar_"))
 dispatcher.add_handler(CallbackQueryHandler(callback_comprarobj, pattern="^comprarobj_"))
 dispatcher.add_handler(CallbackQueryHandler(callback_comprarG_objeto, pattern="^comprarG_"))
