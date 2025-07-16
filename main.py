@@ -2,6 +2,7 @@ import os
 import threading
 import time
 import telegram
+import re
 from flask import Flask, request, jsonify, redirect
 from telegram.error import BadRequest, RetryAfter
 from telegram import ParseMode
@@ -2161,6 +2162,9 @@ def get_kkp_menu(user_id, update):
 
 
 
+
+
+
 @solo_en_tema_asignado("estadisticasdrops")
 @grupo_oficial
 def comando_estadisticasdrops(update, context):
@@ -3991,6 +3995,15 @@ def mostrar_menu_grupos(user_id, pagina, grupos, thread_id=None):
 
 
 
+def normalizar_nombre_carta(nombre):
+    nombre = nombre.lower()
+    nombre = re.sub(r"\s+", " ", nombre)
+    nombre = re.sub(r"\s+\[", " [", nombre)
+    nombre = re.sub(r"\]\s+", "] ", nombre)
+    return nombre.strip()
+
+
+
 #----------Comando FAV1---------------
 @log_command
 @en_tema_asignado_o_privado("favoritos")
@@ -4044,14 +4057,19 @@ def comando_fav(update, context):
     version = args[1][1:-1]
     nombre = " ".join(args[2:]).strip()
 
-    # Busca si la carta existe en el catálogo (usando grupo, nombre, version)
-    existe = any(
-        (c.get("grupo", c.get("set")) == grupo and c["nombre"] == nombre and c["version"] == version)
-        for c in cartas
-    )
+    # Normaliza la búsqueda para evitar problemas con espacios y mayúsculas
+    nombre_usuario_normalizado = normalizar_nombre_carta(f"{grupo} [{version}] {nombre}")
+
+    # Busca si la carta existe en tu catálogo normalizando los nombres
+    existe = next((
+        c for c in cartas
+        if normalizar_nombre_carta(f"{c.get('grupo', c.get('set'))} [{c['version']}] {c['nombre']}") == nombre_usuario_normalizado
+    ), None)
+
     if not existe:
         update.message.reply_text(
-            f"No se encontró la carta: {grupo} [{version}] {nombre}",
+            f"No se encontró la carta: <code>{grupo} [{version}] {nombre}</code>\n"
+            "Asegúrate de copiar el nombre tal como aparece en el set.",
             parse_mode="HTML"
         )
         return
@@ -4060,8 +4078,17 @@ def comando_fav(update, context):
     favoritos = doc.get("favoritos", [])
 
     key = {"grupo": grupo, "nombre": nombre, "version": version}
-    if key in favoritos:
-        favoritos = [f for f in favoritos if not (f["grupo"] == grupo and f["nombre"] == nombre and f["version"] == version)]
+    # Busca favoritos normalizando
+    ya_es_fav = any(
+        normalizar_nombre_carta(f"{f['grupo']} [{f['version']}] {f['nombre']}") == nombre_usuario_normalizado
+        for f in favoritos
+    )
+
+    if ya_es_fav:
+        favoritos = [
+            f for f in favoritos
+            if normalizar_nombre_carta(f"{f['grupo']} [{f['version']}] {f['nombre']}") != nombre_usuario_normalizado
+        ]
         col_usuarios.update_one({"user_id": user_id}, {"$set": {"favoritos": favoritos}}, upsert=True)
         update.message.reply_text(
             f"❌ Quitaste de favoritos: <code>{grupo} [{version}] {nombre}</code>",
@@ -4074,6 +4101,7 @@ def comando_fav(update, context):
             f"⭐ Añadiste a favoritos: <code>{grupo} [{version}] {nombre}</code>",
             parse_mode="HTML"
         )
+
 
 #------------COMANDO PRECIO---------------------
 @log_command
