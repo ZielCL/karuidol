@@ -2916,7 +2916,7 @@ def crear_cuadricula_cartas_urls(urls, output_path="cuadricula_album2.png"):
     if not imgs:
         raise ValueError("No se pudo descargar ninguna imagen para el collage.")
     ancho, alto = imgs[0].size
-    columnas = 5 if len(imgs) > 3 else 3  # Ajusta según tu layout
+    columnas = 5
     filas = ceil(len(imgs)/columnas)
     canvas_ancho = ancho * columnas
     canvas_alto = alto * filas
@@ -2932,8 +2932,6 @@ def crear_cuadricula_cartas_urls(urls, output_path="cuadricula_album2.png"):
         except: pass
     return output_path
 
-
-
 @log_command
 def comando_album2(update, context):
     user_id = update.message.from_user.id
@@ -2942,12 +2940,15 @@ def comando_album2(update, context):
     pagina = 1
     if context.args and context.args[0].isdigit():
         pagina = int(context.args[0])
-    enviar_album2_pagina(context.bot, chat_id, user_id, pagina, thread_id=thread_id, mensaje=None, editar=False)
+    mostrar_album2_uno(context.bot, chat_id, user_id, pagina, thread_id=thread_id)
 
-def enviar_album2_pagina(bot, chat_id, user_id, pagina=1, thread_id=None, mensaje=None, editar=False):
+def mostrar_album2_uno(bot, chat_id, user_id, pagina=1, thread_id=None, mensaje=None, editar=False):
+    # OBTIENE Y ORDENA LAS CARTAS
     cartas_usuario = list(col_cartas_usuario.find({"user_id": user_id}))
+    # Ordenar primero por grupo y luego por nombre
+    cartas_usuario.sort(key=lambda c: (c.get('grupo', ''), c.get('nombre', '')))
     total = len(cartas_usuario)
-    por_pagina = 6  # 2 filas x 3 columnas
+    por_pagina = 10
     paginas = (total - 1) // por_pagina + 1
     if pagina < 1: pagina = 1
     if pagina > paginas: pagina = paginas
@@ -2957,21 +2958,20 @@ def enviar_album2_pagina(bot, chat_id, user_id, pagina=1, thread_id=None, mensaj
     if not cartas_pag:
         bot.send_message(chat_id, "No tienes cartas en tu álbum.", message_thread_id=thread_id)
         return
-
     urls_imgs = [c['imagen'] for c in cartas_pag if c.get('imagen')]
     if not urls_imgs:
         bot.send_message(chat_id, "No se encontraron imágenes en esta página.", message_thread_id=thread_id)
         return
-
     img_path = crear_cuadricula_cartas_urls(urls_imgs, output_path=f"cuadricula_album2_{user_id}.png")
 
-    # Botones por carta
+    # Un botón por carta, alineados en cuadrícula (vacío para simular UNO)
     botones_cartas = [
-        InlineKeyboardButton(f"{c['nombre']}", callback_data=f"ampliar_{c['id_unico']}")
+        InlineKeyboardButton(" ", callback_data=f"ampliar_{c['id_unico']}")
         for c in cartas_pag
     ]
-    # 2 filas de 3 botones máx cada una
-    filas = [botones_cartas[i:i+3] for i in range(0, len(botones_cartas), 3)]
+    columnas = 5
+    filas = [botones_cartas[i:i+columnas] for i in range(0, len(botones_cartas), columnas)]
+
     # Navegación
     pag_buttons = []
     if pagina > 1:
@@ -2980,18 +2980,18 @@ def enviar_album2_pagina(bot, chat_id, user_id, pagina=1, thread_id=None, mensaj
         pag_buttons.append(InlineKeyboardButton("➡️", callback_data=f"album2_{pagina+1}"))
     if pag_buttons:
         filas.append(pag_buttons)
-    teclado = InlineKeyboardMarkup(filas)
 
-    caption = f"📕 <b>Tu Álbum (beta)</b> — Página {pagina}/{paginas}\nToca una carta para ver sus detalles."
+    teclado = InlineKeyboardMarkup(filas)
+    caption = (
+        f"🖼️ <b>Selecciona una carta</b> (página {pagina}/{paginas})\n"
+        "Toca una carta para ver sus detalles."
+    )
     if editar and mensaje:
-        try:
-            with open(img_path, "rb") as f:
-                mensaje.edit_media(
-                    media=InputMediaPhoto(f, caption=caption, parse_mode="HTML"),
-                    reply_markup=teclado
-                )
-        except Exception as e:
-            bot.send_message(chat_id, f"No se pudo editar el álbum: {e}", message_thread_id=thread_id)
+        with open(img_path, "rb") as f:
+            mensaje.edit_media(
+                media=InputMediaPhoto(f, caption=caption, parse_mode="HTML"),
+                reply_markup=teclado
+            )
     else:
         with open(img_path, "rb") as f:
             bot.send_photo(
@@ -3011,7 +3011,7 @@ def callback_album2_ampliar(update, context):
     thread_id = getattr(query.message, "message_thread_id", None)
     if data.startswith("album2_"):
         pagina = int(data.replace("album2_", ""))
-        enviar_album2_pagina(
+        mostrar_album2_uno(
             context.bot, chat_id, user_id, pagina, thread_id=thread_id,
             mensaje=query.message, editar=True
         )
@@ -3022,6 +3022,7 @@ def callback_album2_ampliar(update, context):
         query.answer()
 
 dispatcher.add_handler(CallbackQueryHandler(callback_album2_ampliar, pattern="^(ampliar_|album2_)"))
+
 
 
 
