@@ -4046,21 +4046,22 @@ def comando_fav(update, context):
         )
         return
 
-    grupo = args[0]
-    if not args[1].startswith("[") or not args[1].endswith("]"):
+    # Buscar el índice de la versión (debe estar entre corchetes)
+    version_idx = next((i for i, x in enumerate(args) if x.startswith("[") and x.endswith("]")), -1)
+    if version_idx == -1 or version_idx == 0 or version_idx == len(args) - 1:
         update.message.reply_text(
             "Formato incorrecto. Ejemplo: /fav Twice [V1] Dahyun",
             parse_mode="HTML"
         )
         return
 
-    version = args[1][1:-1]
-    nombre = " ".join(args[2:]).strip()
+    grupo = " ".join(args[:version_idx])
+    version = args[version_idx][1:-1]
+    nombre = " ".join(args[version_idx+1:]).strip()
 
-    # Normaliza la búsqueda para evitar problemas con espacios y mayúsculas
+    # Normaliza la búsqueda
     nombre_usuario_normalizado = normalizar_nombre_carta(f"{grupo} [{version}] {nombre}")
 
-    # Busca si la carta existe en tu catálogo normalizando los nombres
     existe = next((
         c for c in cartas
         if normalizar_nombre_carta(f"{c.get('grupo', c.get('set'))} [{c['version']}] {c['nombre']}") == nombre_usuario_normalizado
@@ -4078,7 +4079,6 @@ def comando_fav(update, context):
     favoritos = doc.get("favoritos", [])
 
     key = {"grupo": grupo, "nombre": nombre, "version": version}
-    # Busca favoritos normalizando
     ya_es_fav = any(
         normalizar_nombre_carta(f"{f['grupo']} [{f['version']}] {f['nombre']}") == nombre_usuario_normalizado
         for f in favoritos
@@ -4101,6 +4101,7 @@ def comando_fav(update, context):
             f"⭐ Añadiste a favoritos: <code>{grupo} [{version}] {nombre}</code>",
             parse_mode="HTML"
         )
+
 
 
 #------------COMANDO PRECIO---------------------
