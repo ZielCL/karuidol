@@ -2915,9 +2915,8 @@ def crear_cuadricula_cartas_urls(urls, output_path="cuadricula_album2.png"):
             temp_files.append(temp_path)
     if not imgs:
         raise ValueError("No se pudo descargar ninguna imagen para el collage.")
-    # Tamaño base de carta
     ancho, alto = imgs[0].size
-    columnas = 3
+    columnas = 5 if len(imgs) > 3 else 3  # Ajusta según tu layout
     filas = ceil(len(imgs)/columnas)
     canvas_ancho = ancho * columnas
     canvas_alto = alto * filas
@@ -2932,6 +2931,7 @@ def crear_cuadricula_cartas_urls(urls, output_path="cuadricula_album2.png"):
         try: os.remove(path)
         except: pass
     return output_path
+
 
 
 @log_command
