@@ -21,6 +21,7 @@ import uuid
 import logging
 import urllib.parse
 import random
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
 from datetime import datetime, timedelta
 from pymongo import MongoClient
 from dotenv import load_dotenv
@@ -2885,6 +2886,91 @@ def mostrar_lista_mejorables(update, context, user_id, cartas_mejorables, pagina
             context.bot.send_message(chat_id=mensaje.chat_id, text=texto, parse_mode='HTML', reply_markup=teclado)
     else:
         update.message.reply_text(texto, parse_mode='HTML', reply_markup=teclado)
+
+
+
+
+@log_command
+def comando_album2(update, context):
+    user_id = update.message.from_user.id
+    pagina = 1
+    if context.args and context.args[0].isdigit():
+        pagina = int(context.args[0])
+    enviar_album2_pagina(context.bot, user_id, pagina, mensaje=None, editar=False)
+
+
+def enviar_album2_pagina(bot, user_id, pagina=1, mensaje=None, editar=False):
+    cartas_usuario = list(col_cartas_usuario.find({"user_id": user_id}))
+    total = len(cartas_usuario)
+    por_pagina = 5
+    paginas = (total - 1) // por_pagina + 1
+    if pagina < 1: pagina = 1
+    if pagina > paginas: pagina = paginas
+    inicio = (pagina - 1) * por_pagina
+    fin = min(inicio + por_pagina, total)
+    cartas_pag = cartas_usuario[inicio:fin]
+    if not cartas_pag:
+        bot.send_message(user_id, "No tienes cartas en tu álbum.")
+        return
+    rutas_imgs = [f"images/cartas/{c['id_unico']}.png" for c in cartas_pag]
+    img_path = crear_fila_cartas(rutas_imgs, output_path=f"fila_album2_{user_id}.png")
+
+    botones = [
+        [InlineKeyboardButton(
+            f"{c['nombre']}",
+            callback_data=f"ampliar_{c['id_unico']}")]
+        for c in cartas_pag
+    ]
+    pag_buttons = []
+    if pagina > 1:
+        pag_buttons.append(InlineKeyboardButton("⬅️", callback_data=f"album2_{pagina-1}"))
+    if pagina < paginas:
+        pag_buttons.append(InlineKeyboardButton("➡️", callback_data=f"album2_{pagina+1}"))
+    if pag_buttons:
+        botones.append(pag_buttons)
+    teclado = InlineKeyboardMarkup(botones)
+
+    caption = f"📕 <b>Tu Álbum (beta)</b> — Página {pagina}/{paginas}\nToca una carta para ver sus detalles."
+    if editar and mensaje:
+        try:
+            # Edita la foto y los botones
+            mensaje.edit_media(
+                media=InputMediaPhoto(open(img_path, "rb"), caption=caption, parse_mode="HTML"),
+                reply_markup=teclado
+            )
+        except Exception as e:
+            bot.send_message(user_id, f"No se pudo editar el álbum: {e}")
+    else:
+        # Envia nueva foto (solo para la primera vez)
+        bot.send_photo(
+            chat_id=user_id,
+            photo=open(img_path, "rb"),
+            caption=caption,
+            parse_mode="HTML",
+            reply_markup=teclado
+        )
+
+
+def callback_album2_ampliar(update, context):
+    query = update.callback_query
+    data = query.data
+    user_id = query.from_user.id
+
+    if data.startswith("album2_"):
+        pagina = int(data.replace("album2_", ""))
+        enviar_album2_pagina(
+            context.bot, user_id, pagina, mensaje=query.message, editar=True
+        )
+        query.answer()
+    elif data.startswith("ampliar_"):
+        id_unico = data.replace("ampliar_", "")
+        # Ejecuta la lógica de mostrar detalles de carta (como /ampliar)
+        mostrar_detalle_carta(update, context, id_unico)
+        query.answer()
+
+dispatcher.add_handler(CallbackQueryHandler(callback_album2_ampliar, pattern="^(ampliar_|album2_)"))
+
+
 
 
 
