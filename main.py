@@ -5132,8 +5132,9 @@ def mostrar_detalle_set(update, context, set_name, user_id, pagina=1, mensaje=No
         grupo = carta.get("grupo", set_name)
         nombre_version = f"{grupo} [{version}] {nombre}"
 
+        nombre_carta_normalizado = normalizar_nombre_carta(nombre_version)
         es_fav = any(
-            fav.get("nombre") == nombre and fav.get("version") == version and fav.get("grupo", grupo) == grupo
+            normalizar_nombre_carta(f"{fav.get('grupo', grupo)} [{fav.get('version', version)}] {fav.get('nombre', nombre)}") == nombre_carta_normalizado
             for fav in favoritos
         )
         icono_fav = " ⭐" if es_fav else ""
@@ -5141,6 +5142,7 @@ def mostrar_detalle_set(update, context, set_name, user_id, pagina=1, mensaje=No
             texto += f"✅ {nombre_version}{icono_fav}\n"
         else:
             texto += f"❌ {nombre_version}{icono_fav}\n"
+
 
     texto += (
         "\n<i>Para añadir una carta a favoritos:</i>\n"
