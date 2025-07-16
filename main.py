@@ -2524,10 +2524,8 @@ def manejador_reclamar(update, context):
             DROPS_ACTIVOS[drop_id] = drop
 
     ahora = time.time()
-    # SIEMPRE usa el thread_id guardado en el drop, si no existe intenta obtenerlo del mensaje
     thread_id = drop.get("thread_id") if drop else getattr(query.message, "message_thread_id", None)
 
-    # --- Drop ausente completamente ---
     if not drop:
         mensaje_fecha = getattr(query.message, "date", None)
         if mensaje_fecha:
@@ -2574,7 +2572,6 @@ def manejador_reclamar(update, context):
 
     puede_reclamar = False
 
-    # --- Lógica para el dueño del drop ---
     if usuario_click == drop["dueño"]:
         primer_reclamo = drop.get("primer_reclamo_dueño")
         if primer_reclamo is None:
@@ -2698,7 +2695,6 @@ def manejador_reclamar(update, context):
             chat_id=chat_id,
             message_id=mensaje_id,
             reply_markup=InlineKeyboardMarkup([teclado])
-            # No pongas message_thread_id aquí, no lo acepta edit_message_reply_markup
         )
     except Exception as e:
         if "Message is not modified" not in str(e):
@@ -2711,11 +2707,19 @@ def manejador_reclamar(update, context):
 
     nuevo_id = carta.get("card_id", 1)
     id_unico = random_id_unico(nuevo_id)
-    posibles_estados = estados_disponibles_para_carta(nombre, version)
+
+    # ------- CORREGIDO: SOLO OPCIONES DEL MISMO GRUPO -------
+    posibles_estados = [
+        c for c in estados_disponibles_para_carta(nombre, version)
+        if c.get("grupo") == grupo
+    ]
+    if not posibles_estados:
+        posibles_estados = estados_disponibles_para_carta(nombre, version)
     carta_entregada = random.choice(posibles_estados)
     estado = carta_entregada['estado']
-    estrellas = carta_entregada.get('estado_estrella', '★??')
+    estrellas = carta_entregada.get('estrellas', '★??')
     imagen_url = carta_entregada['imagen']
+
     intentos = carta.get("intentos", 0)
     precio = precio_carta_karuta(nombre, version, estado, id_unico=id_unico, card_id=nuevo_id) + 200 * max(0, intentos - 1)
 
@@ -2792,7 +2796,6 @@ def manejador_reclamar(update, context):
     if intentos_otros > 0:
         mensaje_extra = f"\n💸 Esta carta fue disputada con <b>{intentos_otros}</b> intentos de otros usuarios."
 
-    # --- Mensaje de carta reclamada (en el thread/tema correcto) ---
     context.bot.send_message(
         chat_id=drop["chat_id"],
         text=f"{user_mention} tomaste la carta <code>{id_unico}</code> #{nuevo_id} [{version}] {nombre} - {grupo}, {frase_estado} está en <b>{estado.lower()}</b>!\n"
