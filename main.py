@@ -2892,10 +2892,34 @@ def mostrar_lista_mejorables(update, context, user_id, cartas_mejorables, pagina
 
 from PIL import Image
 
-def crear_fila_cartas(rutas_imgs, output_path="fila_album2.png"):
-    if not rutas_imgs:
-        raise ValueError("No hay imágenes para mostrar.")
-    imgs = [Image.open(ruta).convert("RGBA") for ruta in rutas_imgs]
+
+import os
+import requests
+from PIL import Image
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
+
+def descargar_imagen_url(url, path):
+    try:
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        with open(path, "wb") as f:
+            f.write(r.content)
+        return True
+    except Exception as e:
+        print(f"[album2] No se pudo descargar {url}: {e}")
+        return False
+
+def crear_fila_cartas_urls(urls, output_path="fila_album2.png"):
+    imgs = []
+    temp_files = []
+    for i, url in enumerate(urls):
+        temp_path = f"temp_album2_{i}.png"
+        ok = descargar_imagen_url(url, temp_path)
+        if ok:
+            imgs.append(Image.open(temp_path).convert("RGBA"))
+            temp_files.append(temp_path)
+    if not imgs:
+        raise ValueError("No se pudo descargar ninguna imagen para el collage.")
     ancho, alto = imgs[0].size
     offset_x = int(ancho * 0.7)
     canvas_ancho = ancho + offset_x * (len(imgs) - 1)
@@ -2903,9 +2927,11 @@ def crear_fila_cartas(rutas_imgs, output_path="fila_album2.png"):
     for i, img in enumerate(imgs):
         fila.paste(img, (i * offset_x, 0), img)
     fila.save(output_path)
+    # Limpia los archivos temporales
+    for path in temp_files:
+        try: os.remove(path)
+        except: pass
     return output_path
-
-
 
 @log_command
 def comando_album2(update, context):
@@ -2914,7 +2940,6 @@ def comando_album2(update, context):
     if context.args and context.args[0].isdigit():
         pagina = int(context.args[0])
     enviar_album2_pagina(context.bot, user_id, pagina, mensaje=None, editar=False)
-
 
 def enviar_album2_pagina(bot, user_id, pagina=1, mensaje=None, editar=False):
     cartas_usuario = list(col_cartas_usuario.find({"user_id": user_id}))
@@ -2929,13 +2954,16 @@ def enviar_album2_pagina(bot, user_id, pagina=1, mensaje=None, editar=False):
     if not cartas_pag:
         bot.send_message(user_id, "No tienes cartas en tu álbum.")
         return
-    rutas_imgs = [f"images/cartas/{c['id_unico']}.png" for c in cartas_pag]
-    img_path = crear_fila_cartas(rutas_imgs, output_path=f"fila_album2_{user_id}.png")
+
+    urls_imgs = [c['imagen'] for c in cartas_pag if c.get('imagen')]
+    if not urls_imgs:
+        bot.send_message(user_id, "No se encontraron imágenes en esta página.")
+        return
+
+    img_path = crear_fila_cartas_urls(urls_imgs, output_path=f"fila_album2_{user_id}.png")
 
     botones = [
-        [InlineKeyboardButton(
-            f"{c['nombre']}",
-            callback_data=f"ampliar_{c['id_unico']}")]
+        [InlineKeyboardButton(f"{c['nombre']}", callback_data=f"ampliar_{c['id_unico']}")]
         for c in cartas_pag
     ]
     pag_buttons = []
@@ -2950,23 +2978,22 @@ def enviar_album2_pagina(bot, user_id, pagina=1, mensaje=None, editar=False):
     caption = f"📕 <b>Tu Álbum (beta)</b> — Página {pagina}/{paginas}\nToca una carta para ver sus detalles."
     if editar and mensaje:
         try:
-            # Edita la foto y los botones
-            mensaje.edit_media(
-                media=InputMediaPhoto(open(img_path, "rb"), caption=caption, parse_mode="HTML"),
-                reply_markup=teclado
-            )
+            with open(img_path, "rb") as f:
+                mensaje.edit_media(
+                    media=InputMediaPhoto(f, caption=caption, parse_mode="HTML"),
+                    reply_markup=teclado
+                )
         except Exception as e:
             bot.send_message(user_id, f"No se pudo editar el álbum: {e}")
     else:
-        # Envia nueva foto (solo para la primera vez)
-        bot.send_photo(
-            chat_id=user_id,
-            photo=open(img_path, "rb"),
-            caption=caption,
-            parse_mode="HTML",
-            reply_markup=teclado
-        )
-
+        with open(img_path, "rb") as f:
+            bot.send_photo(
+                chat_id=user_id,
+                photo=f,
+                caption=caption,
+                parse_mode="HTML",
+                reply_markup=teclado
+            )
 
 def callback_album2_ampliar(update, context):
     query = update.callback_query
@@ -2982,15 +3009,10 @@ def callback_album2_ampliar(update, context):
     elif data.startswith("ampliar_"):
         id_unico = data.replace("ampliar_", "")
         # Ejecuta la lógica de mostrar detalles de carta (como /ampliar)
-        mostrar_detalle_carta(update, context, id_unico)
+        comando_ampliar(update, context, id_unico)
         query.answer()
 
 dispatcher.add_handler(CallbackQueryHandler(callback_album2_ampliar, pattern="^(ampliar_|album2_)"))
-
-
-
-
-
 
 
 
