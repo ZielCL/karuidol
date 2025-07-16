@@ -2890,6 +2890,23 @@ def mostrar_lista_mejorables(update, context, user_id, cartas_mejorables, pagina
 
 
 
+from PIL import Image
+
+def crear_fila_cartas(rutas_imgs, output_path="fila_album2.png"):
+    if not rutas_imgs:
+        raise ValueError("No hay imágenes para mostrar.")
+    imgs = [Image.open(ruta).convert("RGBA") for ruta in rutas_imgs]
+    ancho, alto = imgs[0].size
+    offset_x = int(ancho * 0.7)
+    canvas_ancho = ancho + offset_x * (len(imgs) - 1)
+    fila = Image.new("RGBA", (canvas_ancho, alto), (255, 255, 255, 0))
+    for i, img in enumerate(imgs):
+        fila.paste(img, (i * offset_x, 0), img)
+    fila.save(output_path)
+    return output_path
+
+
+
 @log_command
 def comando_album2(update, context):
     user_id = update.message.from_user.id
