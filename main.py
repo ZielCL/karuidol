@@ -2951,7 +2951,7 @@ def inline_album_handler(update, context):
             f"• Estado: <b>{estrellas}</b>\n"
             f"• Precio: <code>{precio} Kponey</code>\n"
             f"• Copias globales: <b>{copias}</b>\n"
-            f"<i>Álbum de {first_name} — {total_cartas} cartas • Página {pagina_actual}/{total_paginas}</i>"
+            f"<i>Carta de {first_name}</i>"
         )
         results.append(
             InlineQueryResultPhoto(
