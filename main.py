@@ -99,6 +99,7 @@ def grupo_oficial(func):
 # === Temas por comando ===
 # Cambia los números por los message_thread_id REALES de tus temas
 COMANDOS_POR_TEMA = {
+    "album2": [5],
     "album": [5],        
     "mercado": [706]
 }
