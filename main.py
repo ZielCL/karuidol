@@ -4,7 +4,7 @@ import time
 import telegram
 import re
 from telegram import InlineQueryResultPhoto
-from telegram import InlineQueryHandler
+from telegram.ext import InlineQueryHandler
 from flask import Flask, request, jsonify, redirect
 from telegram.error import BadRequest, RetryAfter
 from telegram import ParseMode
