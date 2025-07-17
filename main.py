@@ -2950,7 +2950,7 @@ def inline_album_handler(update, context):
             f"• Nº de carta: <b>#{card_id}</b>\n"
             f"• Estado: <b>{estrellas}</b>\n"
             f"• Precio: <code>{precio} Kponey</code>\n"
-            f"• Copias globales: <b>{total_copias}</b>\n"
+            f"• Copias globales: <b>{copias}</b>\n"
             f"<i>Carta de {first_name}</i>"
         )
 
