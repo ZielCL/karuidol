@@ -2898,6 +2898,9 @@ def mostrar_lista_mejorables(update, context, user_id, cartas_mejorables, pagina
 
 
 
+from telegram import InlineQueryResultPhoto
+from telegram.error import BadRequest
+
 def inline_album_handler(update, context):
     query = update.inline_query
     user_id = query.from_user.id
@@ -2925,9 +2928,6 @@ def inline_album_handler(update, context):
         .limit(PER_PAGE)
     )
 
-    pagina_actual = (offset // PER_PAGE) + 1 if total_cartas > 0 else 1
-    total_paginas = (total_cartas - 1) // PER_PAGE + 1 if total_cartas > 0 else 1
-
     results = []
     for carta in cartas:
         nombre = carta['nombre']
@@ -2950,8 +2950,8 @@ def inline_album_handler(update, context):
             f"• Nº de carta: <b>#{card_id}</b>\n"
             f"• Estado: <b>{estrellas}</b>\n"
             f"• Precio: <code>{precio} Kponey</code>\n"
-            f"• Copias globales: <b>{copias}</b>\n"
-            f"<i>Carta de {first_name}</i>"
+            f"• Copias globales: <b>{copias}</b>"
+            # Si quieres poner algo como footer, lo puedes agregar aquí.
         )
         results.append(
             InlineQueryResultPhoto(
@@ -2966,16 +2966,21 @@ def inline_album_handler(update, context):
 
     next_offset = str(offset + PER_PAGE) if (offset + PER_PAGE) < total_cartas else ""
 
-    update.inline_query.answer(
-        results,
-        cache_time=0,
-        is_personal=True,
-        next_offset=next_offset,
-        switch_pm_text=f"Álbum de {first_name}",
-        switch_pm_parameter="start"
-    )
+    try:
+        update.inline_query.answer(
+            results,
+            cache_time=0,
+            is_personal=True,
+            next_offset=next_offset,
+            switch_pm_text=f"Álbum de {first_name}",
+            switch_pm_parameter="start"
+        )
+    except BadRequest as e:
+        print(f"Inline query error: {e}")
 
+# No olvides el handler:
 dispatcher.add_handler(InlineQueryHandler(inline_album_handler, pattern=r"^(Album|album)( |$)"))
+
 
 
 
