@@ -4760,12 +4760,17 @@ def comando_bonoidolday(update, context):
 
 @log_command
 @solo_en_tema_asignado("ampliar")
-def comando_ampliar(update, context):
-    if not context.args:
-        update.message.reply_text("Debes indicar el ID único de la carta: /ampliar <id_unico>")
-        return
-    user_id = update.message.from_user.id
-    id_unico = context.args[0].strip()
+def comando_ampliar(update, context, id_unico=None):
+    # Si se llama como comando normal (/ampliar), obtiene el ID de context.args
+    if id_unico is None:
+        if not context.args:
+            update.message.reply_text("Debes indicar el ID único de la carta: /ampliar <id_unico>")
+            return
+        id_unico = context.args[0].strip()
+        user_id = update.message.from_user.id
+    else:
+        # Si se llama desde el callback, el user_id viene del callback, y el id_unico es el argumento
+        user_id = update.effective_user.id if hasattr(update, "effective_user") else update.callback_query.from_user.id
 
     # 1. Busca en inventario
     carta = col_cartas_usuario.find_one({"user_id": user_id, "id_unico": id_unico})
@@ -4775,7 +4780,11 @@ def comando_ampliar(update, context):
         carta = col_mercado.find_one({"id_unico": id_unico})
         fuente = "mercado"
     if not carta:
-        update.message.reply_text("No tienes esta carta.")
+        # Mensaje según si es comando o callback
+        if hasattr(update, "message") and update.message:
+            update.message.reply_text("No tienes esta carta.")
+        else:
+            update.callback_query.answer("No tienes esta carta.", show_alert=True)
         return
 
     # Traer datos principales SIEMPRE del objeto carta
