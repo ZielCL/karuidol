@@ -2943,7 +2943,7 @@ def inline_album_handler(update, context):
             "grupo": grupo
         })
         caption = (
-            f"🎴 <b>Info de carta [{carta['id_unico']}]</b>\n"
+            f"🎴 <b>Info de carta</b> <code>{carta['id_unico']}</code>\n"
             f"• Nombre: <b>{nombre}</b>\n"
             f"• Grupo: <b>{grupo}</b>\n"
             f"• Versión: <b>{version}</b>\n"
@@ -2951,7 +2951,7 @@ def inline_album_handler(update, context):
             f"• Estado: <b>{estrellas}</b>\n"
             f"• Precio: <code>{precio} Kponey</code>\n"
             f"• Copias globales: <b>{copias}</b>"
-            # Si quieres poner algo como footer, lo puedes agregar aquí.
+            f"<i>Carta de {first_name}</i>"
         )
         results.append(
             InlineQueryResultPhoto(
