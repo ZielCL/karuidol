@@ -2897,13 +2897,14 @@ def mostrar_lista_mejorables(update, context, user_id, cartas_mejorables, pagina
 
 
 
+
 def inline_album_handler(update, context):
     query = update.inline_query
     user_id = query.from_user.id
     first_name = query.from_user.first_name or "Usuario"
 
+    PER_PAGE = 50  # Máximo permitido por Telegram
     offset = int(query.offset) if query.offset else 0
-    PER_PAGE = 30
 
     texto = query.query.strip()
     partes = texto.split(maxsplit=1)
@@ -2915,7 +2916,6 @@ def inline_album_handler(update, context):
             {"nombre": {"$regex": filtro, "$options": "i"}},
             {"grupo": {"$regex": filtro, "$options": "i"}},
         ]
-    # Total de cartas (álbum completo o filtrado)
     total_cartas = col_cartas_usuario.count_documents(mongo_query)
 
     cartas = list(
@@ -2925,15 +2925,33 @@ def inline_album_handler(update, context):
         .limit(PER_PAGE)
     )
 
+    pagina_actual = (offset // PER_PAGE) + 1 if total_cartas > 0 else 1
+    total_paginas = (total_cartas - 1) // PER_PAGE + 1 if total_cartas > 0 else 1
+
     results = []
     for carta in cartas:
         nombre = carta['nombre']
         estrellas = carta.get('estrellas', '')
         grupo = carta.get('grupo', '')
+        version = carta.get('version', '')
+        card_id = carta.get('card_id', '')
+        estado = carta.get('estado', '')
+        precio = precio_carta_tabla(estrellas, card_id)
+        copias = col_cartas_usuario.count_documents({
+            "nombre": nombre,
+            "version": version,
+            "grupo": grupo
+        })
         caption = (
-            f"<b>{nombre}</b> {estrellas}\n"
-            f"<b>Grupo:</b> {grupo}\n"
-            f"<b>Total en álbum:</b> {total_cartas}"
+            f"🎴 <b>Info de carta [{carta['id_unico']}]</b>\n"
+            f"• Nombre: <b>{nombre}</b>\n"
+            f"• Grupo: <b>{grupo}</b>\n"
+            f"• Versión: <b>{version}</b>\n"
+            f"• Nº de carta: <b>#{card_id}</b>\n"
+            f"• Estado: <b>{estrellas}</b>\n"
+            f"• Precio: <code>{precio} Kponey</code>\n"
+            f"• Copias globales: <b>{copias}</b>\n"
+            f"<i>Álbum de {first_name} — {total_cartas} cartas • Página {pagina_actual}/{total_paginas}</i>"
         )
         results.append(
             InlineQueryResultPhoto(
@@ -2958,6 +2976,8 @@ def inline_album_handler(update, context):
     )
 
 dispatcher.add_handler(InlineQueryHandler(inline_album_handler, pattern=r"^(Album|album)( |$)"))
+
+
 
 
 
