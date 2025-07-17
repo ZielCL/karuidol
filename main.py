@@ -3,6 +3,8 @@ import threading
 import time
 import telegram
 import re
+from telegram import InlineQueryResultPhoto
+from telegram import InlineQueryHandler
 from flask import Flask, request, jsonify, redirect
 from telegram.error import BadRequest, RetryAfter
 from telegram import ParseMode
@@ -2895,6 +2897,85 @@ def mostrar_lista_mejorables(update, context, user_id, cartas_mejorables, pagina
 
 
 
+def inline_album_handler(update, context):
+    query = update.inline_query
+    user_id = query.from_user.id
+    first_name = query.from_user.first_name or "Usuario"
+
+    offset = int(query.offset) if query.offset else 0
+    PER_PAGE = 30
+
+    texto = query.query.strip()
+    partes = texto.split(maxsplit=1)
+    filtro = partes[1].strip() if len(partes) > 1 else None
+
+    mongo_query = {"user_id": user_id}
+    if filtro:
+        mongo_query["$or"] = [
+            {"nombre": {"$regex": filtro, "$options": "i"}},
+            {"grupo": {"$regex": filtro, "$options": "i"}},
+        ]
+    # Total de cartas (álbum completo o filtrado)
+    total_cartas = col_cartas_usuario.count_documents(mongo_query)
+
+    cartas = list(
+        col_cartas_usuario.find(mongo_query)
+        .sort([("grupo", 1), ("nombre", 1)])
+        .skip(offset)
+        .limit(PER_PAGE)
+    )
+
+    results = []
+    for carta in cartas:
+        nombre = carta['nombre']
+        estrellas = carta.get('estrellas', '')
+        grupo = carta.get('grupo', '')
+        caption = (
+            f"<b>{nombre}</b> {estrellas}\n"
+            f"<b>Grupo:</b> {grupo}\n"
+            f"<b>Total en álbum:</b> {total_cartas}"
+        )
+        results.append(
+            InlineQueryResultPhoto(
+                id=carta['id_unico'],
+                photo_url=carta['imagen'],
+                thumb_url=carta['imagen'],
+                title=f"{nombre} {estrellas}",
+                caption=caption,
+                parse_mode="HTML",
+            )
+        )
+
+    next_offset = str(offset + PER_PAGE) if (offset + PER_PAGE) < total_cartas else ""
+
+    update.inline_query.answer(
+        results,
+        cache_time=0,
+        is_personal=True,
+        next_offset=next_offset,
+        switch_pm_text=f"Álbum de {first_name}",
+        switch_pm_parameter="start"
+    )
+
+dispatcher.add_handler(InlineQueryHandler(inline_album_handler, pattern=r"^(Album|album)( |$)"))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 from PIL import Image
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
 
@@ -2938,6 +3019,8 @@ def crear_cuadricula_cartas_urls(urls, output_path="cuadricula_album2.png"):
         except: pass
     return output_path
 
+
+
 def mostrar_menu_grupos_album2(user_id, pagina):
     import urllib.parse
     grupos = sorted({c.get("grupo", "") for c in col_cartas_usuario.find({"user_id": user_id}) if c.get("grupo")})
@@ -2946,10 +3029,6 @@ def mostrar_menu_grupos_album2(user_id, pagina):
         grupo_cod = urllib.parse.quote(grupo)
         botones.append([InlineKeyboardButton(grupo, callback_data=f"album2_filtragrupo_{user_id}_{grupo_cod}")])
     return InlineKeyboardMarkup(botones)
-
-
-
-
 
 
 
