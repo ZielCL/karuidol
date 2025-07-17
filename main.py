@@ -2940,10 +2940,12 @@ def crear_cuadricula_cartas_urls(urls, output_path="cuadricula_album2.png"):
 
 def mostrar_menu_grupos_album2(user_id, pagina):
     grupos = sorted({c.get("grupo", "") for c in col_cartas_usuario.find({"user_id": user_id}) if c.get("grupo")})
-    grupos = [g for g in grupos if g]  # Elimina strings vacíos
     botones = []
     for grupo in grupos:
-        botones.append([InlineKeyboardButton(grupo, callback_data=f"album2_filtragrupo_{user_id}_{pagina}_{grupo}")])
+        grupo_cod = urllib.parse.quote(grupo)
+        botones.append([
+            InlineKeyboardButton(grupo, callback_data=f"album2_filtragrupo_{user_id}_{grupo_cod}")
+        ])
     return InlineKeyboardMarkup(botones)
 
 
@@ -2972,7 +2974,6 @@ def comando_album2(update, context):
 
 
 def mostrar_album2_uno(bot, chat_id, user_id, pagina=1, grupo=None, thread_id=None, mensaje=None, editar=False):
-    # Filtra cartas por grupo si corresponde
     cartas_usuario = list(col_cartas_usuario.find({"user_id": user_id}))
     if grupo:
         grupo_norm = grupo.lower().strip()
@@ -2991,7 +2992,16 @@ def mostrar_album2_uno(bot, chat_id, user_id, pagina=1, grupo=None, thread_id=No
         bot.send_message(chat_id, "No tienes cartas en tu álbum.", message_thread_id=thread_id)
         return
 
-    # --- Botones de cartas (en cuadricula) ---
+    # Menú de filtros y paginación
+    botones = []
+    botones.append([InlineKeyboardButton("👥 Filtrar por Grupo", callback_data=f"album2_filtrosgrupo_{user_id}_{pagina}")])
+    pag_buttons = []
+    if pagina > 1:
+        pag_buttons.append(InlineKeyboardButton("⬅️", callback_data=f"album2_{pagina-1}_{urllib.parse.quote(grupo) if grupo else 'none'}"))
+    if pagina < paginas:
+        pag_buttons.append(InlineKeyboardButton("➡️", callback_data=f"album2_{pagina+1}_{urllib.parse.quote(grupo) if grupo else 'none'}"))
+    if pag_buttons:
+        botones.append(pag_buttons)
     botones_cartas = [
         InlineKeyboardButton(
             f"{c['nombre']}",
@@ -3001,21 +3011,6 @@ def mostrar_album2_uno(bot, chat_id, user_id, pagina=1, grupo=None, thread_id=No
     ]
     columnas = 5
     filas_cartas = [botones_cartas[i:i+columnas] for i in range(0, len(botones_cartas), columnas)]
-
-    # --- Menú de filtros y paginación ---
-    botones = []
-    # Filtro por grupo
-    botones.append([InlineKeyboardButton("👥 Filtrar por Grupo", callback_data=f"album2_filtrosgrupo_{user_id}_{pagina}")])
-    # Paginación
-    pag_buttons = []
-    if pagina > 1:
-        pag_buttons.append(InlineKeyboardButton("⬅️", callback_data=f"album2_{pagina-1}_{grupo or 'none'}"))
-    if pagina < paginas:
-        pag_buttons.append(InlineKeyboardButton("➡️", callback_data=f"album2_{pagina+1}_{grupo or 'none'}"))
-    if pag_buttons:
-        botones.append(pag_buttons)
-
-    # --- Junta todos los botones (cartas arriba, filtros y paginación abajo) ---
     teclado = InlineKeyboardMarkup(filas_cartas + botones)
 
     # Collage de imágenes
@@ -3055,13 +3050,21 @@ def callback_album2_handler(update, context):
     chat_id = query.message.chat_id
     thread_id = getattr(query.message, "message_thread_id", None)
 
-    # --- Filtro por grupo ---
-    if data.startswith("album2_filtragrupo_"):
-        # album2_filtragrupo_<user_id>_<grupo>
+    if data.startswith("album2_filtrosgrupo_"):
+        partes = data.split("_")
+        user_id_cb = int(partes[3])
+        pagina = int(partes[4])
+        teclado = mostrar_menu_grupos_album2(user_id_cb, pagina)
+        query.message.edit_reply_markup(reply_markup=teclado)
+        query.answer()
+        return
+
+    elif data.startswith("album2_filtragrupo_"):
         partes = data.split("_", 3)
         user_id_cb = int(partes[2])
-        grupo = partes[3]
-        pagina = 1  # Siempre vuelve a página 1
+        grupo_cod = partes[3]
+        grupo = urllib.parse.unquote(grupo_cod)
+        pagina = 1
         mostrar_album2_uno(
             context.bot, chat_id, user_id_cb, pagina, grupo=grupo, thread_id=thread_id,
             mensaje=query.message, editar=True
@@ -3069,27 +3072,12 @@ def callback_album2_handler(update, context):
         query.answer()
         return
 
-    # --- Mostrar menú de grupos ---
-    if data.startswith("album2_filtrosgrupo_"):
-        # album2_filtrosgrupo_<user_id>_<pagina>
+    elif data.startswith("album2_"):
         partes = data.split("_")
-        pagina = int(partes[-1])
-        teclado = mostrar_menu_grupos_album2(user_id, pagina)
-        query.message.edit_reply_markup(reply_markup=teclado)
-        query.answer()
-        return
-
-    # --- Navegación y paginación (o paginación con grupo) ---
-    if data.startswith("album2_"):
-        partes = data.split("_")
-        # album2_<pagina>_<grupo>  (o solo album2_<pagina> si no hay grupo)
-        try:
-            pagina = int(partes[1])
-        except Exception:
-            pagina = 1
+        pagina = int(partes[1])
         grupo = None
         if len(partes) > 2 and partes[2] != "none":
-            grupo = partes[2]
+            grupo = urllib.parse.unquote(partes[2])
         mostrar_album2_uno(
             context.bot, chat_id, user_id, pagina, grupo=grupo, thread_id=thread_id,
             mensaje=query.message, editar=True
@@ -3097,11 +3085,11 @@ def callback_album2_handler(update, context):
         query.answer()
         return
 
-    # --- Ampliar carta ---
-    if data.startswith("ampliar_"):
+    elif data.startswith("ampliar_"):
         id_unico = data.replace("ampliar_", "")
         comando_ampliar(update, context, id_unico)
         query.answer()
+
 
 # No olvides registrar este handler:
 dispatcher.add_handler(CallbackQueryHandler(callback_album2_handler, pattern="^(ampliar_|album2_)"))
