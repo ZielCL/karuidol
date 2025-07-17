@@ -4761,50 +4761,54 @@ def comando_bonoidolday(update, context):
 @log_command
 @solo_en_tema_asignado("ampliar")
 def comando_ampliar(update, context, id_unico=None):
-    # Si se llama como comando normal (/ampliar), obtiene el ID de context.args
+    # Detecta si viene de comando (/ampliar) o de callback (botón en el álbum)
     if id_unico is None:
         if not context.args:
             update.message.reply_text("Debes indicar el ID único de la carta: /ampliar <id_unico>")
             return
         id_unico = context.args[0].strip()
         user_id = update.message.from_user.id
+        enviar = lambda **kwargs: update.message.reply_photo(**kwargs)
+        chat_id = update.message.chat_id
+        thread_id = getattr(update.message, "message_thread_id", None)
     else:
-        # Si se llama desde el callback, el user_id viene del callback, y el id_unico es el argumento
+        # Si es callback (botón)
         user_id = update.effective_user.id if hasattr(update, "effective_user") else update.callback_query.from_user.id
+        msg = update.callback_query.message
+        chat_id = msg.chat_id
+        thread_id = getattr(msg, "message_thread_id", None)
+        bot = context.bot
+        enviar = lambda **kwargs: bot.send_photo(chat_id=chat_id, message_thread_id=thread_id, **kwargs)
 
     # 1. Busca en inventario
     carta = col_cartas_usuario.find_one({"user_id": user_id, "id_unico": id_unico})
     fuente = "album"
     if not carta:
-        # 2. Si no está, busca en mercado
         carta = col_mercado.find_one({"id_unico": id_unico})
         fuente = "mercado"
     if not carta:
-        # Mensaje según si es comando o callback
+        # Mensaje según origen
         if hasattr(update, "message") and update.message:
             update.message.reply_text("No tienes esta carta.")
         else:
             update.callback_query.answer("No tienes esta carta.", show_alert=True)
         return
 
-    # Traer datos principales SIEMPRE del objeto carta
-    imagen_url = carta.get('imagen')  # <--- SIEMPRE la de la carta
+    # Extrae datos de la carta
+    imagen_url = carta.get('imagen')
     nombre = carta.get('nombre', '')
     apodo = carta.get('apodo', '')
     nombre_mostrar = f'({apodo}) {nombre}' if apodo else nombre
     version = carta.get('version', '')
-    grupo = carta.get('grupo', version)  # Si tienes campo 'grupo', úsalo; si no, usa version
+    grupo = carta.get('grupo', version)
     estrellas = carta.get('estrellas', '☆☆☆')
     estado = carta.get('estado', '')
     card_id = carta.get('card_id') or extraer_card_id_de_id_unico(id_unico)
-    # Ahora cuenta copias por nombre+version+grupo (o lo que corresponda)
     total_copias = col_cartas_usuario.count_documents({
         "nombre": nombre,
         "version": version,
         "grupo": grupo
     })
-
-    # Saber si es favorita (solo si está en el álbum)
     doc_user = col_usuarios.find_one({"user_id": user_id}) or {}
     favoritos = doc_user.get("favoritos", [])
     es_fav = any(
@@ -4814,8 +4818,6 @@ def comando_ampliar(update, context, id_unico=None):
         for fav in favoritos
     )
     estrella_fav = "⭐ " if es_fav else ""
-
-    # --- CALCULA SIEMPRE EL PRECIO REAL ---
     precio = precio_carta_tabla(estrellas, card_id)
 
     texto = (
@@ -4837,12 +4839,14 @@ def comando_ampliar(update, context, id_unico=None):
     else:
         teclado = None
 
-    update.message.reply_photo(
-        photo=imagen_url,
-        caption=texto,
-        parse_mode='HTML',
-        reply_markup=teclado
-    )
+    try:
+        if imagen_url:
+            enviar(photo=imagen_url, caption=texto, parse_mode='HTML', reply_markup=teclado)
+        else:
+            enviar(caption=f"[Imagen no disponible]\n\n{texto}", parse_mode='HTML', reply_markup=teclado)
+    except Exception as e:
+        enviar(caption=f"[Imagen no disponible]\n\n{texto}", parse_mode='HTML', reply_markup=teclado)
+
 
 
 @log_command
