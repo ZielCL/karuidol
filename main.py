@@ -2717,7 +2717,7 @@ def manejador_reclamar(update, context):
         posibles_estados = estados_disponibles_para_carta(nombre, version)
     carta_entregada = random.choice(posibles_estados)
     estado = carta_entregada['estado']
-    estrellas = carta_entregada.get('estrellas', '★??')  # <-- AQUÍ ESTÁ EL CAMBIO
+    estrellas = carta_entregada.get('estado_estrella', '★??')  # <-- AQUÍ ESTÁ EL CAMBIO
     imagen_url = carta_entregada['imagen']
     intentos = carta.get("intentos", 0)
     precio = precio_carta_karuta(nombre, version, estado, id_unico=id_unico, card_id=nuevo_id) + 200 * max(0, intentos - 1)
