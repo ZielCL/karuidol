@@ -3055,40 +3055,50 @@ def callback_album2_handler(update, context):
     chat_id = query.message.chat_id
     thread_id = getattr(query.message, "message_thread_id", None)
 
-    if data.startswith("album2_"):
-        partes = data.split("_")
-        if "filtrosgrupo" in data:
-            # Mostrar menú de grupos para filtrar
-            pagina = int(partes[-1])
-            teclado = mostrar_menu_grupos_album2(user_id, pagina)
-            query.message.edit_reply_markup(reply_markup=teclado)
-            query.answer()
-            return
-        else:
-            # Navegación entre páginas (puede llevar grupo)
-            pagina = int(partes[1])
-            grupo = None
-            if len(partes) > 2 and partes[2] != "none":
-                grupo = partes[2]
-            mostrar_album2_uno(
-                context.bot, chat_id, user_id, pagina, grupo=grupo, thread_id=thread_id,
-                mensaje=query.message, editar=True
-            )
-            query.answer()
-            return
-
-    elif data.startswith("album2_filtragrupo_"):
+    # --- Filtro por grupo ---
+    if data.startswith("album2_filtragrupo_"):
+        # album2_filtragrupo_<user_id>_<grupo>
         partes = data.split("_", 3)
         user_id_cb = int(partes[2])
         grupo = partes[3]
-        pagina = 1  # Siempre parte en página 1 al filtrar
+        pagina = 1  # Siempre vuelve a página 1
         mostrar_album2_uno(
             context.bot, chat_id, user_id_cb, pagina, grupo=grupo, thread_id=thread_id,
             mensaje=query.message, editar=True
         )
         query.answer()
+        return
 
-    elif data.startswith("ampliar_"):
+    # --- Mostrar menú de grupos ---
+    if data.startswith("album2_filtrosgrupo_"):
+        # album2_filtrosgrupo_<user_id>_<pagina>
+        partes = data.split("_")
+        pagina = int(partes[-1])
+        teclado = mostrar_menu_grupos_album2(user_id, pagina)
+        query.message.edit_reply_markup(reply_markup=teclado)
+        query.answer()
+        return
+
+    # --- Navegación y paginación (o paginación con grupo) ---
+    if data.startswith("album2_"):
+        partes = data.split("_")
+        # album2_<pagina>_<grupo>  (o solo album2_<pagina> si no hay grupo)
+        try:
+            pagina = int(partes[1])
+        except Exception:
+            pagina = 1
+        grupo = None
+        if len(partes) > 2 and partes[2] != "none":
+            grupo = partes[2]
+        mostrar_album2_uno(
+            context.bot, chat_id, user_id, pagina, grupo=grupo, thread_id=thread_id,
+            mensaje=query.message, editar=True
+        )
+        query.answer()
+        return
+
+    # --- Ampliar carta ---
+    if data.startswith("ampliar_"):
         id_unico = data.replace("ampliar_", "")
         comando_ampliar(update, context, id_unico)
         query.answer()
