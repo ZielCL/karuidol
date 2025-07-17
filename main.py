@@ -2939,13 +2939,12 @@ def crear_cuadricula_cartas_urls(urls, output_path="cuadricula_album2.png"):
     return output_path
 
 def mostrar_menu_grupos_album2(user_id, pagina):
+    import urllib.parse
     grupos = sorted({c.get("grupo", "") for c in col_cartas_usuario.find({"user_id": user_id}) if c.get("grupo")})
     botones = []
     for grupo in grupos:
         grupo_cod = urllib.parse.quote(grupo)
-        botones.append([
-            InlineKeyboardButton(grupo, callback_data=f"album2_filtragrupo_{user_id}_{grupo_cod}")
-        ])
+        botones.append([InlineKeyboardButton(grupo, callback_data=f"album2_filtragrupo_{user_id}_{grupo_cod}")])
     return InlineKeyboardMarkup(botones)
 
 
@@ -3043,24 +3042,31 @@ def mostrar_album2_uno(bot, chat_id, user_id, pagina=1, grupo=None, thread_id=No
 
 
 
+ 
 def callback_album2_handler(update, context):
     query = update.callback_query
     data = query.data
     user_id = query.from_user.id
     chat_id = query.message.chat_id
     thread_id = getattr(query.message, "message_thread_id", None)
+    partes = data.split("_")
 
+    # 1. Abrir menú de filtros de grupo
     if data.startswith("album2_filtrosgrupo_"):
-        partes = data.split("_")
-        user_id_cb = int(partes[3])
-        pagina = int(partes[4])
-        teclado = mostrar_menu_grupos_album2(user_id_cb, pagina)
+        # Estructura: album2_filtrosgrupo_<user_id>_<pagina>
+        pagina = int(partes[3]) if len(partes) > 3 else 1
+        teclado = mostrar_menu_grupos_album2(user_id, pagina)
         query.message.edit_reply_markup(reply_markup=teclado)
         query.answer()
         return
 
+    # 2. Aplicar filtro de grupo (elige grupo y parte en página 1)
     elif data.startswith("album2_filtragrupo_"):
-        partes = data.split("_", 3)
+        # Estructura: album2_filtragrupo_<user_id>_<grupo_codificado>
+        # partes = ["album2", "filtragrupo", user_id, grupo_cod]
+        if len(partes) < 4:
+            query.answer("Error al leer el grupo.", show_alert=True)
+            return
         user_id_cb = int(partes[2])
         grupo_cod = partes[3]
         grupo = urllib.parse.unquote(grupo_cod)
@@ -3072,12 +3078,15 @@ def callback_album2_handler(update, context):
         query.answer()
         return
 
+    # 3. Navegación entre páginas (puede llevar grupo)
     elif data.startswith("album2_"):
-        partes = data.split("_")
+        # Estructura: album2_<pagina>_<grupo_cod> (grupo_cod puede ser 'none')
+        if len(partes) < 3:
+            query.answer("Error en la paginación.", show_alert=True)
+            return
         pagina = int(partes[1])
-        grupo = None
-        if len(partes) > 2 and partes[2] != "none":
-            grupo = urllib.parse.unquote(partes[2])
+        grupo_cod = partes[2]
+        grupo = None if grupo_cod == "none" else urllib.parse.unquote(grupo_cod)
         mostrar_album2_uno(
             context.bot, chat_id, user_id, pagina, grupo=grupo, thread_id=thread_id,
             mensaje=query.message, editar=True
@@ -3085,15 +3094,14 @@ def callback_album2_handler(update, context):
         query.answer()
         return
 
+    # 4. Ver carta ampliada
     elif data.startswith("ampliar_"):
         id_unico = data.replace("ampliar_", "")
         comando_ampliar(update, context, id_unico)
         query.answer()
+        return
 
-
-# No olvides registrar este handler:
 dispatcher.add_handler(CallbackQueryHandler(callback_album2_handler, pattern="^(ampliar_|album2_)"))
-
 
 
 
