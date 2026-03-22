@@ -313,18 +313,29 @@ def solo_en_tema_asignado(comando):
         @wraps(func)
         def wrapper(update, context, *args, **kwargs):
             chat_id = update.effective_chat.id if update.effective_chat else None
+
+            # En privado: siempre permitir
+            if update.effective_chat and update.effective_chat.type == "private":
+                return func(update, context, *args, **kwargs)
+
             tema_asignado = col_temas_comandos.find_one({"chat_id": chat_id, "comando": comando})
+
+            # Si no hay tema configurado para este comando: permitir en cualquier lugar
+            if not tema_asignado:
+                return func(update, context, *args, **kwargs)
+
             threads_permitidos = set()
-            if tema_asignado:
-                if "thread_ids" in tema_asignado:
-                    threads_permitidos = {str(tid) for tid in tema_asignado["thread_ids"]}
-                elif "thread_id" in tema_asignado:
-                    threads_permitidos = {str(tema_asignado["thread_id"])}
+            if "thread_ids" in tema_asignado:
+                threads_permitidos = {str(tid) for tid in tema_asignado["thread_ids"]}
+            elif "thread_id" in tema_asignado:
+                threads_permitidos = {str(tema_asignado["thread_id"])}
+
             thread_id_actual = None
             if getattr(update, 'message', None):
                 thread_id_actual = str(getattr(update.message, "message_thread_id", None))
             elif getattr(update, 'callback_query', None):
                 thread_id_actual = str(getattr(update.callback_query.message, "message_thread_id", None))
+
             if thread_id_actual not in threads_permitidos:
                 try:
                     if getattr(update, 'message', None):
@@ -346,20 +357,29 @@ def en_tema_asignado_o_privado(comando):
         def wrapper(update, context, *args, **kwargs):
             chat = update.effective_chat
             chat_id = chat.id if chat else None
+
+            # En privado: siempre permitir
             if chat and chat.type == "private":
                 return func(update, context, *args, **kwargs)
+
             tema_asignado = col_temas_comandos.find_one({"chat_id": chat_id, "comando": comando})
+
+            # Si no hay tema configurado: permitir en cualquier lugar del grupo
+            if not tema_asignado:
+                return func(update, context, *args, **kwargs)
+
             threads_permitidos = set()
-            if tema_asignado:
-                if "thread_ids" in tema_asignado:
-                    threads_permitidos = {str(tid) for tid in tema_asignado["thread_ids"]}
-                elif "thread_id" in tema_asignado:
-                    threads_permitidos = {str(tema_asignado["thread_id"])}
+            if "thread_ids" in tema_asignado:
+                threads_permitidos = {str(tid) for tid in tema_asignado["thread_ids"]}
+            elif "thread_id" in tema_asignado:
+                threads_permitidos = {str(tema_asignado["thread_id"])}
+
             thread_id_actual = None
             if getattr(update, 'message', None):
                 thread_id_actual = str(getattr(update.message, "message_thread_id", None))
             elif getattr(update, 'callback_query', None):
                 thread_id_actual = str(getattr(update.callback_query.message, "message_thread_id", None))
+
             if thread_id_actual in threads_permitidos:
                 return func(update, context, *args, **kwargs)
             try:
