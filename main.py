@@ -1393,8 +1393,7 @@ def comando_darobjeto(update, context):
         return
 
     # Lista de objetos válidos para mostrar en errores
-    lista_objetos = "
-".join(
+    lista_objetos = "\n".join(
         f"• <code>{k}</code> — {v['emoji']} {v['nombre']}"
         for k, v in CATALOGO_OBJETOS.items()
     )
