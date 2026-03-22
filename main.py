@@ -90,6 +90,10 @@ logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(message)s')
 logger = logging.getLogger(__name__)
 
 def error_handler(update, context):
+    from telegram.error import TimedOut, NetworkError
+    if isinstance(context.error, (TimedOut, NetworkError)):
+        logger.warning(f"[TIMEOUT/NETWORK] {context.error}")
+        return
     logger.error(f"[ERROR GLOBAL] Update {update}: {context.error}", exc_info=True)
     try:
         if update and update.effective_message:
@@ -2308,12 +2312,17 @@ def mostrar_album_pagina(update, context, chat_id, message_id, user_id, pagina=1
         if update and hasattr(update, 'callback_query'):
             try: update.callback_query.answer(f"⏳ Espera {int(e.retry_after)}s.", show_alert=True)
             except Exception: pass
+    except telegram.error.TimedOut:
+        logger.warning("[album] Timeout al editar — probablemente se aplicó igual.")
+    except telegram.error.NetworkError as ex:
+        logger.warning(f"[album] NetworkError: {ex}")
     except Exception as ex:
-        print("[album] Error al editar:", ex)
+        logger.error(f"[album] Error al editar: {ex}")
 
 # ─── Callback álbum (única definición) ───────────────────────────────────────
 def manejador_callback_album(update, context):
-    from telegram.error import RetryAfter
+    from telegram.error import RetryAfter, TimedOut, NetworkError
+
     query   = update.callback_query
     data    = query.data
     partes  = data.split("_")
@@ -2323,6 +2332,22 @@ def manejador_callback_album(update, context):
         if len(partes) > 0 and partes[-1].isdigit():
             return int(partes[-1])
         return getattr(query.message, "message_thread_id", None)
+
+    def safe_answer(msg="✅"):
+        try: query.answer(msg)
+        except Exception: pass
+
+    def handle_telegram_error(e):
+        """Maneja errores de red de Telegram de forma silenciosa o con aviso."""
+        if isinstance(e, RetryAfter):
+            try: query.answer(f"⏳ Demasiadas solicitudes. Espera {int(e.retry_after)}s.", show_alert=True)
+            except Exception: pass
+        elif isinstance(e, (TimedOut, NetworkError)):
+            # Timeout de red: la operación probablemente sí se completó en Telegram.
+            # No mostramos error al usuario, solo logueamos.
+            logger.warning(f"[album callback] Timeout/NetworkError ignorado: {e}")
+        else:
+            logger.error(f"[album callback] Error inesperado: {e}")
 
     # Validar dueño
     try:
@@ -2335,56 +2360,80 @@ def manejador_callback_album(update, context):
 
     if data.startswith("album_filtro_estado_"):
         uid = int(partes[3]); pag = int(partes[4])
-        try: context.bot.edit_message_reply_markup(chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=mostrar_menu_estrellas_album(uid, pag))
-        except RetryAfter as e: query.answer(f"⏳ {int(e.retry_after)}s", show_alert=True)
-        return
+        try:
+            context.bot.edit_message_reply_markup(
+                chat_id=query.message.chat_id, message_id=query.message.message_id,
+                reply_markup=mostrar_menu_estrellas_album(uid, pag)
+            )
+        except Exception as e: handle_telegram_error(e)
+        safe_answer(); return
 
     if data.startswith("album_filtraestrella_"):
         uid = int(partes[2]); pag = int(partes[3]); est = partes[4]
-        try: mostrar_album_pagina(update, context, query.message.chat_id, query.message.message_id, uid, int(pag), filtro="estrellas", valor_filtro=est)
-        except RetryAfter as e: query.answer(f"⏳ {int(e.retry_after)}s", show_alert=True)
-        return
+        try:
+            mostrar_album_pagina(update, context, query.message.chat_id, query.message.message_id,
+                                 uid, int(pag), filtro="estrellas", valor_filtro=est)
+        except Exception as e: handle_telegram_error(e)
+        safe_answer(); return
 
     if data.startswith("album_filtro_grupo_"):
         uid = int(partes[3]); pag = int(partes[4]) if len(partes) > 4 else 1
         grupos = sorted({c.get("grupo", "") for c in col_cartas_usuario.find({"user_id": uid}) if c.get("grupo")})
-        try: context.bot.edit_message_reply_markup(chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=mostrar_menu_grupos_album(uid, pag, grupos))
-        except RetryAfter as e: query.answer(f"⏳ {int(e.retry_after)}s", show_alert=True)
-        return
+        try:
+            context.bot.edit_message_reply_markup(
+                chat_id=query.message.chat_id, message_id=query.message.message_id,
+                reply_markup=mostrar_menu_grupos_album(uid, pag, grupos)
+            )
+        except Exception as e: handle_telegram_error(e)
+        safe_answer(); return
 
     if data.startswith("album_filtragrupo_"):
         uid = int(partes[2]); pag = int(partes[3])
         grupo = "_".join(partes[4:])
-        try: mostrar_album_pagina(update, context, query.message.chat_id, query.message.message_id, uid, int(pag), filtro="grupo", valor_filtro=grupo)
-        except RetryAfter as e: query.answer(f"⏳ {int(e.retry_after)}s", show_alert=True)
-        return
+        try:
+            mostrar_album_pagina(update, context, query.message.chat_id, query.message.message_id,
+                                 uid, int(pag), filtro="grupo", valor_filtro=grupo)
+        except Exception as e: handle_telegram_error(e)
+        safe_answer(); return
 
     if data.startswith("album_filtros_"):
         uid = int(partes[2]); pag = int(partes[3])
-        try: context.bot.edit_message_reply_markup(chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=mostrar_menu_filtros_album(uid, pag))
-        except RetryAfter as e: query.answer(f"⏳ {int(e.retry_after)}s", show_alert=True)
-        return
+        try:
+            context.bot.edit_message_reply_markup(
+                chat_id=query.message.chat_id, message_id=query.message.message_id,
+                reply_markup=mostrar_menu_filtros_album(uid, pag)
+            )
+        except Exception as e: handle_telegram_error(e)
+        safe_answer(); return
 
     if data.startswith("album_filtro_numero_"):
         uid = int(partes[3]); pag = int(partes[4])
-        try: context.bot.edit_message_reply_markup(chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=mostrar_menu_ordenar_album(uid, pag))
-        except RetryAfter as e: query.answer(f"⏳ {int(e.retry_after)}s", show_alert=True)
-        return
+        try:
+            context.bot.edit_message_reply_markup(
+                chat_id=query.message.chat_id, message_id=query.message.message_id,
+                reply_markup=mostrar_menu_ordenar_album(uid, pag)
+            )
+        except Exception as e: handle_telegram_error(e)
+        safe_answer(); return
 
     if data.startswith("album_ordennum_"):
         uid = int(partes[2]); pag = int(partes[3]); orden = partes[4]
-        try: mostrar_album_pagina(update, context, query.message.chat_id, query.message.message_id, uid, int(pag), orden=orden)
-        except RetryAfter as e: query.answer(f"⏳ {int(e.retry_after)}s", show_alert=True)
-        return
+        try:
+            mostrar_album_pagina(update, context, query.message.chat_id, query.message.message_id,
+                                 uid, int(pag), orden=orden)
+        except Exception as e: handle_telegram_error(e)
+        safe_answer(); return
 
     if data.startswith("album_pagina_"):
         uid          = int(partes[2]); pag = int(partes[3])
         filtro       = partes[4] if len(partes) > 4 and partes[4] != "none" else None
         valor_filtro = partes[5] if len(partes) > 5 and partes[5] != "none" else None
         orden        = partes[6] if len(partes) > 6 and partes[6] != "none" else None
-        try: mostrar_album_pagina(update, context, query.message.chat_id, query.message.message_id, uid, int(pag), filtro=filtro, valor_filtro=valor_filtro, orden=orden)
-        except RetryAfter as e: query.answer(f"⏳ {int(e.retry_after)}s", show_alert=True)
-        return
+        try:
+            mostrar_album_pagina(update, context, query.message.chat_id, query.message.message_id,
+                                 uid, int(pag), filtro=filtro, valor_filtro=valor_filtro, orden=orden)
+        except Exception as e: handle_telegram_error(e)
+        safe_answer(); return
 
     # Paginación mejorar
     if data.startswith("mejorarpag_"):
