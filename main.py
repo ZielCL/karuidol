@@ -3929,7 +3929,6 @@ dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, handler_r
 dispatcher.add_handler(MessageHandler(Filters.all, borrar_mensajes_no_idolday), group=99)
 
 # ─── Arranque ─────────────────────────────────────────────────────────────────
-iniciar_proceso_sorteos(dispatcher)
 
 @app.route("/", methods=["GET"])
 def home():
@@ -3940,6 +3939,21 @@ def telegram_webhook():
     update = Update.de_json(request.get_json(force=True), bot)
     dispatcher.process_update(update)
     return "OK"
+
+@app.before_first_request
+def on_startup():
+    """Se ejecuta una sola vez cuando Gunicorn recibe la primera request."""
+    # Registrar webhook con Telegram
+    webhook_url = f"https://karuidol.onrender.com/{TOKEN}"
+    try:
+        bot.set_webhook(url=webhook_url)
+        logger.info(f"[startup] Webhook registrado: {webhook_url}")
+    except Exception as e:
+        logger.error(f"[startup] Error registrando webhook: {e}")
+
+    # Iniciar proceso de sorteos en background
+    iniciar_proceso_sorteos(dispatcher)
+    logger.info("[startup] Bot iniciado correctamente.")
 
 if __name__ == '__main__':
     puerto = int(os.environ.get('PORT', 5000))
