@@ -1243,7 +1243,12 @@ def comando_idolday(update, context):
                 text=f"⏳ Espera {faltante} segundos antes de volver a dropear.",
                 message_thread_id=thread_id
             )
-            threading.Timer(10, lambda m: context.bot.delete_message(chat_id, m.message_id), args=(msg_cd,)).start()
+            def _borrar(m):
+                try:
+                    context.bot.delete_message(chat_id, m.message_id)
+                except Exception:
+                    pass
+            threading.Timer(10, _borrar, args=(msg_cd,)).start()
         except Exception:
             pass
         return
@@ -1281,7 +1286,12 @@ def comando_idolday(update, context):
             txt = "Ya usaste /idolday."
         try:
             msg_cd = context.bot.send_message(chat_id=chat_id, text=txt, message_thread_id=thread_id)
-            threading.Timer(10, lambda m: context.bot.delete_message(chat_id, m.message_id), args=(msg_cd,)).start()
+            def _borrar2(m):
+                try:
+                    context.bot.delete_message(chat_id, m.message_id)
+                except Exception:
+                    pass
+            threading.Timer(10, _borrar2, args=(msg_cd,)).start()
         except Exception:
             pass
         return
@@ -1473,10 +1483,10 @@ def comando_darobjeto(update, context):
             return
     else:
         update.message.reply_text(
-            f"<b>Uso de /darobjeto:</b>\n"
-            f"• Respondiendo: <code>/darobjeto bono_idolday 2</code>\n"
-            f"• Por username: <code>/darobjeto @usuario bono_idolday 2</code>\n"
-            f"• Por ID: <code>/darobjeto 123456789 bono_idolday 2</code>\n\n"
+            "<b>Uso de /darobjeto:</b>\n"
+            "• Respondiendo a un msg: /darobjeto bono_idolday 2\n"
+            "• Por username: /darobjeto @usuario bono_idolday 2\n"
+            "• Por ID: /darobjeto 123456789 bono_idolday 2\n\n"
             f"<b>Objetos válidos:</b>\n{lista_objetos}",
             parse_mode="HTML"
         )
@@ -3931,14 +3941,27 @@ dispatcher.add_handler(MessageHandler(Filters.all, borrar_mensajes_no_idolday), 
 # ─── Arranque ─────────────────────────────────────────────────────────────────
 
 @app.route("/", methods=["GET"])
+@app.route("/health", methods=["GET", "HEAD"])
 def home():
-    return "Bot activo."
+    # Respuesta instantánea para health checks de Render/UptimeRobot
+    return "OK", 200
 
 @app.route(f"/{TOKEN}", methods=["POST"])
 def telegram_webhook():
-    update = Update.de_json(request.get_json(force=True), bot)
-    dispatcher.process_update(update)
-    return "OK"
+    try:
+        data = request.get_json(force=True)
+        if not data:
+            return "OK", 200
+        update = Update.de_json(data, bot)
+        # Procesar en thread separado para no bloquear el worker
+        threading.Thread(
+            target=dispatcher.process_update,
+            args=(update,),
+            daemon=True
+        ).start()
+    except Exception as e:
+        logger.error(f"[webhook] Error procesando update: {e}")
+    return "OK", 200
 
 def on_startup():
     """Se ejecuta una sola vez al arrancar."""
