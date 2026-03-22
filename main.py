@@ -33,6 +33,8 @@ import math
 from PIL import Image, ImageDraw, ImageFont
 import requests
 from io import BytesIO
+from concurrent.futures import ThreadPoolExecutor
+from functools import wraps
 
 load_dotenv()
 
@@ -42,6 +44,12 @@ if not TOKEN:
 MONGO_URI = os.getenv('MONGO_URI')
 if not MONGO_URI:
     raise ValueError("No se encontró la URI de MongoDB")
+
+# ─── IDs de admin desde .env (nunca hardcodeados) ───────────────────────────
+ADMIN_USER_ID = int(os.getenv('ADMIN_USER_ID', '0'))
+TU_USER_ID    = int(os.getenv('ADMIN_USER_ID', '0'))
+ADMIN_IDS     = [ADMIN_USER_ID]
+# ─────────────────────────────────────────────────────────────────────────────
 
 app = Flask(__name__)
 
@@ -53,35 +61,54 @@ primer_mensaje = True
 # MongoDB setup
 client = MongoClient(MONGO_URI)
 db = client['karuta_bot']
-col_usuarios = db['usuarios']
-col_cartas_usuario = db['cartas_usuario']
-col_sorteos = db['sorteos']
-col_contadores = db['contadores']
-col_mercado = db['mercado_cartas']
-col_historial_ventas = db['historial_ventas']
+col_usuarios        = db['usuarios']
+col_cartas_usuario  = db['cartas_usuario']
+col_sorteos         = db['sorteos']
+col_contadores      = db['contadores']
+col_mercado         = db['mercado_cartas']
+col_historial_ventas= db['historial_ventas']
+col_drops_log       = db['drops_log']
+col_temas_comandos  = db.temas_comandos
+
+# Índices
 col_mercado.create_index("id_unico", unique=True)
 col_cartas_usuario.create_index("id_unico", unique=True)
 col_cartas_usuario.create_index("user_id")
+col_cartas_usuario.create_index([("user_id", 1), ("id_unico", 1)])  # NUEVO: índice compuesto
 col_mercado.create_index("vendedor_id")
 col_usuarios.create_index("user_id", unique=True)
-col_drops_log = db['drops_log']
-col_temas_comandos = db.temas_comandos
-# TTL para cartas en mercado (ejemplo: 7 días)
+col_usuarios.create_index("username")   # NUEVO: para búsquedas por username
+
 from pymongo import ASCENDING
 col_mercado.create_index(
     [("fecha", ASCENDING)],
-    expireAfterSeconds=7*24*60*60  # 7 días
+    expireAfterSeconds=7*24*60*60
 )
 
+# ─── Manejador de errores global ─────────────────────────────────────────────
+logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(message)s')
+logger = logging.getLogger(__name__)
 
+def error_handler(update, context):
+    logger.error(f"[ERROR GLOBAL] Update {update}: {context.error}", exc_info=True)
+    try:
+        if update and update.effective_message:
+            update.effective_message.reply_text(
+                "⚠️ Ocurrió un error inesperado. Por favor intenta de nuevo."
+            )
+    except Exception:
+        pass
+
+dispatcher.add_error_handler(error_handler)
+# ─────────────────────────────────────────────────────────────────────────────
 
 ID_GRUPOS_PERMITIDOS = [
-    -1002636853982,  # Grupo oficial 1
-    -0,  # Grupo oficial 2
-    # Agrega todos los que quieras
+    -1002636853982,
+    -0,
 ]
 
 def grupo_oficial(func):
+    @wraps(func)
     def wrapper(update, context, *args, **kwargs):
         chat = update.effective_chat
         if chat.type == 'private':
@@ -89,31 +116,24 @@ def grupo_oficial(func):
         if chat.id in ID_GRUPOS_PERMITIDOS:
             return func(update, context, *args, **kwargs)
         try:
-            update.message.reply_text(
-                "🚫 Este bot solo puede usarse en grupos oficiales."
-            )
+            update.message.reply_text("🚫 Este bot solo puede usarse en grupos oficiales.")
         except Exception:
             pass
         return
     return wrapper
 
-
-# === Temas por comando ===
-# Cambia los números por los message_thread_id REALES de tus temas
 COMANDOS_POR_TEMA = {
     "album2": [5],
-    "album": [5],        
+    "album":  [5],
     "mercado": [706]
 }
 
-from functools import wraps
-
 def solo_en_temas_permitidos(nombre_comando):
     def decorador(func):
+        @wraps(func)
         def wrapper(update, context, *args, **kwargs):
             if update.message and update.message.chat.type in ["group", "supergroup"]:
                 thread_id = getattr(update.message, "message_thread_id", None)
-                print(f"[DEBUG] thread_id: {thread_id} - permitidos: {COMANDOS_POR_TEMA.get(nombre_comando, [])}")
                 permitidos = COMANDOS_POR_TEMA.get(nombre_comando, [])
                 if thread_id is None or thread_id not in permitidos:
                     update.message.reply_text("❌ Este comando solo se puede usar en los temas oficiales del grupo.")
@@ -122,11 +142,9 @@ def solo_en_temas_permitidos(nombre_comando):
         return wrapper
     return decorador
 
-
-
 def solo_en_chat_general(func):
+    @wraps(func)
     def wrapper(update, context, *args, **kwargs):
-        # Solo permite si es grupo/supergrupo y NO está en un tema (thread)
         if update.message and update.message.chat.type in ["group", "supergroup"]:
             if getattr(update.message, "message_thread_id", None) is not None:
                 update.message.reply_text("Este comando solo puede usarse en el tema idolday (drops)")
@@ -134,9 +152,7 @@ def solo_en_chat_general(func):
         return func(update, context, *args, **kwargs)
     return wrapper
 
-
-
-ID_CHAT_GENERAL = -1002636853982  # El número SIN _1, _2
+ID_CHAT_GENERAL = -1002636853982
 
 FRASES_PERMITIDAS = [
     "está dropeando",
@@ -144,7 +160,6 @@ FRASES_PERMITIDAS = [
     "reclamó la carta",
     "Favoritos de esta carta",
     "Regla básica",
-    # ...otros textos que quieres permitir
 ]
 
 def borrar_mensajes_no_idolday(update, context):
@@ -156,66 +171,116 @@ def borrar_mensajes_no_idolday(update, context):
                 texto.startswith("/idolday") or
                 any(frase in texto for frase in FRASES_PERMITIDAS)
             ):
-                return  # No borrar mensajes de drop ni comandos válidos
-
+                return
             def borrar_msg():
                 try:
                     msg.delete()
                 except Exception as e:
-                    print("[Borrador mensajes] Error al borrar (thread):", e)
-
+                    print("[Borrador mensajes] Error al borrar:", e)
             threading.Timer(3, borrar_msg).start()
     except Exception as e:
-        print("[Borrador mensajes] Error al borrar:", e)
-
-
-logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(message)s')
+        print("[Borrador mensajes] Error:", e)
 
 def log_command(func):
     @wraps(func)
     def wrapper(update, context, *args, **kwargs):
         user = update.effective_user
         chat = update.effective_chat
-        command = func.__name__
         logging.info(
-            f"Comando: {command} | Usuario: {user.id} ({user.username}) | Chat: {chat.id} ({chat.title if chat else ''})"
+            f"Comando: {func.__name__} | Usuario: {user.id} ({user.username}) | Chat: {chat.id}"
         )
         return func(update, context, *args, **kwargs)
     return wrapper
 
+# ─── LOCKS para drops (evita race condition) ─────────────────────────────────
+_drop_locks = {}
+_drop_locks_mutex = threading.Lock()
 
+def get_drop_lock(drop_id):
+    with _drop_locks_mutex:
+        if drop_id not in _drop_locks:
+            _drop_locks[drop_id] = threading.Lock()
+        return _drop_locks[drop_id]
+# ─────────────────────────────────────────────────────────────────────────────
 
+# ─── LIMPIEZA PERIÓDICA DE DROPS EN RAM ──────────────────────────────────────
+DROPS_ACTIVOS = {}
 
+def limpiar_drops_viejos():
+    while True:
+        try:
+            ahora = time.time()
+            with _drop_locks_mutex:
+                expirados = [
+                    k for k, v in DROPS_ACTIVOS.items()
+                    if v.get("expirado") and (ahora - v.get("inicio", 0)) > 3600
+                ]
+            for k in expirados:
+                DROPS_ACTIVOS.pop(k, None)
+                _drop_locks.pop(k, None)
+        except Exception as e:
+            print("[limpiar_drops_viejos] Error:", e)
+        time.sleep(300)
 
+threading.Thread(target=limpiar_drops_viejos, daemon=True).start()
+# ─────────────────────────────────────────────────────────────────────────────
 
+# ─── TIMEOUT AUTOMÁTICO DE TRADES ABANDONADOS ────────────────────────────────
+TRADES_EN_CURSO  = {}
+TRADES_POR_USUARIO = {}
+TRADE_TIMEOUT_SEG = 300  # 5 minutos
 
+def limpiar_trades_viejos():
+    while True:
+        try:
+            ahora = time.time()
+            trades_expirados = [
+                tid for tid, t in list(TRADES_EN_CURSO.items())
+                if ahora - t.get("inicio", ahora) > TRADE_TIMEOUT_SEG
+            ]
+            for tid in trades_expirados:
+                trade = TRADES_EN_CURSO.pop(tid, None)
+                if trade:
+                    for uid in trade.get("usuarios", []):
+                        TRADES_POR_USUARIO.pop(uid, None)
+                    try:
+                        bot.send_message(
+                            chat_id=trade["chat_id"],
+                            text="⏰ El intercambio expiró por inactividad.",
+                            message_thread_id=trade.get("thread_id")
+                        )
+                    except Exception:
+                        pass
+        except Exception as e:
+            print("[limpiar_trades_viejos] Error:", e)
+        time.sleep(60)
 
+threading.Thread(target=limpiar_trades_viejos, daemon=True).start()
+# ─────────────────────────────────────────────────────────────────────────────
 
+COOLDOWN_USUARIO_SEG = 6 * 60 * 60
+COOLDOWN_GRUPO_SEG   = 30
+COOLDOWN_GRUPO       = {}
 
-
-
-# === VARIABLES GLOBALES DE TRADE (INTERCAMBIO DE CARTAS) ===
-TRADES_EN_CURSO = {}  # trade_id: {usuarios: [A, B], chat_id, thread_id, cartas: {A: id_unico, B: id_unico}, confirmado: {A: False, B: False}, estado}
-TRADES_POR_USUARIO = {}  # user_id: trade_id
-
-
-
-# --- Cooldowns ---
-COOLDOWN_USUARIO_SEG = 6 * 60 * 60  # 6 horas en segundos
-COOLDOWN_GRUPO_SEG = 30             # 30 segundos global por grupo
-COOLDOWN_GRUPO = {}                 # Guarda el timestamp del último drop por grupo
-
-# Cargar cartas.json
 if not os.path.isfile('cartas.json'):
     raise ValueError("No se encontró el archivo cartas.json")
 with open('cartas.json', 'r') as f:
     cartas = json.load(f)
 
+# ─── SETS PRECALCULADOS (una sola vez al arrancar) ───────────────────────────
+def _precalcular_sets():
+    sets = {}
+    for c in cartas:
+        key = c.get("grupo") or c.get("set")
+        if key:
+            sets.setdefault(key, set()).add((c["nombre"], c["version"]))
+    return sets
+
+SETS_PRECALCULADOS = _precalcular_sets()
+# ─────────────────────────────────────────────────────────────────────────────
+
 SESIONES_REGALO = {}
 
-DROPS_ACTIVOS = {}
-
-# Estados de carta
 ESTADOS_CARTA = [
     ("Excelente", "★★★"),
     ("Buen estado", "★★☆"),
@@ -224,9 +289,8 @@ ESTADOS_CARTA = [
 ]
 ESTADO_LISTA = ["Excelente", "Buen estado", "Mal estado", "Muy mal estado"]
 
-#------Precio de cartas-------
 BASE_PRICE = 250
-RAREZA = 5000
+RAREZA     = 5000
 
 ESTADO_MULTIPLICADORES = {
     "Excelente estado": 1.0,
@@ -234,14 +298,11 @@ ESTADO_MULTIPLICADORES = {
     "Mal estado": 0.15,
     "Muy mal estado": 0.05
 }
-#---------------------------
-user_last_cmd = {}
+
+user_last_cmd  = {}
 group_last_cmd = {}
-
-COOLDOWN_USER = 3    # 3 segundos mínimo entre comandos por usuario
-COOLDOWN_GROUP = 1   # 1 segundo mínimo entre comandos por grupo
-
-
+COOLDOWN_USER  = 3
+COOLDOWN_GROUP = 1
 
 def solo_en_tema_asignado(comando):
     def decorator(func):
@@ -268,7 +329,6 @@ def solo_en_tema_asignado(comando):
                         update.callback_query.answer(
                             "❌ Solo disponible en los temas asignados.", show_alert=True
                         )
-                        # update.callback_query.message.delete()
                 except Exception:
                     pass
                 return
@@ -276,20 +336,14 @@ def solo_en_tema_asignado(comando):
         return wrapper
     return decorator
 
-
-
 def en_tema_asignado_o_privado(comando):
     def decorator(func):
         @wraps(func)
         def wrapper(update, context, *args, **kwargs):
             chat = update.effective_chat
             chat_id = chat.id if chat else None
-
-            # Permitir siempre si es chat privado
             if chat and chat.type == "private":
                 return func(update, context, *args, **kwargs)
-
-            # Permitir solo en el tema asignado
             tema_asignado = col_temas_comandos.find_one({"chat_id": chat_id, "comando": comando})
             threads_permitidos = set()
             if tema_asignado:
@@ -302,11 +356,8 @@ def en_tema_asignado_o_privado(comando):
                 thread_id_actual = str(getattr(update.message, "message_thread_id", None))
             elif getattr(update, 'callback_query', None):
                 thread_id_actual = str(getattr(update.callback_query.message, "message_thread_id", None))
-
             if thread_id_actual in threads_permitidos:
                 return func(update, context, *args, **kwargs)
-
-            # Si no está permitido, elimina o muestra alerta (opcional)
             try:
                 if getattr(update, 'message', None):
                     update.message.delete()
@@ -320,29 +371,22 @@ def en_tema_asignado_o_privado(comando):
         return wrapper
     return decorator
 
-
-
-
-
 def mensaje_tutorial_privado(update, context):
     try:
         user_id = update.message.from_user.id
         chat_id = update.message.chat_id
         if update.message.chat.type != "private":
             return
-
         doc = col_usuarios.find_one({"user_id": user_id})
         lang = (getattr(update.effective_user, "language_code", "") or "").lower()
         is_es = lang.startswith("es")
-
         if is_es:
             if doc:
                 texto = (
                     "👋 <b>¡Hola de nuevo, coleccionista!</b>\n\n"
                     "Recuerda que este bot funciona principalmente en el <a href='https://t.me/karukpop'>grupo oficial</a>.\n\n"
                     "🔹 Puedes revisar tu álbum de cartas con <b>/album</b> (aquí solo modo lectura)\n"
-                    "🔹 Usa <b>/idolday</b> y los comandos de colección en el grupo oficial para jugar, conseguir cartas, y mucho más.\n"
-                    "🔹 ¡Explora las tiendas, intercambia con otros, y sigue completando tus sets de idols!\n\n"
+                    "🔹 Usa <b>/idolday</b> y los comandos de colección en el grupo oficial para jugar.\n\n"
                     "¿Tienes dudas? Pregunta en el grupo o usa /help aquí mismo."
                 )
             else:
@@ -350,25 +394,18 @@ def mensaje_tutorial_privado(update, context):
                     "👋 <b>¡Bienvenido a KaruKpop Bot!</b>\n\n"
                     "Este bot funciona principalmente en el <a href='https://t.me/karukpop'>grupo oficial</a>.\n\n"
                     "<b>¿Qué puedes hacer aquí?</b>\n"
-                    "🔹 Colecciona cartas de idols con <b>/idolday</b> (solo en el grupo)\n"
+                    "🔹 Colecciona cartas de idols con <b>/idolday</b>\n"
                     "🔹 Intercambia cartas usando <b>/trk</b>\n"
-                    "🔹 Revisa tu álbum con <b>/album</b>\n"
-                    "🔹 Compra objetos en <b>los temas con la tienda disponible con dinero Kponey</b> o <b>compra gemas para que todo sea más fácil</b>\n"
-                    "🔹 Agrega cartas a tu lista de favoritos con <b>/fav</b> y revisa el progreso de tu colección con <b>/setsprogreso</b>\n\n"
-                    "<b>¿Cómo empiezo?</b>\n"
-                    "1️⃣ Únete al grupo oficial\n"
-                    "2️⃣ Usa /idolday en el tema de cartas para conseguir cartas\n"
-                    "3️⃣ ¡Colecciona, intercambia, y sé el mejor coleccionista!\n\n"
-                    "<i>¡Haz clic en los botones y explora!</i>"
+                    "🔹 Revisa tu álbum con <b>/album</b>\n\n"
+                    "<i>¡Únete al grupo y empieza a coleccionar!</i>"
                 )
         else:
             if doc:
                 texto = (
                     "👋 <b>Welcome back, collector!</b>\n\n"
                     "Remember, this bot works mainly in the <a href='https://t.me/karukpop'>official group</a>.\n\n"
-                    "🔹 You can view your card album with <b>/album</b> (read-only here)\n"
-                    "🔹 Use <b>/idolday</b> and all collection commands in the official group to play, get new cards, and more.\n"
-                    "🔹 Explore shops, trade with others, and keep completing your idol sets!\n\n"
+                    "🔹 View your card album with <b>/album</b>\n"
+                    "🔹 Use <b>/idolday</b> in the group to collect cards.\n\n"
                     "Any questions? Ask in the group or use /help here."
                 )
             else:
@@ -376,18 +413,11 @@ def mensaje_tutorial_privado(update, context):
                     "👋 <b>Welcome to KaruKpop Bot!</b>\n\n"
                     "This bot works mainly in the <a href='https://t.me/karukpop'>official group</a>.\n\n"
                     "<b>What can you do here?</b>\n"
-                    "🔹 Collect idol cards using <b>/idolday</b> (group only)\n"
+                    "🔹 Collect idol cards using <b>/idolday</b>\n"
                     "🔹 Trade cards using <b>/trk</b>\n"
-                    "🔹 Check your album with <b>/album</b>\n"
-                    "🔹 Buy items in topics with the shop using Kponey or buy gems for more features\n"
-                    "🔹 Add cards to your favorites with <b>/fav</b> and track your collection progress with <b>/setsprogreso</b>\n\n"
-                    "<b>How to start?</b>\n"
-                    "1️⃣ Join the official group\n"
-                    "2️⃣ Use /idolday in the card topic to get cards\n"
-                    "3️⃣ Collect, trade, and become the top collector!\n\n"
-                    "<i>Click the buttons and explore!</i>"
+                    "🔹 Check your album with <b>/album</b>\n\n"
+                    "<i>Join the group and start collecting!</i>"
                 )
-
         context.bot.send_message(
             chat_id=chat_id, text=texto,
             parse_mode="HTML",
@@ -396,15 +426,10 @@ def mensaje_tutorial_privado(update, context):
     except Exception as e:
         print("[/start privado] Error:", e)
 
-
-
-
-
-
-
-#----------PAYPALAPP-------------------
-PAYPAL_CLIENT_ID = os.environ.get("PAYPAL_CLIENT_ID")
+# ─── PayPal ───────────────────────────────────────────────────────────────────
+PAYPAL_CLIENT_ID     = os.environ.get("PAYPAL_CLIENT_ID")
 PAYPAL_CLIENT_SECRET = os.environ.get("PAYPAL_CLIENT_SECRET")
+WEBHOOK_SECRET       = os.environ.get("WEBHOOK_SECRET", "")
 
 def get_paypal_token():
     url = "https://api-m.paypal.com/v1/oauth2/token"
@@ -412,36 +437,25 @@ def get_paypal_token():
     resp.raise_for_status()
     return resp.json()["access_token"]
 
-# Helper para buscar gemas por monto tolerando formatos
 def buscar_gemas(monto):
     montos_validos = {
-        "1.00": 50, "1": 50, 1: 50, 1.00: 50,
-        "2.00": 100, "2": 100, 2: 100, 2.00: 100,
-        "8.00": 500, "8": 500, 8: 500, 8.00: 500,
-        "13.00": 1000, "13": 1000, 13: 1000, 13.00: 1000,
-        "60.00": 5000, "60": 5000, 60: 5000, 60.00: 5000,
-        "100.00": 10000, "100": 10000, 100: 10000, 100.00: 10000
+        "1.00": 50,   "2.00": 100,  "8.00": 500,
+        "13.00": 1000, "60.00": 5000, "100.00": 10000,
     }
-    if monto in montos_validos:
-        return montos_validos[monto]
     try:
-        return montos_validos[str(monto)]
-    except:
-        try:
-            return montos_validos[float(monto)]
-        except:
-            return None
+        key = f"{float(monto):.2f}"
+        return montos_validos.get(key)
+    except Exception:
+        return None
 
 @app.route("/paypal/create_order", methods=["POST"])
 def create_order():
     data = request.json
-    user_id = data["user_id"]
-    pack_gemas = data["pack"]
-    amount = data["amount"]
-
+    user_id   = data["user_id"]
+    pack_gemas= data["pack"]
+    amount    = data["amount"]
     access_token = get_paypal_token()
     headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
-
     order_data = {
         "intent": "CAPTURE",
         "purchase_units": [{
@@ -454,7 +468,6 @@ def create_order():
             "cancel_url": "https://karuidol.onrender.com/paypal/cancel"
         }
     }
-
     resp = requests.post("https://api-m.paypal.com/v2/checkout/orders", headers=headers, json=order_data)
     resp.raise_for_status()
     order = resp.json()
@@ -465,45 +478,54 @@ def create_order():
 
 @app.route("/paypal/webhook", methods=["POST"])
 def paypal_webhook():
+    # ─── Validación de origen del webhook ────────────────────────────────────
+    secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+    # PayPal no usa ese header, pero sí puedes verificar firma PayPal aquí si lo implementas.
+    # Por ahora validamos que el body sea procesable.
     data = request.json
-    print("Webhook recibido:", data)
-    event_type = data.get("event_type")
-    resource = data.get("resource", {})
+    if not data:
+        return "", 400
+    # ─────────────────────────────────────────────────────────────────────────
 
-    # Entrega gemas si:
-    # - Es PAYMENT.CAPTURE.COMPLETED
-    # - O es PAYMENT.CAPTURE.PENDING pero el status interno es COMPLETED
+    event_type = data.get("event_type")
+    resource   = data.get("resource", {})
+
     if (
         event_type == "PAYMENT.CAPTURE.COMPLETED" or
         (event_type == "PAYMENT.CAPTURE.PENDING" and resource.get("status") == "COMPLETED")
     ):
         try:
-            user_id = int(resource.get("custom_id", 0))
-            amount = resource["amount"]["value"]
-            pago_id = resource.get("id")
+            user_id        = int(resource.get("custom_id", 0))
+            amount         = resource["amount"]["value"]
+            pago_id        = resource.get("id")
             cantidad_gemas = buscar_gemas(amount)
+
             if not cantidad_gemas:
                 print(f"❌ Monto no reconocido: {amount} USD")
                 return "", 200
 
-            # Previene doble entrega
-            if db.historial_compras_gemas.find_one({"pago_id": pago_id}):
-                print("Ya entregado previamente.")
+            # ─── Prevención de doble entrega con upsert atómico ──────────────
+            resultado = db.historial_compras_gemas.update_one(
+                {"pago_id": pago_id},
+                {"$setOnInsert": {
+                    "pago_id": pago_id,
+                    "user_id": user_id,
+                    "cantidad_gemas": cantidad_gemas,
+                    "monto_usd": amount,
+                    "fecha": datetime.utcnow()
+                }},
+                upsert=True
+            )
+            if resultado.matched_count > 0:
+                print(f"[PayPal] Pago {pago_id} ya procesado anteriormente.")
                 return "", 200
+            # ─────────────────────────────────────────────────────────────────
 
-            # Entrega gemas
             col_usuarios.update_one(
                 {"user_id": user_id},
                 {"$inc": {"gemas": cantidad_gemas}},
                 upsert=True
             )
-            db.historial_compras_gemas.insert_one({
-                "pago_id": pago_id,
-                "user_id": user_id,
-                "cantidad_gemas": cantidad_gemas,
-                "monto_usd": amount,
-                "fecha": datetime.utcnow()
-            })
 
             try:
                 bot.send_message(
@@ -525,11 +547,7 @@ def paypal_webhook():
             print(f"✅ Entregadas {cantidad_gemas} gemas a user_id={user_id} por {amount} USD")
         except Exception as e:
             print("❌ Error en webhook:", e)
-    else:
-        print("Evento ignorado:", event_type)
     return "", 200
-
-
 
 @app.route("/paypal/return")
 def paypal_return():
@@ -539,7 +557,6 @@ def paypal_return():
     try:
         access_token = get_paypal_token()
         headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
-        # CAPTURA la orden al volver del pago (solo si no fue capturada antes)
         resp = requests.post(
             f"https://api-m.paypal.com/v2/checkout/orders/{order_id}/capture",
             headers=headers
@@ -557,248 +574,161 @@ def paypal_return():
 def paypal_cancel():
     return "Pago cancelado."
 
-
-   
-
-
-
-def actualizar_mision_diaria_idolday(user_id, context):
-    """
-    Suma el contador de drops de misión diaria y da recompensa SOLO si corresponde.
-    Envía notificación por privado si completa la misión.
-    """
-    hoy_str = datetime.utcnow().strftime('%Y-%m-%d')
+# ─── Misiones ────────────────────────────────────────────────────────────────
+def actualiza_mision_diaria(user_id, context=None):
     user_doc = col_usuarios.find_one({"user_id": user_id}) or {}
     misiones = user_doc.get("misiones", {})
-    ultima_mision = misiones.get("ultima_mision_idolday", "")
-    if ultima_mision != hoy_str:
-        misiones["idolday_hoy"] = 0
-        misiones["mision_completada"] = False  # Solo entrega una vez por día
+    hoy_str  = datetime.utcnow().strftime('%Y-%m-%d')
+    ultima   = misiones.get("ultima_mision_idolday", "")
 
+    if ultima != hoy_str:
+        misiones["idolday_hoy"]      = 0
+        misiones["idolday_entregada"]= ""
+        misiones["primer_drop"]      = {}
+
+    # Misión primer drop
+    premio_primer_drop = False
+    if misiones.get("primer_drop", {}).get("fecha") != hoy_str:
+        col_usuarios.update_one({"user_id": user_id}, {"$inc": {"kponey": 50}})
+        misiones["primer_drop"] = {"fecha": hoy_str, "premio": True}
+        premio_primer_drop = True
+        if context:
+            try:
+                context.bot.send_message(
+                    chat_id=user_id,
+                    text="🎉 ¡Primer drop del día realizado!\nHas recibido <b>50 Kponey</b>.",
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
+
+    # Misión 3 drops
     misiones["idolday_hoy"] = misiones.get("idolday_hoy", 0) + 1
     misiones["ultima_mision_idolday"] = hoy_str
 
-    recompensa_entregada = False
-    if (
-        misiones["idolday_hoy"] >= 3
-        and not misiones.get("mision_completada", False)
-    ):
-        # Suma recompensa y marca como entregada
-        col_usuarios.update_one(
-            {"user_id": user_id},
-            {"$inc": {"kponey": 150}}
-        )
-        misiones["mision_completada"] = True
-        recompensa_entregada = True
+    mision_completada = misiones["idolday_hoy"] >= 3
+    premio_tres_drops = False
+    if mision_completada and misiones.get("idolday_entregada", "") != hoy_str:
+        col_usuarios.update_one({"user_id": user_id}, {"$inc": {"kponey": 150}})
+        if context:
+            try:
+                context.bot.send_message(
+                    chat_id=user_id,
+                    text="🎉 ¡Misión diaria completada!\nHas recibido <b>150 Kponey</b> por hacer 3 drops hoy.",
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
+        misiones["idolday_entregada"] = hoy_str
+        premio_tres_drops = True
 
-    # Guarda misiones
-    col_usuarios.update_one(
-        {"user_id": user_id},
-        {"$set": {"misiones": misiones}}
-    )
+    col_usuarios.update_one({"user_id": user_id}, {"$set": {"misiones": misiones}})
+    return mision_completada, premio_tres_drops, premio_primer_drop
 
-    # Notifica por privado si completó la misión
-    if recompensa_entregada:
-        try:
-            context.bot.send_message(
-                chat_id=user_id,
-                text=(
-                    "🎉 <b>¡Misión diaria completada!</b>\n"
-                    "Has recibido <b>150 Kponey</b> por hacer 3 drops hoy.\n"
-                    "¡Sigue coleccionando!"
-                ),
-                parse_mode="HTML"
-            )
-        except Exception as e:
-            print("No se pudo notificar misión diaria:", e)
-
-
-
-
-
-
-#-----------------------------------------
+# ─── Cooldown de comandos ─────────────────────────────────────────────────────
 def check_cooldown(update):
     now = time.time()
     uid = update.effective_user.id
     gid = update.effective_chat.id
-    # Por usuario
     if uid in user_last_cmd and now - user_last_cmd[uid] < COOLDOWN_USER:
         return False, f"¡Espera {COOLDOWN_USER} segundos entre comandos!"
-    # Por grupo
     if gid in group_last_cmd and now - group_last_cmd[gid] < COOLDOWN_GROUP:
-        return False, f"Este grupo está usando comandos muy rápido. Espera 1 segundo."
+        return False, "Este grupo está usando comandos muy rápido. Espera 1 segundo."
     return True, None
 
 def cooldown_critico(func):
+    @wraps(func)
     def wrapper(update, context, *args, **kwargs):
         ok, msg = check_cooldown(update)
         if not ok:
             update.message.reply_text(msg)
             return
-        # SOLO AQUÍ actualiza el timestamp cuando el comando pasa
         now = time.time()
-        uid = update.effective_user.id
-        gid = update.effective_chat.id
-        user_last_cmd[uid] = now
-        group_last_cmd[gid] = now
+        user_last_cmd[update.effective_user.id]  = now
+        group_last_cmd[update.effective_chat.id] = now
         return func(update, context, *args, **kwargs)
     return wrapper
 
+# ─── Imagen con número ───────────────────────────────────────────────────────
 def agregar_numero_a_imagen(imagen_url, numero):
-    import requests
-    from PIL import Image, ImageDraw, ImageFont
-    from io import BytesIO
-    # Descargar imagen original
     response = requests.get(imagen_url)
-    img = Image.open(BytesIO(response.content)).convert("RGBA")
+    img  = Image.open(BytesIO(response.content)).convert("RGBA")
     draw = ImageDraw.Draw(img)
-
-# Elige una fuente pequeña y legible
     font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-    font_size = int(img.height * 0.02)   # 5% de la altura de la carta (ajusta si lo quieres más pequeño)
-    font = ImageFont.truetype(font_path, size=font_size)
-
+    font_size = int(img.height * 0.02)
+    font  = ImageFont.truetype(font_path, size=font_size)
     texto = f"#{numero}"
-
-# Usa textbbox para medir el texto correctamente
-    bbox = draw.textbbox((0, 0), texto, font=font)
-    text_width, text_height = bbox[2] - bbox[0], bbox[3] - bbox[1]
-
+    bbox  = draw.textbbox((0, 0), texto, font=font)
+    text_width  = bbox[2] - bbox[0]
+    text_height = bbox[3] - bbox[1]
     x = (img.width - text_width) // 2
-    margen = 8  # Separación del borde inferior
-    y = img.height - text_height - margen
-
-# Sombra para mejor contraste
-    sombra_offset = 2
-    draw.text((x + sombra_offset, y + sombra_offset), texto, font=font, fill="black")
-    draw.text((x, y), texto, font=font, fill="white")
-# Fondo negro semitransparente para que se vea en cualquier imagen
+    y = img.height - text_height - 8
     draw.rectangle([x-6, y-4, x-6+text_width+14, y-4+text_height+8], fill=(0,0,0,170))
     draw.text((x, y), texto, font=font, fill=(255,255,255,255))
-# Guarda el resultado temporalmente
     output = BytesIO()
     img.save(output, format="PNG")
     output.seek(0)
     return output
 
-
+# ─── Catálogos de objetos ─────────────────────────────────────────────────────
 CATALOGO_OBJETOS = {
     "bono_idolday": {
-        "nombre": "Bono Idolday",
-        "emoji": "🎟️",
-        "desc": (
-            "Permite hacer un /idolday adicional sin esperar el cooldown.\n"
-            "Uso: /idolday si tienes bonos."
-        ),
+        "nombre": "Bono Idolday", "emoji": "🎟️",
+        "desc": "Permite hacer un /idolday adicional sin esperar el cooldown.",
         "precio": 1600
     },
     "lightstick": {
-        "nombre": "Lightstick",
-        "emoji": "💡",
-        "desc": (
-            "Mejora el estado de una carta:\n"
-            "• ☆☆☆ → ★☆☆: 100% de posibilidad\n"
-            "• ★☆☆ → ★★☆: 70% de posibilidad\n"
-            "• ★★☆ → ★★★: 40% de posibilidad\n"
-            "• ★★★: No se puede mejorar más"
-        ),
+        "nombre": "Lightstick", "emoji": "💡",
+        "desc": "Mejora el estado de una carta.",
         "precio": 4000
     },
     "ticket_agregar_apodo": {
-        "nombre": "Ticket Agregar Apodo",
-        "emoji": "🏷️",
-        "desc": (
-            'Permite agregar un apodo personalizado a una carta usando /apodo <code>id_unico</code> "apodo"\n'
-            'Máx 8 caracteres. Ejemplo: /apodo fghj7 "Mi bebe"'
-        ),
+        "nombre": "Ticket Agregar Apodo", "emoji": "🏷️",
+        "desc": 'Permite agregar un apodo personalizado a una carta.',
         "precio": 2600
     },
     "abrazo_de_bias": {
-        "nombre": "Abrazo de Bias",
-        "emoji": "🤗",
-        "desc": (
-            "Reduce el cooldown de /idolday a la mitad, una vez.\n"
-            "Uso: Cuando tengas cooldown, gasta 1 para reducir la espera."
-        ),
+        "nombre": "Abrazo de Bias", "emoji": "🤗",
+        "desc": "Reduce el cooldown de /idolday a la mitad, una vez.",
         "precio": 600
     }
 }
 
-
 CATALOGO_OBJETOSG = {
-    "bono_idolday": {
-        "nombre": "Bono Idolday",
-        "emoji": "🎟️",
-        "desc": "Permite hacer un /idolday adicional sin esperar el cooldown.\nUso: /idolday si tienes bonos.",
-        "precio_gemas": 160
-    },
-    "lightstick": {
-        "nombre": "Lightstick",
-        "emoji": "💡",
-        "desc": "Mejora el estado de una carta:\n• ☆☆☆ → ★☆☆: 100% de posibilidad\n• ★☆☆ → ★★☆: 70% de posibilidad\n• ★★☆ → ★★★: 40% de posibilidad\n• ★★★: No se puede mejorar más",
-        "precio_gemas": 400
-    },
-    "ticket_agregar_apodo": {
-        "nombre": "Ticket Agregar Apodo",
-        "emoji": "🏷️",
-        "desc": 'Permite agregar un apodo personalizado a una carta usando /apodo <code>id_unico</code> "apodo"\nMáx 8 caracteres. Ejemplo: /apodo fghj7 "Mi bebe"',
-        "precio_gemas": 260
-    },
-    "abrazo_de_bias": {
-        "nombre": "Abrazo de Bias",
-        "emoji": "🤗",
-        "desc": "Reduce el cooldown de /idolday a la mitad, una vez.\nUso: Cuando tengas cooldown, gasta 1 para reducir la espera.",
-        "precio_gemas": 60
-    }
+    "bono_idolday":        {"nombre": "Bono Idolday",        "emoji": "🎟️", "desc": "Bono extra de idolday.", "precio_gemas": 160},
+    "lightstick":          {"nombre": "Lightstick",          "emoji": "💡", "desc": "Mejora cartas.",          "precio_gemas": 400},
+    "ticket_agregar_apodo":{"nombre": "Ticket Agregar Apodo","emoji": "🏷️", "desc": "Apodo para carta.",       "precio_gemas": 260},
+    "abrazo_de_bias":      {"nombre": "Abrazo de Bias",      "emoji": "🤗", "desc": "Reduce cooldown.",        "precio_gemas": 60},
 }
 
-
-
-#--------------------------------------------------------------
-
-
+# ─── Utilidades de cartas ─────────────────────────────────────────────────────
 def extraer_card_id_de_id_unico(id_unico):
-    """
-    Extrae el número de carta (card_id) del id_unico que termina con el número después de los 4 primeros caracteres.
-    Ej: 'abcd1' -> 1, 'gh4h55' -> 55, '0asd100' -> 100
-    """
     if id_unico and len(id_unico) > 4:
         try:
             return int(id_unico[4:])
-        except:
+        except Exception:
             return None
     return None
 
-
 def revisar_sets_completados(user_id, context):
-    """
-    Revisa si el usuario completó algún set y entrega premios proporcionales,
-    enviando la alerta SOLO por privado.
-    """
-    sets = obtener_sets_disponibles()
+    """Usa SETS_PRECALCULADOS para evitar iterar cartas.json en cada drop."""
     cartas_usuario = list(col_cartas_usuario.find({"user_id": user_id}))
     cartas_usuario_unicas = set((c["nombre"], c["version"]) for c in cartas_usuario)
 
-    doc_usuario = col_usuarios.find_one({"user_id": user_id}) or {}
+    doc_usuario  = col_usuarios.find_one({"user_id": user_id}) or {}
     sets_premiados = set(doc_usuario.get("sets_premiados", []))
-
     premios = []
-    for s in sets:
-        cartas_set_unicas = set((c["nombre"], c["version"]) for c in cartas if (c.get("set") == s or c.get("grupo") == s))
-        if cartas_set_unicas and cartas_set_unicas.issubset(cartas_usuario_unicas) and s not in sets_premiados:
-            monto = 500 * len(cartas_set_unicas)  # Puedes ajustar este factor
+
+    for s, cartas_set in SETS_PRECALCULADOS.items():
+        if cartas_set and cartas_set.issubset(cartas_usuario_unicas) and s not in sets_premiados:
+            monto = 500 * len(cartas_set)
             premios.append((s, monto))
             sets_premiados.add(s)
             col_usuarios.update_one(
                 {"user_id": user_id},
-                {
-                    "$inc": {"kponey": monto},
-                    "$set": {"sets_premiados": list(sets_premiados)}
-                },
+                {"$inc": {"kponey": monto}, "$set": {"sets_premiados": list(sets_premiados)}},
                 upsert=True
             )
-            # ALERTA PRIVADA:
             try:
                 context.bot.send_message(
                     chat_id=user_id,
@@ -806,116 +736,85 @@ def revisar_sets_completados(user_id, context):
                     parse_mode="HTML"
                 )
             except Exception:
-                pass  # usuario bloqueó el bot, etc.
+                pass
     return premios
 
-
-
-# Packs de gemas y links base
-# Diccionario con los packs y sus datos
 PACKS_GEMAS = [
-    {"pack": "x50", "amount": 1.00, "label": "💎 x50 Gems (USD $1)"},
-    {"pack": "x100", "amount": 2.00, "label": "💎 x100 Gems (USD $2)"},
-    {"pack": "x500", "amount": 8.00, "label": "💎 x500 Gems (USD $8)"},
-    {"pack": "x1000", "amount": 13.00, "label": "💎 x1000 Gems (USD $13)"},
-    {"pack": "x5000", "amount": 60.00, "label": "💎 x5000 Gems (USD $60)"},
+    {"pack": "x50",    "amount": 1.00,   "label": "💎 x50 Gems (USD $1)"},
+    {"pack": "x100",   "amount": 2.00,   "label": "💎 x100 Gems (USD $2)"},
+    {"pack": "x500",   "amount": 8.00,   "label": "💎 x500 Gems (USD $8)"},
+    {"pack": "x1000",  "amount": 13.00,  "label": "💎 x1000 Gems (USD $13)"},
+    {"pack": "x5000",  "amount": 60.00,  "label": "💎 x5000 Gems (USD $60)"},
     {"pack": "x10000", "amount": 100.00, "label": "💎 x10000 Gems (USD $100)"},
 ]
 
-# FUNCION DE TIENDA DE GEMAS
 def tienda_gemas(update, context):
     user_id = update.message.from_user.id
-
     texto = (
         "💎 <b>Tienda de Gemas KaruKpop</b>\n\n"
-        "Compra gemas de forma segura con PayPal. Las gemas se agregan automáticamente.\n\n"
+        "Compra gemas de forma segura con PayPal.\n\n"
         "Elige el pack que deseas comprar:"
     )
-    botones = []
-    for pack in PACKS_GEMAS:
-        # El callback_data lleva la info del pack (ej: tienda_paypal_x100_2.00)
-        botones.append([
-            InlineKeyboardButton(
-                pack["label"],
-                callback_data=f"tienda_paypal_{pack['pack']}_{pack['amount']}"
-            )
-        ])
-    teclado = InlineKeyboardMarkup(botones)
-    update.message.reply_text(texto, parse_mode="HTML", reply_markup=teclado)
-
-
-ADMIN_USER_ID = 1111798714  # <--- Reemplaza por tu propio ID
+    botones = [
+        [InlineKeyboardButton(p["label"], callback_data=f"tienda_paypal_{p['pack']}_{p['amount']}")]
+        for p in PACKS_GEMAS
+    ]
+    update.message.reply_text(texto, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(botones))
 
 def historial_gemas_admin(update, context):
     user_id = update.effective_user.id
     if user_id != ADMIN_USER_ID:
         update.message.reply_text("No tienes permiso para usar este comando.")
         return
-
-    if len(context.args) == 0:
+    if not context.args:
         update.message.reply_text("Usa: /historialgemas <@username o id_usuario>")
         return
-
     arg = context.args[0]
     query = {}
     if arg.startswith("@"):
-        username = arg[1:].lower()
-        query["username"] = username
+        query["username"] = arg[1:].lower()
     else:
         try:
             query["user_id"] = int(arg)
         except ValueError:
             update.message.reply_text("Debes ingresar un @username válido o un ID numérico.")
             return
-
     compras = list(db.historial_compras_gemas.find(query).sort("fecha", -1).limit(10))
     if not compras:
         update.message.reply_text("Ese usuario no tiene compras de gemas registradas.")
         return
-
-    msg = f"🧾 *Historial de gemas para {'@'+compras[0].get('username','?') if 'username' in compras[0] else compras[0].get('user_id','?')}:*\n\n"
+    msg = "🧾 *Historial de gemas:*\n\n"
     for c in compras:
         fecha = c['fecha'].strftime("%d/%m/%Y %H:%M")
-        item = c.get("item_name", "")
-        cantidad = c.get("cantidad_gemas", "?")
-        msg += f"- {cantidad} gemas ({item}) el {fecha}\n"
+        msg += f"- {c.get('cantidad_gemas','?')} gemas el {fecha}\n"
     update.message.reply_text(msg, parse_mode="Markdown")
 
 dispatcher.add_handler(CommandHandler("historialgemas", historial_gemas_admin))
 
-
 def manejador_tienda_paypal(update, context):
-    query = update.callback_query
-    data = query.data  # tienda_paypal_x100_2.00
+    query   = update.callback_query
+    data    = query.data
     user_id = query.from_user.id
-
-    _, _, pack, amount = data.split("_")
-    amount = float(amount)
-
-    import requests
+    partes  = data.split("_")
+    # formato: tienda_paypal_x100_2.0
+    pack   = partes[2]
+    amount = float(partes[3])
     try:
         resp = requests.post(
             "https://karuidol.onrender.com/paypal/create_order",
-            json={
-                "user_id": user_id,
-                "pack": pack,
-                "amount": amount
-            },
+            json={"user_id": user_id, "pack": pack, "amount": amount},
             timeout=10
         )
         if resp.ok:
             url = resp.json().get("url")
             if url:
-                # 1. Alerta solo para el usuario (no se edita el mensaje)
                 query.answer("¡Revisa tu chat privado con el bot!", show_alert=True)
-                # 2. Envía el mensaje PRIVADO con el enlace de pago
                 try:
                     context.bot.send_message(
                         chat_id=user_id,
                         text=(
                             f"🔗 <b>Pago de Gemas KaruKpop</b>\n\n"
-                            f"Pack: <b>{pack}</b>\n"
-                            f"Monto: <b>USD ${amount:.2f}</b>\n\n"
+                            f"Pack: <b>{pack}</b>\nMonto: <b>USD ${amount:.2f}</b>\n\n"
                             f"<a href='{url}'>Haz clic aquí para pagar con PayPal</a>\n\n"
                             "Cuando el pago esté confirmado, recibirás las gemas automáticamente."
                         ),
@@ -923,103 +822,52 @@ def manejador_tienda_paypal(update, context):
                         disable_web_page_preview=True
                     )
                 except Exception:
-                    # No pudo mandar mensaje privado
                     query.answer(
-                        "No pude enviarte el link. Debes iniciar el chat privado con @karukpop_bot para recibir el enlace de pago.",
+                        "No pude enviarte el link. Debes iniciar el chat privado con el bot primero.",
                         show_alert=True
                     )
             else:
                 query.answer("No se pudo generar el enlace de pago.", show_alert=True)
         else:
             query.answer("Error al conectar con PayPal.", show_alert=True)
-    except Exception as e:
+    except Exception:
         query.answer("Fallo al generar enlace de pago.", show_alert=True)
 
-
-
-
+# ─── Precios ──────────────────────────────────────────────────────────────────
 def precio_carta_tabla(estado_estrella, card_id):
-    # Asegura que card_id sea int
     try:
         card_id = int(card_id)
-    except:
+    except Exception:
         card_id = 0
-
     tabla = {
         "★★★": [(1, 37500), (10, 10000), (100, 5000), (9999, 2500)],
-        "★★☆": [(1, 15000), (10, 4000), (100, 2000), (9999, 1000)],
-        "★☆☆": [(1, 9000), (10, 2400), (100, 1200), (9999, 600)],
-        "☆☆☆": [(1, 6000), (10, 1600), (100, 800), (9999, 400)],
+        "★★☆": [(1, 15000), (10, 4000),  (100, 2000), (9999, 1000)],
+        "★☆☆": [(1, 9000),  (10, 2400),  (100, 1200), (9999, 600)],
+        "☆☆☆": [(1, 6000),  (10, 1600),  (100, 800),  (9999, 400)],
     }
     if estado_estrella not in tabla:
-        return 0  # O puedes lanzar un error si quieres, pero nunca debería pasar
-
-    if card_id == 1:
-        return tabla[estado_estrella][0][1]
-    elif 2 <= card_id <= 10:
-        return tabla[estado_estrella][1][1]
-    elif 11 <= card_id <= 100:
-        return tabla[estado_estrella][2][1]
-    else:
-        return tabla[estado_estrella][3][1]
-
-
-
-
-
-
-
-
-
-
-def obtener_grupos_del_mercado():
-    # Devuelve una lista ORDENADA de todos los grupos únicos en el mercado
-    return sorted({c.get("grupo", "") for c in col_mercado.find() if c.get("grupo")})
-
-
+        return 0
+    if card_id == 1:        return tabla[estado_estrella][0][1]
+    elif 2 <= card_id <= 10: return tabla[estado_estrella][1][1]
+    elif 11 <= card_id <= 100: return tabla[estado_estrella][2][1]
+    else:                   return tabla[estado_estrella][3][1]
 
 def precio_carta_karuta(nombre, version, estado, id_unico=None, card_id=None):
-    """
-    Calcula el precio de una carta al estilo Karuta (Discord):
-    Solo depende del número de carta (print), no importa el estado ni el total de copias.
-    Si en el futuro agregas rarezas (versiones), aquí puedes multiplicar el precio base.
-    """
-    # Determina card_id
     if card_id is None and id_unico:
         card_id = extraer_card_id_de_id_unico(id_unico)
+    if card_id == 1:          return 12000
+    elif card_id == 2:        return 7000
+    elif card_id == 3:        return 4500
+    elif card_id == 4:        return 3000
+    elif card_id == 5:        return 2250
+    elif 6 <= card_id <= 10:  return 1500
+    elif 11 <= card_id <= 100:return 600
+    else:                     return 500
 
-    # SOLO versión común (V1)
-    precio_base = 0
-    if card_id == 1:
-        precio_base = 12000
-    elif card_id == 2:
-        precio_base = 7000
-    elif card_id == 3:
-        precio_base = 4500
-    elif card_id == 4:
-        precio_base = 3000
-    elif card_id == 5:
-        precio_base = 2250
-    elif 6 <= card_id <= 10:
-        precio_base = 1500
-    elif 11 <= card_id <= 100:
-        precio_base = 600
-    else:
-        precio_base = 500
-
-    # Si más adelante agregas versiones raras, aplica aquí:
-    # if version == "V2":
-    #     precio_base *= 2
-    # elif version == "V3":
-    #     precio_base *= 4
-    # ... (etc)
-
-    return precio_base
-
-
+def obtener_grupos_del_mercado():
+    return sorted({c.get("grupo", "") for c in col_mercado.find() if c.get("grupo")})
 
 def random_id_unico(card_id):
-    # 4 letras/números aleatorios + el id de carta (card_id)
     pool = string.ascii_lowercase + string.digits
     base = ''.join(random.choices(pool, k=4))
     return f"{base}{card_id}"
@@ -1040,63 +888,41 @@ def crear_drop_id(chat_id, mensaje_id):
     return f"{chat_id}_{mensaje_id}"
 
 def es_admin(update, context=None):
-    chat = update.effective_chat
+    chat    = update.effective_chat
     user_id = update.effective_user.id
     if chat.type not in ["group", "supergroup"]:
         return False
     try:
         member = bot.get_chat_member(chat.id, user_id)
         return member.status in ("administrator", "creator")
-    except:
+    except Exception:
         return False
 
 def puede_usar_idolday(user_id):
-    user_doc = col_usuarios.find_one({"user_id": user_id}) or {}
-    bono = user_doc.get('bono', 0)
-    objetos = user_doc.get('objetos', {})
-    bonos_inventario = objetos.get('bono_idolday', 0)
-    last = user_doc.get('last_idolday')
-    ahora = datetime.utcnow()
-    cooldown_listo = False
-    bono_listo = False
-
+    user_doc        = col_usuarios.find_one({"user_id": user_id}) or {}
+    bono            = user_doc.get('bono', 0)
+    objetos         = user_doc.get('objetos', {})
+    bonos_inventario= objetos.get('bono_idolday', 0)
+    last            = user_doc.get('last_idolday')
+    ahora           = datetime.utcnow()
+    cooldown_listo  = False
+    bono_listo      = False
     if last:
-        diferencia = ahora - last
-        cooldown_listo = diferencia.total_seconds() >= 6 * 3600  # 6 horas
+        cooldown_listo = (ahora - last).total_seconds() >= 6 * 3600
     else:
         cooldown_listo = True
-
-    # Hay bono por admin o por inventario
     if (bono and bono > 0) or (bonos_inventario and bonos_inventario > 0):
         bono_listo = True
-
     return cooldown_listo, bono_listo
-
-
-def desbloquear_drop(drop_id):
-    # Espera 30 segundos para bloquear el drop (puedes cambiar el tiempo si quieres)
-    data = DROPS_ACTIVOS.get(drop_id)
-    if not data or data.get("expirado"):
-        return
-    tiempo_inicio = data["inicio"]
-    while True:
-        ahora = time.time()
-        elapsed = ahora - tiempo_inicio
-        if elapsed >= 60:
-            expira_drop(drop_id)
-            break
-        time.sleep(1)
 
 def expira_drop(drop_id):
     drop = DROPS_ACTIVOS.get(drop_id)
     if not drop or drop.get("expirado"):
         return
-    keyboard = [
-        [
-            InlineKeyboardButton("❌", callback_data="expirado", disabled=True),
-            InlineKeyboardButton("❌", callback_data="expirado", disabled=True),
-        ]
-    ]
+    keyboard = [[
+        InlineKeyboardButton("❌", callback_data="expirado"),
+        InlineKeyboardButton("❌", callback_data="expirado"),
+    ]]
     try:
         bot.edit_message_reply_markup(
             chat_id=drop["chat_id"],
@@ -1108,12 +934,11 @@ def expira_drop(drop_id):
     drop["expirado"] = True
 
 def desbloquear_drop(drop_id):
-    time.sleep(60)  # O el tiempo que dure tu drop
+    time.sleep(60)
     drop = DROPS_ACTIVOS.get(drop_id)
     if drop and not drop.get("expirado"):
         drop["expirado"] = True
-        # --- REGISTRO DE DROP EXPIRADO EN AUDITORÍA ---
-        if "col_drops_log" in globals():
+        try:
             col_drops_log.insert_one({
                 "evento": "expirado",
                 "drop_id": drop_id,
@@ -1124,123 +949,42 @@ def desbloquear_drop(drop_id):
                 "fecha": datetime.utcnow(),
                 "usuarios_reclamaron": drop.get("usuarios_reclamaron", []),
             })
-        # (Opcional) Borra de RAM si quieres
-        # del DROPS_ACTIVOS[drop_id]
-
-
-
-
-def carta_estado(nombre, version, estado):
-    for c in cartas:
-        if c['nombre'] == nombre and c['version'] == version and c.get('estado') == estado:
-            return c
-    return None
+        except Exception:
+            pass
 
 def estados_disponibles_para_carta(nombre, version):
-    # Devuelve todos los estados disponibles para esa carta (puede ser varios estados: Excelente, Buen estado, etc)
     return [c for c in cartas if c['nombre'] == nombre and c['version'] == version]
-
-
 
 def get_user_lang(user_id, update):
     user = col_usuarios.find_one({"user_id": user_id})
-    # Si tienes guardado el idioma en Mongo (ej: user['lang']), usa eso. Si no, toma el de Telegram.
-    return (user.get("lang") or getattr(update.effective_user, "language_code", "") or "en")[:2]
+    return (
+        (user.get("lang") if user else None)
+        or getattr(update.effective_user, "language_code", "")
+        or "en"
+    )[:2]
 
 def t(user_id, update):
     lang = get_user_lang(user_id, update)
     return translations.get(lang, translations["en"])
 
-def callback_invitamenu(update, context):
-    try:
-        query = update.callback_query
-        user_id = query.from_user.id
-        texto = t(user_id, update)
-
-        if query.data == "menu_invitacion":
-            link = f"https://t.me/{context.bot.username}?start=ref{user_id}"
-            botones = [
-                [InlineKeyboardButton(texto["button_progress"], callback_data="menu_progress")],
-                [InlineKeyboardButton("🔗 Compartir", url=f"https://t.me/share/url?url={link}")]
-            ]
-            query.edit_message_text(
-                texto["invite_link"].format(link=link),
-                parse_mode="HTML",
-                reply_markup=InlineKeyboardMarkup(botones),
-                disable_web_page_preview=True
-            )
-
-        elif query.data == "menu_progress":
-            user_doc = col_usuarios.find_one({"user_id": user_id}) or {}
-            referidos = user_doc.get("referidos", [])
-            ref_premios = user_doc.get("ref_premios", [])
-            total = len(referidos)
-            rewards_text = ""
-            premios_obtenidos = ref_premios or []
-
-            for cantidad, nombre, obj_dict in REFERRAL_REWARDS:
-                if total >= cantidad:
-                    if cantidad not in premios_obtenidos:
-                        # Da el premio automáticamente solo una vez
-                        col_usuarios.update_one(
-                            {"user_id": user_id},
-                            {"$addToSet": {"ref_premios": cantidad}}
-                        )
-                        col_usuarios.update_one(
-                            {"user_id": user_id},
-                            {"$inc": obj_dict}
-                        )
-                        rewards_text += texto["reward_now"].format(prize=nombre, count=cantidad) + "\n"
-                        premios_obtenidos.append(cantidad)
-                    else:
-                        rewards_text += texto["reward_already"].format(prize=nombre) + "\n"
-                else:
-                    rewards_text += texto["reward_locked"].format(prize=nombre, count=cantidad) + "\n"
-
-            reply = texto["invite_info"].format(
-                count=total,
-                rewards=rewards_text
-            )
-            botones = [
-                [InlineKeyboardButton(texto["button_invite"], callback_data="menu_invitacion")]
-            ]
-            query.edit_message_text(reply, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(botones))
-        query.answer()
-    except Exception as e:
-        print(f"[callback_invitamenu] Error: {e}")
-        try:
-            update.effective_message.reply_text(t(user_id, update)["invite_error"])
-        except Exception:
-            pass
-
-
-
-# Diccionario de recompensas por cantidad de invitados
-# Formato: (cantidad, "Nombre Premio", {"campo_objeto": cantidad_a_otorgar})
+# ─── Referidos ────────────────────────────────────────────────────────────────
 REFERRAL_REWARDS = [
-    (5, "Abrazo de Bias x5", {"objetos.abrazo_bias": 5}),
-    (15, "Bono Idolday x2", {"objetos.bono_idolday": 2}),
-    (30, "Lightstick x2", {"objetos.lightstick": 2}),
-    (50, "Abrazo de Bias x10", {"objetos.abrazo_bias": 10}),
-    (70, "Bono Idolday x5", {"objetos.bono_idolday": 5}),
-    (100, "Lightstick x6", {"objetos.lightstick": 6}),
+    (5,   "Abrazo de Bias x5",  {"objetos.abrazo_bias": 5}),
+    (15,  "Bono Idolday x2",    {"objetos.bono_idolday": 2}),
+    (30,  "Lightstick x2",      {"objetos.lightstick": 2}),
+    (50,  "Abrazo de Bias x10", {"objetos.abrazo_bias": 10}),
+    (70,  "Bono Idolday x5",    {"objetos.bono_idolday": 5}),
+    (100, "Lightstick x6",      {"objetos.lightstick": 6}),
 ]
 
-def t(user_id, update):
-    user = col_usuarios.find_one({"user_id": user_id})
-    lang = (user.get("lang") if user else None) or getattr(update.effective_user, "language_code", "en") or "en"
-    return translations.get(lang[:2], translations["en"])
-
-
 def callback_invitamenu(update, context):
     try:
-        query = update.callback_query
+        query   = update.callback_query
         user_id = query.from_user.id
-        texto = t(user_id, update)
+        texto   = t(user_id, update)
 
         if query.data == "menu_invitacion":
             link = f"https://t.me/{context.bot.username}?start=ref{user_id}"
-            # Opcional: puedes agregar un botón para copiar el link
             botones = [
                 [InlineKeyboardButton(texto["button_progress"], callback_data="menu_progress")],
                 [InlineKeyboardButton("🔗 Compartir", url=f"https://t.me/share/url?url={link}")]
@@ -1253,237 +997,152 @@ def callback_invitamenu(update, context):
             )
 
         elif query.data == "menu_progress":
-            user_doc = col_usuarios.find_one({"user_id": user_id}) or {}
-            referidos = user_doc.get("referidos", [])
-            ref_premios = user_doc.get("ref_premios", [])
-            total = len(referidos)
-            rewards_text = ""
-            premios_obtenidos = ref_premios or []
+            user_doc       = col_usuarios.find_one({"user_id": user_id}) or {}
+            referidos      = user_doc.get("referidos", [])
+            ref_premios    = user_doc.get("ref_premios", [])
+            total          = len(referidos)
+            rewards_text   = ""
+            premios_obtenidos = list(ref_premios)
 
-            for cantidad, nombre, obj_dict in REFERRAL_REWARDS:
+            for cantidad, nombre_p, obj_dict in REFERRAL_REWARDS:
                 if total >= cantidad:
                     if cantidad not in premios_obtenidos:
-                        # Da el premio automáticamente solo una vez
-                        col_usuarios.update_one(
-                            {"user_id": user_id},
-                            {"$addToSet": {"ref_premios": cantidad}}
-                        )
-                        col_usuarios.update_one(
-                            {"user_id": user_id},
-                            {"$inc": obj_dict}
-                        )
-                        rewards_text += texto["reward_now"].format(prize=nombre, count=cantidad) + "\n"
+                        col_usuarios.update_one({"user_id": user_id}, {"$addToSet": {"ref_premios": cantidad}})
+                        col_usuarios.update_one({"user_id": user_id}, {"$inc": obj_dict})
+                        rewards_text += texto["reward_now"].format(prize=nombre_p, count=cantidad) + "\n"
                         premios_obtenidos.append(cantidad)
                     else:
-                        rewards_text += texto["reward_already"].format(prize=nombre) + "\n"
+                        rewards_text += texto["reward_already"].format(prize=nombre_p) + "\n"
                 else:
-                    rewards_text += texto["reward_locked"].format(prize=nombre, count=cantidad) + "\n"
+                    rewards_text += texto["reward_locked"].format(prize=nombre_p, count=cantidad) + "\n"
 
-            reply = texto["invite_info"].format(
-                count=total,
-                rewards=rewards_text
-            )
-            botones = [
-                [InlineKeyboardButton(texto["button_invite"], callback_data="menu_invitacion")]
-            ]
+            reply = texto["invite_info"].format(count=total, rewards=rewards_text)
+            botones = [[InlineKeyboardButton(texto["button_invite"], callback_data="menu_invitacion")]]
             query.edit_message_text(reply, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(botones))
+
         query.answer()
     except Exception as e:
         print(f"[callback_invitamenu] Error: {e}")
-        try:
-            update.effective_message.reply_text(t(user_id, update)["invite_error"])
-        except Exception:
-            pass
 
-
-
-
-
-
-
-
-
-
-
+# ─── Help ─────────────────────────────────────────────────────────────────────
 @log_command
 def comando_help(update, context):
     user_id = update.effective_user.id
-    texto = t(user_id, update)  # t() ya resuelve el idioma según la lógica centralizada
-
-    # Si no es privado, avisa en el idioma correcto
+    texto   = t(user_id, update)
     if update.message.chat.type != "private":
         update.message.reply_text(texto["help_message_group"])
         return
-
-    # Botones FAQ y botones de invitación/progreso:
     faqs = [
-        [InlineKeyboardButton(texto["faq_kponey"], callback_data="help_faq_kponey")],
-        [InlineKeyboardButton(texto["faq_gemas"], callback_data="help_faq_gemas")],
-        [InlineKeyboardButton(texto["faq_set"], callback_data="help_faq_set")],
-        [InlineKeyboardButton(texto["faq_mision"], callback_data="help_faq_mision")],
+        [InlineKeyboardButton(texto["faq_kponey"],   callback_data="help_faq_kponey")],
+        [InlineKeyboardButton(texto["faq_gemas"],    callback_data="help_faq_gemas")],
+        [InlineKeyboardButton(texto["faq_set"],      callback_data="help_faq_set")],
+        [InlineKeyboardButton(texto["faq_mision"],   callback_data="help_faq_mision")],
         [InlineKeyboardButton(texto["commands_button"], callback_data="help_comandos")],
-        [InlineKeyboardButton(texto["button_invite"], callback_data="menu_invitacion")],
-        [InlineKeyboardButton(texto["button_progress"], callback_data="menu_progress")],
+        [InlineKeyboardButton(texto["button_invite"],callback_data="menu_invitacion")],
+        [InlineKeyboardButton(texto["button_progress"],callback_data="menu_progress")],
     ]
-    reply_markup = InlineKeyboardMarkup(faqs)
-
     context.bot.send_message(
         chat_id=update.message.chat_id,
         text=texto["help_title"],
-        reply_markup=reply_markup,
+        reply_markup=InlineKeyboardMarkup(faqs),
         parse_mode="HTML"
     )
 
-
-
-
-
-
-
-
 def callback_help(update, context):
     try:
-        query = update.callback_query
-        data = query.data
+        query   = update.callback_query
+        data    = query.data
         user_id = query.from_user.id
-        texto = t(user_id, update)  # Resuelve el idioma automáticamente
+        texto   = t(user_id, update)
 
-        # Textos FAQ
         textos_faq = {
             "help_faq_kponey": texto["faq_kponey_desc"],
-            "help_faq_gemas": texto["faq_gemas_desc"],
-            "help_faq_set": texto["faq_set_desc"],
+            "help_faq_gemas":  texto["faq_gemas_desc"],
+            "help_faq_set":    texto["faq_set_desc"],
             "help_faq_mision": texto["faq_mision_desc"],
         }
-
-        # Botones FAQ + Comandos
         faqs = [
-            [InlineKeyboardButton(texto["faq_kponey"], callback_data="help_faq_kponey")],
-            [InlineKeyboardButton(texto["faq_gemas"], callback_data="help_faq_gemas")],
-            [InlineKeyboardButton(texto["faq_set"], callback_data="help_faq_set")],
-            [InlineKeyboardButton(texto["faq_mision"], callback_data="help_faq_mision")],
+            [InlineKeyboardButton(texto["faq_kponey"],      callback_data="help_faq_kponey")],
+            [InlineKeyboardButton(texto["faq_gemas"],       callback_data="help_faq_gemas")],
+            [InlineKeyboardButton(texto["faq_set"],         callback_data="help_faq_set")],
+            [InlineKeyboardButton(texto["faq_mision"],      callback_data="help_faq_mision")],
             [InlineKeyboardButton(texto["commands_button"], callback_data="help_comandos")],
-            [InlineKeyboardButton(texto["button_invite"], callback_data="menu_invitacion")],
+            [InlineKeyboardButton(texto["button_invite"],   callback_data="menu_invitacion")],
             [InlineKeyboardButton(texto["button_progress"], callback_data="menu_progress")],
         ]
+        faqs_markup = InlineKeyboardMarkup(faqs)
         volver = texto["volver"]
 
-        faqs_markup = InlineKeyboardMarkup(faqs)
-
         comandos = [
-            [InlineKeyboardButton("🌸 /idolday", callback_data="help_idolday")],
-            [InlineKeyboardButton("📗 /album", callback_data="help_album")],
-            [InlineKeyboardButton("🔎 /ampliar", callback_data="help_ampliar")],
+            [InlineKeyboardButton("🌸 /idolday",    callback_data="help_idolday")],
+            [InlineKeyboardButton("📗 /album",      callback_data="help_album")],
+            [InlineKeyboardButton("🔎 /ampliar",    callback_data="help_ampliar")],
             [InlineKeyboardButton("🎒 /inventario", callback_data="help_inventario")],
-            [InlineKeyboardButton("⭐ /fav", callback_data="help_fav")],
-            [InlineKeyboardButton("🌟 /favoritos", callback_data="help_favoritos")],
-            [InlineKeyboardButton("📚 /set", callback_data="help_set")],
-            [InlineKeyboardButton("📈 /setsprogreso", callback_data="help_setsprogreso")],
-            [InlineKeyboardButton("🤝 /trk", callback_data="help_trk")],
-            [InlineKeyboardButton("💰 /vender", callback_data="help_vender")],
-            [InlineKeyboardButton("🛒 /comprar", callback_data="help_comprar")],
-            [InlineKeyboardButton("🎴 /retirar", callback_data="help_retirar")],
-            [InlineKeyboardButton("⌛ /kkp", callback_data="help_kkp")],
-            [InlineKeyboardButton("💸 /precio", callback_data="help_precio")],
-            [InlineKeyboardButton(volver, callback_data="help_volver_faq")]
+            [InlineKeyboardButton("⭐ /fav",         callback_data="help_fav")],
+            [InlineKeyboardButton("🌟 /favoritos",  callback_data="help_favoritos")],
+            [InlineKeyboardButton("📚 /set",         callback_data="help_set")],
+            [InlineKeyboardButton("📈 /setsprogreso",callback_data="help_setsprogreso")],
+            [InlineKeyboardButton("🤝 /trk",         callback_data="help_trk")],
+            [InlineKeyboardButton("💰 /vender",      callback_data="help_vender")],
+            [InlineKeyboardButton("🛒 /comprar",     callback_data="help_comprar")],
+            [InlineKeyboardButton("🎴 /retirar",     callback_data="help_retirar")],
+            [InlineKeyboardButton("⌛ /kkp",          callback_data="help_kkp")],
+            [InlineKeyboardButton("💸 /precio",      callback_data="help_precio")],
+            [InlineKeyboardButton(volver,            callback_data="help_volver_faq")]
         ]
         comandos_markup = InlineKeyboardMarkup(comandos)
 
         textos_comandos = {
-            "help_idolday": texto["help_idolday_desc"],
-            "help_album": texto["help_album_desc"],
-            "help_ampliar": texto["help_ampliar_desc"],
-            "help_inventario": texto["help_inventario_desc"],
-            "help_fav": texto["help_fav_desc"],
-            "help_favoritos": texto["help_favoritos_desc"],
-            "help_set": texto["help_set_desc"],
-            "help_setsprogreso": texto["help_setsprogreso_desc"],
-            "help_trk": texto["help_trk_desc"],
-            "help_vender": texto["help_vender_desc"],
-            "help_comprar": texto["help_comprar_desc"],
-            "help_retirar": texto["help_retirar_desc"],
-            "help_kkp": texto["help_kkp_desc"],
-            "help_precio": texto["help_precio_desc"],
+            "help_idolday":     texto["help_idolday_desc"],
+            "help_album":       texto["help_album_desc"],
+            "help_ampliar":     texto["help_ampliar_desc"],
+            "help_inventario":  texto["help_inventario_desc"],
+            "help_fav":         texto["help_fav_desc"],
+            "help_favoritos":   texto["help_favoritos_desc"],
+            "help_set":         texto["help_set_desc"],
+            "help_setsprogreso":texto["help_setsprogreso_desc"],
+            "help_trk":         texto["help_trk_desc"],
+            "help_vender":      texto["help_vender_desc"],
+            "help_comprar":     texto["help_comprar_desc"],
+            "help_retirar":     texto["help_retirar_desc"],
+            "help_kkp":         texto["help_kkp_desc"],
+            "help_precio":      texto["help_precio_desc"],
         }
 
-        # MENÚ
         if data == "help_comandos":
-            query.edit_message_text(
-                texto["commands_menu"],
-                reply_markup=comandos_markup,
-                parse_mode="HTML"
-            )
+            query.edit_message_text(texto["commands_menu"], reply_markup=comandos_markup, parse_mode="HTML")
         elif data == "help_volver_faq":
-            query.edit_message_text(
-                texto["help_title"],
-                reply_markup=faqs_markup,
-                parse_mode="HTML"
-            )
+            query.edit_message_text(texto["help_title"], reply_markup=faqs_markup, parse_mode="HTML")
         elif data in textos_faq:
-            query.edit_message_text(
-                textos_faq[data],
-                reply_markup=faqs_markup,
-                parse_mode="HTML"
-            )
+            query.edit_message_text(textos_faq[data], reply_markup=faqs_markup, parse_mode="HTML")
         elif data in textos_comandos:
-            query.edit_message_text(
-                textos_comandos[data],
-                reply_markup=comandos_markup,
-                parse_mode="HTML"
-            )
+            query.edit_message_text(textos_comandos[data], reply_markup=comandos_markup, parse_mode="HTML")
         else:
             query.answer(texto["unknown_command"])
     except Exception as e:
-        print(f"[callback_help] Error inesperado: {e}")
-        try:
-            update.effective_message.reply_text(texto["help_error"])
-        except Exception:
-            pass
+        print(f"[callback_help] Error: {e}")
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+# ─── Settema / Removetema / Vertemas ─────────────────────────────────────────
 @grupo_oficial
 def comando_settema(update, context):
     user_id = update.message.from_user.id
     chat_id = update.effective_chat.id
-
-    # Permite solo admins y creador
     if not es_admin(update) and user_id != TU_USER_ID:
         update.message.reply_text("Solo un administrador puede configurar esto.")
         return
-
     if len(context.args) < 2:
-        update.message.reply_text(
-            "Uso: /settema <thread_id(s)> <comando>\nEjemplo: /settema 12345 54321 setsprogreso\n"
-            "Puedes ingresar uno o más thread_id separados por espacio.",
-            parse_mode='HTML'
-        )
+        update.message.reply_text("Uso: /settema <thread_id(s)> <comando>")
         return
-
     *thread_ids, comando = context.args
     try:
         thread_ids = [int(tid) for tid in thread_ids]
     except Exception:
         update.message.reply_text("Todos los thread_id deben ser numéricos.")
         return
-
-    entry = col_temas_comandos.find_one({"chat_id": chat_id, "comando": comando})
+    entry  = col_temas_comandos.find_one({"chat_id": chat_id, "comando": comando})
     nuevos = set(thread_ids)
     if entry:
-        existentes = set(entry.get("thread_ids", []))
-        nuevos = existentes | nuevos
+        nuevos = set(entry.get("thread_ids", [])) | nuevos
     col_temas_comandos.update_one(
         {"chat_id": chat_id, "comando": comando},
         {"$set": {"thread_ids": list(nuevos)}},
@@ -1494,9 +1153,6 @@ def comando_settema(update, context):
         parse_mode='HTML'
     )
 
-
-
-
 @grupo_oficial
 def comando_removetema(update, context):
     user_id = update.message.from_user.id
@@ -1505,7 +1161,7 @@ def comando_removetema(update, context):
         update.message.reply_text("Solo un administrador puede configurar esto.")
         return
     if len(context.args) != 1:
-        update.message.reply_text("Uso: /removetema <comando>\nEjemplo: /removetema setsprogreso")
+        update.message.reply_text("Uso: /removetema <comando>")
         return
     comando = context.args[0]
     res = col_temas_comandos.delete_one({"chat_id": chat_id, "comando": comando})
@@ -1514,13 +1170,10 @@ def comando_removetema(update, context):
     else:
         update.message.reply_text("Ese comando no tenía restricción en este grupo.")
 
-
-
-
 @grupo_oficial
 def comando_vertemas(update, context):
     chat_id = update.effective_chat.id
-    docs = list(col_temas_comandos.find({"chat_id": chat_id}))
+    docs    = list(col_temas_comandos.find({"chat_id": chat_id}))
     if not docs:
         update.message.reply_text("No hay restricciones configuradas para este grupo.")
         return
@@ -1535,200 +1188,82 @@ def comando_vertemas(update, context):
         texto += f"<b>/{d['comando']}</b>: {threads}\n"
     update.message.reply_text(texto, parse_mode='HTML')
 
-
-
-
-
-
-
-
-
-
-
-def actualiza_mision_diaria(user_id, context=None):
-    user_doc = col_usuarios.find_one({"user_id": user_id}) or {}
-    misiones = user_doc.get("misiones", {})
-    hoy_str = datetime.utcnow().strftime('%Y-%m-%d')
-    ultima_mision = misiones.get("ultima_mision_idolday", "")
-
-    # --- Reinicio de día ---
-    if ultima_mision != hoy_str:
-        misiones["idolday_hoy"] = 0
-        misiones["idolday_entregada"] = ""  # reset entregada también
-        misiones["primer_drop"] = {}        # reset misión primer drop
-
-    # ---- Misión: Primer drop del día ----
-    premio_primer_drop = False
-    if not misiones.get("primer_drop", {}).get("fecha") == hoy_str:
-        col_usuarios.update_one({"user_id": user_id}, {"$inc": {"kponey": 50}})
-        misiones["primer_drop"] = {"fecha": hoy_str, "premio": True}
-        premio_primer_drop = True
-        if context:
-            try:
-                context.bot.send_message(
-                    chat_id=user_id,
-                    text="🎉 ¡Primer drop del día realizado!\nHas recibido <b>50 Kponey</b>.",
-                    parse_mode="HTML"
-                )
-            except Exception as e:
-                print("[idolday] No se pudo notificar misión primer drop:", e)
-
-    # ---- Misión: 3 drops diarios ----
-    misiones["idolday_hoy"] = misiones.get("idolday_hoy", 0) + 1
-    misiones["ultima_mision_idolday"] = hoy_str
-
-    mision_completada = misiones["idolday_hoy"] >= 3
-    premio_tres_drops = False
-    if mision_completada and misiones.get("idolday_entregada", "") != hoy_str:
-        col_usuarios.update_one({"user_id": user_id}, {"$inc": {"kponey": 150}})
-        try:
-            if context:
-                context.bot.send_message(
-                    chat_id=user_id,
-                    text="🎉 ¡Misión diaria completada!\nHas recibido <b>150 Kponey</b> por hacer 3 drops hoy.",
-                    parse_mode="HTML"
-                )
-        except Exception as e:
-            print("[idolday] No se pudo notificar la misión completada:", e)
-        misiones["idolday_entregada"] = hoy_str
-        premio_tres_drops = True
-
-    col_usuarios.update_one({"user_id": user_id}, {"$set": {"misiones": misiones}})
-    return mision_completada, premio_tres_drops, premio_primer_drop
-
+# ─── /idolday ─────────────────────────────────────────────────────────────────
 @log_command
 @grupo_oficial
 @solo_en_chat_general
 def comando_idolday(update, context):
-    # 🚫 Restringe a grupos y supergrupos solamente
     if update.effective_chat.type not in ["group", "supergroup"]:
         update.message.reply_text("Este comando solo está disponible en el grupo oficial.")
         return
 
-    user_id = update.message.from_user.id
-    chat_id = update.effective_chat.id
-    thread_id = getattr(update.message, "message_thread_id", None)
-    ahora = datetime.utcnow()
+    user_id  = update.message.from_user.id
+    chat_id  = update.effective_chat.id
+    thread_id= getattr(update.message, "message_thread_id", None)
+    ahora    = datetime.utcnow()
     ahora_ts = time.time()
     user_doc = col_usuarios.find_one({"user_id": user_id}) or {}
-    bono = user_doc.get('bono', 0)
-    last = user_doc.get('last_idolday')
+    last     = user_doc.get('last_idolday')
 
-    # --- Cooldown global por grupo (30 seg) ---
+    # Cooldown global de grupo
     ultimo_drop = COOLDOWN_GRUPO.get(chat_id, 0)
     if ahora_ts - ultimo_drop < COOLDOWN_GRUPO_SEG:
         faltante = int(COOLDOWN_GRUPO_SEG - (ahora_ts - ultimo_drop))
         try:
             update.message.delete()
-        except Exception as e:
-            print("[idolday] Error al borrar el mensaje:", e)
+        except Exception:
+            pass
         try:
-            msg_cooldown = context.bot.send_message(
+            msg_cd = context.bot.send_message(
                 chat_id=chat_id,
-                text=f"⏳ Espera {faltante} segundos antes de volver a dropear cartas en este grupo.",
+                text=f"⏳ Espera {faltante} segundos antes de volver a dropear.",
                 message_thread_id=thread_id
             )
-            def borrar_mensaje(m):
-                try:
-                    context.bot.delete_message(chat_id=chat_id, message_id=m.message_id)
-                except Exception as e:
-                    print("[idolday] Error al borrar mensaje de cooldown:", e)
-            threading.Timer(10, borrar_mensaje, args=(msg_cooldown,)).start()
-        except Exception as e:
-            print("[idolday] Error al mandar mensaje de cooldown:", e)
+            threading.Timer(10, lambda m: context.bot.delete_message(chat_id, m.message_id), args=(msg_cd,)).start()
+        except Exception:
+            pass
         return
 
-    # --- Cooldown por usuario (6 horas o bono) ---
     cooldown_listo, bono_listo = puede_usar_idolday(user_id)
 
     if cooldown_listo:
-        col_usuarios.update_one(
-            {"user_id": user_id},
-            {"$set": {"last_idolday": ahora}},
-            upsert=True
-        )
+        col_usuarios.update_one({"user_id": user_id}, {"$set": {"last_idolday": ahora}}, upsert=True)
         actualiza_mision_diaria(user_id, context)
-
-        # --- Agendar recordatorio si el usuario lo tiene activado ---
-        user_doc = col_usuarios.find_one({"user_id": user_id}) or {}
-        last_idolday = user_doc.get("last_idolday")
-        ahora_ts = time.time()
-        if last_idolday:
-            if hasattr(last_idolday, "timestamp"):
-                last_ts = last_idolday.timestamp()
-            else:
-                try:
-                    last_ts = float(last_idolday)
-                except Exception:
-                    last_ts = ahora_ts
-            restante = max(0, 6 * 3600 - (ahora_ts - last_ts))
-        else:
-            restante = 0
-        if user_doc.get("notify_idolday") and restante > 0:
-            agendar_notificacion_idolday(user_id, restante, context)
+        user_doc2 = col_usuarios.find_one({"user_id": user_id}) or {}
+        last_ts   = user_doc2.get("last_idolday")
+        if last_ts and user_doc2.get("notify_idolday"):
+            restante = max(0, 6 * 3600 - (ahora_ts - (last_ts.timestamp() if hasattr(last_ts, "timestamp") else 0)))
+            if restante > 0:
+                agendar_notificacion_idolday(user_id, restante, context)
 
     elif bono_listo:
-        objetos = user_doc.get('objetos', {})
+        objetos          = user_doc.get('objetos', {})
         bonos_inventario = objetos.get('bono_idolday', 0)
         if bonos_inventario and bonos_inventario > 0:
-            col_usuarios.update_one(
-                {"user_id": user_id},
-                {"$inc": {"objetos.bono_idolday": -1}},
-                upsert=True
-            )
+            col_usuarios.update_one({"user_id": user_id}, {"$inc": {"objetos.bono_idolday": -1}}, upsert=True)
         else:
-            col_usuarios.update_one(
-                {"user_id": user_id},
-                {"$inc": {"bono": -1}},
-                upsert=True
-            )
+            col_usuarios.update_one({"user_id": user_id}, {"$inc": {"bono": -1}}, upsert=True)
         actualiza_mision_diaria(user_id, context)
     else:
         try:
             update.message.delete()
-        except Exception as e:
-            print("[idolday] Error al borrar el mensaje del usuario (cooldown usuario):", e)
+        except Exception:
+            pass
         if last:
             faltante = 6*3600 - (ahora - last).total_seconds()
-            horas = int(faltante // 3600)
-            minutos = int((faltante % 3600) // 60)
-            segundos = int(faltante % 60)
-            try:
-                msg_cd = context.bot.send_message(
-                    chat_id=chat_id,
-                    text=f"Ya usaste /idolday. Intenta de nuevo en {horas}h {minutos}m {segundos}s.",
-                    message_thread_id=thread_id
-                )
-                def borrar_mensaje_cd(m):
-                    try:
-                        context.bot.delete_message(chat_id=chat_id, message_id=m.message_id)
-                    except Exception as e:
-                        print("[idolday] Error al borrar mensaje de cooldown usuario:", e)
-                threading.Timer(10, borrar_mensaje_cd, args=(msg_cd,)).start()
-            except Exception as e:
-                print("[idolday] Error al mandar mensaje cooldown usuario:", e)
+            h = int(faltante // 3600); m = int((faltante % 3600) // 60); s = int(faltante % 60)
+            txt = f"Ya usaste /idolday. Intenta de nuevo en {h}h {m}m {s}s."
         else:
-            try:
-                msg_cd = context.bot.send_message(
-                    chat_id=chat_id,
-                    text=f"Ya usaste /idolday.",
-                    message_thread_id=thread_id
-                )
-                def borrar_mensaje_cd(m):
-                    try:
-                        context.bot.delete_message(chat_id=chat_id, message_id=m.message_id)
-                    except Exception as e:
-                        print("[idolday] Error al borrar mensaje cooldown usuario (sin tiempo):", e)
-                threading.Timer(10, borrar_mensaje_cd, args=(msg_cd,)).start()
-            except Exception as e:
-                print("[idolday] Error al mandar mensaje cooldown usuario (sin tiempo):", e)
+            txt = "Ya usaste /idolday."
+        try:
+            msg_cd = context.bot.send_message(chat_id=chat_id, text=txt, message_thread_id=thread_id)
+            threading.Timer(10, lambda m: context.bot.delete_message(chat_id, m.message_id), args=(msg_cd,)).start()
+        except Exception:
+            pass
         return
 
-    # --- Actualiza el cooldown global ---
     COOLDOWN_GRUPO[chat_id] = ahora_ts
 
-
-# SOLO cartas en estado "Excelente estado"
     cartas_excelentes = [c for c in cartas if c.get("estado") == "Excelente estado"]
     if len(cartas_excelentes) < 2:
         cartas_excelentes = cartas_excelentes * 2
@@ -1736,13 +1271,13 @@ def comando_idolday(update, context):
     cartas_drop = random.choices(cartas_excelentes, k=2)
     media_group = []
     cartas_info = []
-    for carta in cartas_drop:
-        nombre = carta['nombre']
-        version = carta['version']
-        grupo = carta.get('grupo', '')
-        imagen_url = carta.get('imagen')
 
-    # Ahora siempre usas el formato con grupo (ya migrado)
+    for carta in cartas_drop:
+        nombre    = carta['nombre']
+        version   = carta['version']
+        grupo     = carta.get('grupo', '')
+        imagen_url= carta.get('imagen')
+
         doc_cont = col_contadores.find_one_and_update(
             {"nombre": nombre, "version": version, "grupo": grupo},
             {"$inc": {"contador": 1}},
@@ -1750,40 +1285,26 @@ def comando_idolday(update, context):
             return_document=True
         )
         nuevo_id = doc_cont['contador'] if doc_cont else 1
-
-        # Genera la imagen con el número
         imagen_con_numero = agregar_numero_a_imagen(imagen_url, nuevo_id)
 
         caption = f"<b>{nombre}</b>\n{grupo} [{version}]"
         media_group.append(InputMediaPhoto(media=imagen_con_numero, caption=caption, parse_mode="HTML"))
         cartas_info.append({
-            "nombre": nombre,
-            "version": version,
-            "grupo": grupo,
-            "imagen": imagen_url,
-            "reclamada": False,
-            "usuario": None,
-            "hora_reclamada": None,
-            "card_id": nuevo_id
+            "nombre": nombre, "version": version, "grupo": grupo,
+            "imagen": imagen_url, "reclamada": False, "usuario": None,
+            "hora_reclamada": None, "card_id": nuevo_id
         })
 
-    # Envía el grupo de imágenes de las cartas en el thread correcto
-    msgs = context.bot.send_media_group(
-        chat_id=chat_id,
-        media=media_group,
-        message_thread_id=thread_id
-    )
+    msgs = context.bot.send_media_group(chat_id=chat_id, media=media_group, message_thread_id=thread_id)
 
-    texto_drop = f"@{update.effective_user.username or update.effective_user.first_name} está dropeando 2 cartas!"
+    texto_drop  = f"@{update.effective_user.username or update.effective_user.first_name} está dropeando 2 cartas!"
     msg_botones = context.bot.send_message(
         chat_id=chat_id,
         text=texto_drop,
-        reply_markup=InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("1️⃣", callback_data=f"reclamar_{chat_id}_{0}_0"),
-                InlineKeyboardButton("2️⃣", callback_data=f"reclamar_{chat_id}_{0}_1"),
-            ]
-        ]),
+        reply_markup=InlineKeyboardMarkup([[
+            InlineKeyboardButton("1️⃣", callback_data=f"reclamar_{chat_id}_{0}_0"),
+            InlineKeyboardButton("2️⃣", callback_data=f"reclamar_{chat_id}_{0}_1"),
+        ]]),
         message_thread_id=thread_id
     )
 
@@ -1793,184 +1314,112 @@ def comando_idolday(update, context):
     ]
     try:
         context.bot.edit_message_reply_markup(
-            chat_id=chat_id,
-            message_id=msg_botones.message_id,
+            chat_id=chat_id, message_id=msg_botones.message_id,
             reply_markup=InlineKeyboardMarkup([botones_reclamar])
         )
     except Exception as e:
         print("[edit_message_reply_markup] Error:", e)
 
-    drop_id = crear_drop_id(chat_id, msg_botones.message_id)
+    drop_id   = crear_drop_id(chat_id, msg_botones.message_id)
     drop_data = {
-        "cartas": cartas_info,
-        "dueño": user_id,
-        "chat_id": chat_id,
-        "mensaje_id": msg_botones.message_id,
-        "inicio": time.time(),
-        "msg_botones": msg_botones,
-        "usuarios_reclamaron": [],
-        "expirado": False,
+        "cartas": cartas_info, "dueño": user_id,
+        "chat_id": chat_id, "mensaje_id": msg_botones.message_id,
+        "inicio": time.time(), "msg_botones": msg_botones,
+        "usuarios_reclamaron": [], "expirado": False,
         "primer_reclamo_dueño": None,
+        "thread_id": thread_id,
     }
-
     DROPS_ACTIVOS[drop_id] = drop_data
-    if "col_drops" in globals():
-        col_drops.update_one(
-            {"drop_id": drop_id},
-            {"$set": {**drop_data, "drop_id": drop_id}},
-            upsert=True
-        )
 
     col_usuarios.update_one(
         {"user_id": user_id},
         {"$set": {
             "last_idolday": ahora,
-            "username": update.effective_user.username.lower() if update.effective_user.username else ""
+            "username": (update.effective_user.username.lower() if update.effective_user.username else "")
         }},
         upsert=True
     )
-
     threading.Thread(target=desbloquear_drop, args=(drop_id,), daemon=True).start()
-
 
 FRASES_ESTADO = {
     "Excelente estado": "Genial!",
-    "Buen estado": "Nada mal.",
-    "Mal estado": "Podría estar mejor...",
-    "Muy mal estado": "¡Oh no!"
+    "Buen estado":      "Nada mal.",
+    "Mal estado":       "Podría estar mejor...",
+    "Muy mal estado":   "¡Oh no!"
 }
 
-
-
-
-
+# ─── Dar objeto (admin) ───────────────────────────────────────────────────────
 @log_command
 @grupo_oficial
 def comando_darobjeto(update, context):
     if not es_admin(update):
         update.message.reply_text("Solo los administradores pueden usar este comando.")
         return
-
-    dest_id = None
-    objeto = None
-    cantidad = None
-    nombre_dest = None
+    dest_id = None; objeto = None; cantidad = None; nombre_dest = None
     args = context.args
-
-    # 1. Si está respondiendo a un mensaje
     if update.message.reply_to_message:
-        dest_user = update.message.reply_to_message.from_user
-        dest_id = dest_user.id
-        nombre_dest = dest_user.full_name
+        dest_user  = update.message.reply_to_message.from_user
+        dest_id    = dest_user.id
+        nombre_dest= dest_user.full_name
         if len(args) != 2:
-            update.message.reply_text(
-                "Uso: responde a un mensaje y escribe /darobjeto <objeto> <cantidad>\n"
-                "Ejemplo: /darobjeto bono_idolday 2"
-            )
+            update.message.reply_text("Uso: responde a un mensaje y escribe /darobjeto <objeto> <cantidad>")
             return
         objeto = args[0]
         try:
             cantidad = int(args[1])
-        except:
-            update.message.reply_text("La cantidad debe ser un número mayor que 0.")
+        except Exception:
+            update.message.reply_text("La cantidad debe ser un número.")
             return
-
-    # 2. Si el primer argumento es @usuario (posición 0 o última)
-    elif args and (args[0].startswith("@") or (len(args) > 2 and args[2].startswith("@"))):
-        if args[0].startswith("@"):
-            username = args[0][1:].lower()
-            objeto = args[1]
-            try:
-                cantidad = int(args[2])
-            except:
-                update.message.reply_text("La cantidad debe ser un número mayor que 0.")
-                return
-        else:
-            objeto = args[0]
-            try:
-                cantidad = int(args[1])
-            except:
-                update.message.reply_text("La cantidad debe ser un número mayor que 0.")
-                return
-            username = args[2][1:].lower()
-        user_doc = col_usuarios.find_one({"username": username})
+    elif args and args[0].startswith("@"):
+        username  = args[0][1:].lower()
+        user_doc  = col_usuarios.find_one({"username": username})
         if not user_doc:
-            update.message.reply_text("Usuario no encontrado o no ha usado el bot.")
+            update.message.reply_text("Usuario no encontrado.")
             return
-        dest_id = user_doc["user_id"]
-        nombre_dest = user_doc.get("nombre", f"@{username}")
-
-    # 3. Si el primer argumento es un user_id (modo clásico)
+        dest_id    = user_doc["user_id"]
+        nombre_dest= user_doc.get("nombre", f"@{username}")
+        objeto     = args[1] if len(args) > 1 else None
+        try:
+            cantidad = int(args[2]) if len(args) > 2 else None
+        except Exception:
+            update.message.reply_text("La cantidad debe ser un número.")
+            return
     elif len(args) == 3:
         try:
-            dest_id = int(args[0])
-            objeto = args[1]
-            cantidad = int(args[2])
+            dest_id = int(args[0]); objeto = args[1]; cantidad = int(args[2])
             nombre_dest = f"<code>{dest_id}</code>"
-        except:
-            update.message.reply_text(
-                "Uso: /darobjeto <user_id> <objeto> <cantidad>"
-            )
+        except Exception:
+            update.message.reply_text("Uso: /darobjeto <user_id> <objeto> <cantidad>")
             return
-
     else:
-        update.message.reply_text(
-            "Uso válido:\n"
-            "• Responde a un mensaje: /darobjeto <objeto> <cantidad>\n"
-            "• Con @usuario: /darobjeto @usuario <objeto> <cantidad> o /darobjeto <objeto> <cantidad> @usuario\n"
-            "• Con user_id: /darobjeto <user_id> <objeto> <cantidad>"
-        )
+        update.message.reply_text("Uso: /darobjeto <user_id> <objeto> <cantidad>")
         return
 
-    if cantidad < 1:
-        update.message.reply_text("La cantidad debe ser mayor que 0.")
+    if not objeto or not cantidad or cantidad < 1:
+        update.message.reply_text("Objeto y cantidad válidos son requeridos.")
         return
-
-    # Valida objeto
     if objeto not in CATALOGO_OBJETOS:
-        lista_obj = "\n".join(
-            [f"• {k} {v['emoji']}: {v['nombre']}" for k, v in CATALOGO_OBJETOS.items()]
-        )
-        update.message.reply_text(
-            "Objeto no válido. Objetos disponibles:\n" + lista_obj
-        )
+        update.message.reply_text("Objeto no válido.")
         return
 
-    # Suma el objeto al inventario del usuario
-    col_usuarios.update_one(
-        {"user_id": dest_id},
-        {"$inc": {f"objetos.{objeto}": cantidad}},
-        upsert=True
-    )
-
+    col_usuarios.update_one({"user_id": dest_id}, {"$inc": {f"objetos.{objeto}": cantidad}}, upsert=True)
     info_obj = CATALOGO_OBJETOS[objeto]
     update.message.reply_text(
         f"✅ {info_obj['emoji']} {cantidad} x {info_obj['nombre']} entregado(s) a {nombre_dest}.",
         parse_mode='HTML'
     )
-    # Opcional: notifica por privado al usuario
     try:
         context.bot.send_message(
             chat_id=dest_id,
             text=f"🎁 Has recibido {info_obj['emoji']} {cantidad} x {info_obj['nombre']} por parte de un admin."
         )
-    except Exception as e:
-        print("[darobjeto] No se pudo notificar al usuario:", e)
-
-
-
-
-
-
-
-
-
+    except Exception:
+        pass
 
 @solo_en_tema_asignado("chatid")
 @grupo_oficial
 def comando_chatid(update, context):
-    chat_id = update.effective_chat.id
-    update.message.reply_text(f"ID de este chat/grupo: <code>{chat_id}</code>", parse_mode="HTML")
+    update.message.reply_text(f"ID de este chat/grupo: <code>{update.effective_chat.id}</code>", parse_mode="HTML")
 
 dispatcher.add_handler(CommandHandler('chatid', comando_chatid))
 
@@ -1979,11 +1428,7 @@ def comando_topicid(update, context):
     topic_id = getattr(update.message, "message_thread_id", None)
     update.message.reply_text(f"Thread ID de este tema: <code>{topic_id}</code>", parse_mode="HTML")
 
-
-
-
-
-
+# ─── /kkp y notificaciones ────────────────────────────────────────────────────
 @log_command
 @en_tema_asignado_o_privado("kkp")
 def comando_kkp(update, context):
@@ -1992,15 +1437,12 @@ def comando_kkp(update, context):
     update.message.reply_text(texto, parse_mode="HTML", reply_markup=reply_markup)
 
 def callback_kkp_notify(update, context):
-    query = update.callback_query
+    query   = update.callback_query
     user_id = query.from_user.id
+    parts   = query.data.split("|")
+    action  = parts[0]
+    owner_id= int(parts[1]) if len(parts) > 1 else None
 
-    # Extrae acción y dueño del botón
-    parts = query.data.split("|")
-    action = parts[0]
-    owner_id = int(parts[1]) if len(parts) > 1 else None
-
-    # Solo permite que el dueño del menú use el botón
     if user_id != owner_id:
         query.answer("Solo puedes usar este botón desde tu propio menú /kkp.", show_alert=True)
         return
@@ -2015,28 +1457,17 @@ def callback_kkp_notify(update, context):
 
     textos = t(user_id, update)
     msg = (
-        textos["kkp_notify_toggled_on"] if toggled is True
-        else textos["kkp_notify_toggled_off"] if toggled is False
-        else "❓"
+        textos["kkp_notify_toggled_on"]  if toggled is True  else
+        textos["kkp_notify_toggled_off"] if toggled is False else "❓"
     )
     query.answer(msg, show_alert=True)
-
-    # Refresca el menú
     texto, reply_markup, restante = get_kkp_menu(user_id, update)
     try:
         query.edit_message_text(text=texto, parse_mode="HTML", reply_markup=reply_markup)
-    except Exception as e:
-        try:
-            context.bot.send_message(chat_id=user_id, text=texto, parse_mode="HTML", reply_markup=reply_markup)
-        except Exception as err:
-            print(f"[callback_kkp_notify] Error enviando mensaje nuevo: {err}")
-
+    except Exception:
+        pass
     if toggled is True and restante > 0:
         agendar_notificacion_idolday(user_id, restante, context)
-
-
-
-
 
 def agendar_notificacion_idolday(user_id, segundos, context):
     def tarea():
@@ -2046,329 +1477,163 @@ def agendar_notificacion_idolday(user_id, segundos, context):
             if not user_doc.get("notify_idolday"):
                 return
             last = user_doc.get("last_idolday")
-            now = time.time()
-            last_ts = 0
-            if last:
-                try:
-                    last_ts = last.timestamp() if hasattr(last, "timestamp") else float(last)
-                except Exception:
-                    pass
+            now  = time.time()
+            last_ts = last.timestamp() if hasattr(last, "timestamp") else 0
             if now - last_ts < 6 * 3600 - 5:
                 return
-            lang = (user_doc.get("lang") or "en")[:2]
+            lang   = (user_doc.get("lang") or "en")[:2]
             textos = translations.get(lang, translations["en"])
-            context.bot.send_message(
-                chat_id=user_id,
-                text=textos["kkp_notify_sent"],
-                parse_mode="HTML"
-            )
-            # YA NO se desactiva el flag aquí
+            context.bot.send_message(chat_id=user_id, text=textos["kkp_notify_sent"], parse_mode="HTML")
         except Exception as e:
             print("[agendar_notificacion_idolday] Error:", e)
     threading.Thread(target=tarea, daemon=True).start()
 
-
-
 def get_kkp_menu(user_id, update):
-    from datetime import datetime, timedelta
-    import time
-
     user_doc = col_usuarios.find_one({"user_id": user_id}) or {}
     misiones = user_doc.get("misiones", {})
-    notif = user_doc.get("notify_idolday", False)
-    textos = t(user_id, update)
+    notif    = user_doc.get("notify_idolday", False)
+    textos   = t(user_id, update)
 
-    # Cooldown /idolday (6 horas)
     last_idolday = user_doc.get("last_idolday")
     if last_idolday:
-        if isinstance(last_idolday, datetime):
-            last_ts = last_idolday.timestamp()
-        else:
-            try:
-                last_ts = float(last_idolday)
-            except Exception:
-                last_ts = 0
+        last_ts  = last_idolday.timestamp() if hasattr(last_idolday, "timestamp") else 0
         restante = max(0, 6 * 3600 - (time.time() - last_ts))
     else:
         restante = 0
 
-    # Formatea el cooldown como hh:mm:ss
-    def format_tiempo(segundos):
-        horas = int(segundos // 3600)
-        minutos = int((segundos % 3600) // 60)
-        segundos = int(segundos % 60)
-        if horas > 0:
-            return f"{horas}h {minutos}m {segundos}s"
-        elif minutos > 0:
-            return f"{minutos}m {segundos}s"
-        else:
-            return f"{segundos}s"
+    def fmt(s):
+        h = int(s // 3600); m = int((s % 3600) // 60); ss = int(s % 60)
+        return f"{h}h {m}m {ss}s" if h > 0 else (f"{m}m {ss}s" if m > 0 else f"{ss}s")
 
-    # Progreso misiones diarias
-    hoy_str = datetime.utcnow().strftime('%Y-%m-%d')
-    idolday_hoy = misiones.get("idolday_hoy", 0)
-    ultima_mision_idolday = misiones.get("ultima_mision_idolday", "")
+    hoy_str       = datetime.utcnow().strftime('%Y-%m-%d')
+    idolday_hoy   = misiones.get("idolday_hoy", 0) if misiones.get("ultima_mision_idolday") == hoy_str else 0
+    primer_drop_done = misiones.get("primer_drop", {}).get("fecha") == hoy_str
 
-    # --- Progreso misión primer drop del día ---
-    primer_drop = misiones.get("primer_drop", {})
-    primer_drop_done = primer_drop.get("fecha") == hoy_str
+    ahora      = datetime.utcnow()
+    reset_dt   = datetime.strptime(hoy_str, "%Y-%m-%d") + timedelta(days=1)
+    falta_reset= max(0, (reset_dt - ahora).total_seconds())
 
-    # Si la misión ya está reseteada hoy pero el contador no, reinícialo solo para mostrar
-    if ultima_mision_idolday != hoy_str:
-        idolday_hoy = 0
-
-    # Calcula tiempo restante para resetear misión diaria
-    ahora = datetime.utcnow()
-    hoy_dt = datetime.strptime(hoy_str, "%Y-%m-%d")
-    reset_dt = hoy_dt + timedelta(days=1)
-    falta_reset = (reset_dt - ahora).total_seconds()
-    if falta_reset < 0:
-        falta_reset = 0
-
-    texto = "<b>⏰ Recordatorio KaruKpop</b>\n"
+    texto  = "<b>⏰ Recordatorio KaruKpop</b>\n"
     texto += f"🎲 <b>/idolday</b>: "
-    if restante > 0:
-        texto += f"Disponible en <b>{format_tiempo(restante)}</b>\n"
-    else:
-        texto += "<b>¡Disponible ahora!</b>\n"
-
+    texto += f"Disponible en <b>{fmt(restante)}</b>\n" if restante > 0 else "<b>¡Disponible ahora!</b>\n"
     texto += "📝 <b>Misiones diarias:</b>\n"
-    if primer_drop_done:
-        texto += "✔️ Primer drop del día: ✅ <b>¡Completada! (+50 Kponey)</b>\n"
-    else:
-        texto += "🔸 Primer drop del día: <b>Pendiente</b> (Haz tu primer /idolday hoy)\n"
-
+    texto += ("✔️ Primer drop del día: ✅ <b>¡Completada! (+50 Kponey)</b>\n"
+              if primer_drop_done else
+              "🔸 Primer drop del día: <b>Pendiente</b>\n")
     texto += f"🔹 3 drops hoy: <b>{idolday_hoy}</b>/3"
-    if idolday_hoy >= 3:
-        texto += "  ✅ <b>¡Completada! (+150 Kponey)</b>\n"
-    else:
-        texto += "\n"
+    texto += "  ✅ <b>¡Completada! (+150 Kponey)</b>\n" if idolday_hoy >= 3 else "\n"
+    texto += f"⏳ Reset misiones en: <b>{fmt(falta_reset)}</b>\n\n"
 
-    texto += f"⏳ Tiempo restante para resetear misiones: <b>{format_tiempo(falta_reset)}</b>\n\n"
-
-    # --- Estado del aviso y botón SOLO PARA ESE USUARIO ---
     if notif:
         texto += textos["kkp_notify_on"]
-        boton = InlineKeyboardButton(
-            textos["kkp_notify_disable"], 
-            callback_data=f"kkp_notify_off|{user_id}"
-        )
+        boton  = InlineKeyboardButton(textos["kkp_notify_disable"], callback_data=f"kkp_notify_off|{user_id}")
     else:
         texto += textos["kkp_notify_off"]
-        boton = InlineKeyboardButton(
-            textos["kkp_notify_enable"], 
-            callback_data=f"kkp_notify_on|{user_id}"
-        )
-    reply_markup = InlineKeyboardMarkup([[boton]])
+        boton  = InlineKeyboardButton(textos["kkp_notify_enable"], callback_data=f"kkp_notify_on|{user_id}")
 
-    return texto, reply_markup, restante
+    return texto, InlineKeyboardMarkup([[boton]]), restante
 
-
-
-
-
-
-
+# ─── Estadísticas de drops ────────────────────────────────────────────────────
 @solo_en_tema_asignado("estadisticasdrops")
 @grupo_oficial
 def comando_estadisticasdrops(update, context):
     if not es_admin(update, context):
-        update.message.reply_text("Este comando solo puede ser usado por administradores del grupo.")
+        update.message.reply_text("Solo administradores.")
         return
-
-    # Por defecto, la página es 0 (top 10)
     page = 0
     if context.args and context.args[0].isdigit():
         page = int(context.args[0])
+    _enviar_estadisticas(update.message, page)
 
-    # Conteo global
-    total_reclamados = col_drops_log.count_documents({"evento": "reclamado"})
+def _enviar_estadisticas(message, page):
+    total_reclamados= col_drops_log.count_documents({"evento": "reclamado"})
     total_expirados = col_drops_log.count_documents({"evento": "expirado"})
-
-    # Total de usuarios en el ranking
-    pipeline_total = [
+    pipeline = [
         {"$match": {"evento": "reclamado"}},
         {"$group": {"_id": {"user_id": "$user_id", "username": "$username"}, "total": {"$sum": 1}}},
         {"$sort": {"total": -1}},
     ]
-    all_results = list(col_drops_log.aggregate(pipeline_total))
-    total_usuarios = len(all_results)
-
-    # Paginación
-    por_pagina = 10
-    inicio = page * por_pagina
-    fin = inicio + por_pagina
+    all_results   = list(col_drops_log.aggregate(pipeline))
+    total_usuarios= len(all_results)
+    por_pagina = 10; inicio = page * por_pagina; fin = inicio + por_pagina
     resultados = all_results[inicio:fin]
-
     ranking_texto = ""
     for i, r in enumerate(resultados, inicio + 1):
-        user = r['_id']
+        user     = r['_id']
         username = user.get('username')
-        if username:
-            user_text = f"@{username}"
-        else:
-            user_text = f"<code>{user['user_id']}</code>"
+        user_text= f"@{username}" if username else f"<code>{user['user_id']}</code>"
         ranking_texto += f"{i}. {user_text} — {r['total']} cartas\n"
-
     texto = (
         f"📊 <b>Estadísticas de Drops</b>:\n"
         f"• Drops reclamados: <b>{total_reclamados}</b>\n"
-        f"• Drops expirados: <b>{total_expirados}</b>\n"
-        f"\n<b>🏆 Ranking usuarios con más cartas reclamadas (del {inicio+1} al {min(fin, total_usuarios)} de {total_usuarios}):</b>\n"
-        f"{ranking_texto if ranking_texto else 'Sin datos.'}"
+        f"• Drops expirados: <b>{total_expirados}</b>\n\n"
+        f"<b>🏆 Ranking (del {inicio+1} al {min(fin, total_usuarios)} de {total_usuarios}):</b>\n"
+        f"{ranking_texto or 'Sin datos.'}"
     )
-
-    # Botones de paginación
     botones = []
-    if page > 0:
-        botones.append(InlineKeyboardButton("⬅️", callback_data=f"estadrops_{page-1}"))
-    if fin < total_usuarios:
-        botones.append(InlineKeyboardButton("➡️", callback_data=f"estadrops_{page+1}"))
+    if page > 0:         botones.append(InlineKeyboardButton("⬅️", callback_data=f"estadrops_{page-1}"))
+    if fin < total_usuarios: botones.append(InlineKeyboardButton("➡️", callback_data=f"estadrops_{page+1}"))
     reply_markup = InlineKeyboardMarkup([botones]) if botones else None
+    message.reply_text(texto, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
 
-    update.message.reply_text(texto, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
-
-# CALLBACK PARA LAS FLECHAS DE PAGINACIÓN
 def callback_estadrops(update, context):
     query = update.callback_query
-    data = query.data
-    partes = data.split("_")
-    page = int(partes[1])
-
-    # Conteo global
-    total_reclamados = col_drops_log.count_documents({"evento": "reclamado"})
-    total_expirados = col_drops_log.count_documents({"evento": "expirado"})
-
-    pipeline_total = [
-        {"$match": {"evento": "reclamado"}},
-        {"$group": {"_id": {"user_id": "$user_id", "username": "$username"}, "total": {"$sum": 1}}},
-        {"$sort": {"total": -1}},
-    ]
-    all_results = list(col_drops_log.aggregate(pipeline_total))
-    total_usuarios = len(all_results)
-
-    por_pagina = 10
-    inicio = page * por_pagina
-    fin = inicio + por_pagina
-    resultados = all_results[inicio:fin]
-
-    ranking_texto = ""
-    for i, r in enumerate(resultados, inicio + 1):
-        user = r['_id']
-        username = user.get('username')
-        if username:
-            user_text = f"@{username}"
-        else:
-            user_text = f"<code>{user['user_id']}</code>"
-        ranking_texto += f"{i}. {user_text} — {r['total']} cartas\n"
-
-    texto = (
-        f"📊 <b>Estadísticas de Drops</b>:\n"
-        f"• Drops reclamados: <b>{total_reclamados}</b>\n"
-        f"• Drops expirados: <b>{total_expirados}</b>\n"
-        f"\n<b>🏆 Ranking usuarios con más cartas reclamadas (del {inicio+1} al {min(fin, total_usuarios)} de {total_usuarios}):</b>\n"
-        f"{ranking_texto if ranking_texto else 'Sin datos.'}"
-    )
-
-    botones = []
-    if page > 0:
-        botones.append(InlineKeyboardButton("⬅️", callback_data=f"estadrops_{page-1}"))
-    if fin < total_usuarios:
-        botones.append(InlineKeyboardButton("➡️", callback_data=f"estadrops_{page+1}"))
-    reply_markup = InlineKeyboardMarkup([botones]) if botones else None
-
-    try:
-        query.edit_message_text(texto, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
-    except Exception as e:
-        print("[estadisticasdrops] Error al editar mensaje:", e)
+    page  = int(query.data.split("_")[1])
+    _enviar_estadisticas(query.message, page)
     query.answer()
 
-# Añade el handler para el callback
 dispatcher.add_handler(CallbackQueryHandler(callback_estadrops, pattern=r"^estadrops_\d+"))
-
-
 
 def get_last_monday():
     hoy = datetime.utcnow()
-    # Monday = 0, Sunday = 6
-    last_monday = hoy - timedelta(days=hoy.weekday())
-    last_monday = last_monday.replace(hour=0, minute=0, second=0, microsecond=0)
-    return last_monday
+    lm  = hoy - timedelta(days=hoy.weekday())
+    return lm.replace(hour=0, minute=0, second=0, microsecond=0)
 
 @solo_en_tema_asignado("estadisticasdrops_semanal")
 @grupo_oficial
 def comando_estadisticasdrops_semanal(update, context):
     if not es_admin(update, context):
-        update.message.reply_text("Este comando solo puede ser usado por administradores del grupo.")
+        update.message.reply_text("Solo administradores.")
         return
-
     inicio_semana = get_last_monday()
-    fin_semana = inicio_semana + timedelta(days=7)  # hasta el próximo lunes
-
-    total_reclamados = col_drops_log.count_documents({
-        "evento": "reclamado",
-        "fecha": {"$gte": inicio_semana, "$lt": fin_semana}
-    })
-    total_expirados = col_drops_log.count_documents({
-        "evento": "expirado",
-        "fecha": {"$gte": inicio_semana, "$lt": fin_semana}
-    })
-
+    fin_semana    = inicio_semana + timedelta(days=7)
+    total_r = col_drops_log.count_documents({"evento": "reclamado", "fecha": {"$gte": inicio_semana, "$lt": fin_semana}})
+    total_e = col_drops_log.count_documents({"evento": "expirado",  "fecha": {"$gte": inicio_semana, "$lt": fin_semana}})
     pipeline = [
-        {"$match": {
-            "evento": "reclamado",
-            "fecha": {"$gte": inicio_semana, "$lt": fin_semana}
-        }},
+        {"$match": {"evento": "reclamado", "fecha": {"$gte": inicio_semana, "$lt": fin_semana}}},
         {"$group": {"_id": {"user_id": "$user_id", "username": "$username"}, "total": {"$sum": 1}}},
-        {"$sort": {"total": -1}},
-        {"$limit": 10}
+        {"$sort": {"total": -1}}, {"$limit": 10}
     ]
-    resultados = list(col_drops_log.aggregate(pipeline))
-
+    resultados    = list(col_drops_log.aggregate(pipeline))
     ranking_texto = ""
     for i, r in enumerate(resultados, 1):
-        user = r['_id']
-        username = user.get('username')
-        if username:
-            user_text = f"@{username}"
-        else:
-            user_text = f"<code>{user['user_id']}</code>"
+        user      = r['_id']
+        username  = user.get('username')
+        user_text = f"@{username}" if username else f"<code>{user['user_id']}</code>"
         ranking_texto += f"{i}. {user_text} — {r['total']} cartas\n"
-
     texto = (
-        f"📅 <b>Estadísticas de Drops (semana actual: Lunes a Domingo)</b>:\n"
-        f"• Rango: <b>{inicio_semana.strftime('%d/%m/%Y')}</b> a <b>{(fin_semana - timedelta(seconds=1)).strftime('%d/%m/%Y')}</b>\n"
-        f"• Drops reclamados: <b>{total_reclamados}</b>\n"
-        f"• Drops expirados: <b>{total_expirados}</b>\n"
-        f"\n<b>🏆 Top 10 usuarios con más cartas reclamadas (semana):</b>\n"
-        f"{ranking_texto if ranking_texto else 'Sin datos.'}"
+        f"📅 <b>Estadísticas Semanales</b>\n"
+        f"• Drops reclamados: <b>{total_r}</b>\n"
+        f"• Drops expirados: <b>{total_e}</b>\n\n"
+        f"<b>🏆 Top 10:</b>\n{ranking_texto or 'Sin datos.'}"
     )
-
     update.message.reply_text(texto, parse_mode=ParseMode.HTML)
 
-
-
-
-
-
+# ─── Dar gemas / Dar Kponey (admin) ──────────────────────────────────────────
 @grupo_oficial
 def comando_darGemas(update, context):
-    TU_USER_ID = 1111798714  # <-- Reemplaza por tu verdadero ID de Telegram
     if update.message.from_user.id != TU_USER_ID:
-        update.message.reply_text("Este comando solo puede usarlo el creador del bot.")
+        update.message.reply_text("Solo el creador puede usar esto.")
         return
-
-
-    # Destinatario
+    dest_id = None
     if update.message.reply_to_message:
         dest_id = update.message.reply_to_message.from_user.id
     elif context.args and context.args[0].startswith('@'):
-        username = context.args[0][1:].lower()
-        dest_user = col_usuarios.find_one({"username": username})
-        if not dest_user:
-            update.message.reply_text("Usuario no encontrado. Debe haber usado el bot antes.")
+        u = col_usuarios.find_one({"username": context.args[0][1:].lower()})
+        if not u:
+            update.message.reply_text("Usuario no encontrado.")
             return
-        dest_id = dest_user["user_id"]
+        dest_id = u["user_id"]
     elif context.args:
         try:
             dest_id = int(context.args[0])
@@ -2376,73 +1641,42 @@ def comando_darGemas(update, context):
             update.message.reply_text("Uso: /darGemas <@usuario|user_id> <cantidad>")
             return
     else:
-        update.message.reply_text("Debes responder a un usuario o especificar @usuario o user_id.")
+        update.message.reply_text("Debes especificar un usuario.")
         return
 
-    # Cantidad
-    if update.message.reply_to_message and len(context.args) >= 1:
-        try:
-            cantidad = int(context.args[0])
-        except:
-            update.message.reply_text("Debes poner la cantidad después del comando.")
-            return
-    elif len(context.args) >= 2:
-        try:
-            cantidad = int(context.args[1])
-        except:
-            update.message.reply_text("La cantidad debe ser un número.")
-            return
-    else:
-        update.message.reply_text("Debes indicar la cantidad de gemas.")
+    try:
+        cantidad = int(context.args[-1])
+    except Exception:
+        update.message.reply_text("Debes indicar la cantidad.")
         return
 
     col_usuarios.update_one({"user_id": dest_id}, {"$inc": {"gemas": cantidad}}, upsert=True)
     update.message.reply_text(f"💎 Gemas actualizadas para <code>{dest_id}</code> ({cantidad:+})", parse_mode="HTML")
 
-
-
+# ─── /usar ────────────────────────────────────────────────────────────────────
 @log_command
 @solo_en_tema_asignado("usar")
 @grupo_oficial
 @cooldown_critico
 def comando_usar(update, context):
-    from datetime import timedelta
-
-    def normalizar_objeto(nombre):
-        return (
-            nombre.lower()
-            .replace("_", " ")
-            .replace("-", " ")
-            .replace('"', '')
-            .replace("'", '')
-            .strip()
-        )
-
     OBJETOS_USABLES = {
         "abrazo_de_bias": "abrazo_de_bias",
-        "lightstick": "lightstick",
+        "lightstick":     "lightstick",
         "abrazo de bias": "abrazo_de_bias",
-        "light stick": "lightstick",
+        "light stick":    "lightstick",
     }
-
     user_id = update.message.from_user.id
-
     if not context.args:
-        update.message.reply_text('Usa: /usar <objeto> (ejemplo: /usar "abrazo de bias")')
+        update.message.reply_text('Usa: /usar <objeto>')
         return
-
-    obj_norm = normalizar_objeto(" ".join(context.args))
-    obj_id = OBJETOS_USABLES.get(obj_norm)
-
+    obj_norm = " ".join(context.args).lower().replace("_", " ").replace('"', '').strip()
+    obj_id   = OBJETOS_USABLES.get(obj_norm)
     if not obj_id:
         update.message.reply_text("No tienes ese objeto en tu inventario.")
         return
-
-    doc = col_usuarios.find_one({"user_id": user_id}) or {}
+    doc     = col_usuarios.find_one({"user_id": user_id}) or {}
     objetos = doc.get("objetos", {})
-    cantidad = objetos.get(obj_id, 0)
-
-    if cantidad < 1:
+    if objetos.get(obj_id, 0) < 1:
         update.message.reply_text("No tienes ese objeto en tu inventario.")
         return
 
@@ -2451,122 +1685,111 @@ def comando_usar(update, context):
         if not last:
             update.message.reply_text("No tienes cooldown activo de /idolday.")
             return
-
-        ahora = datetime.utcnow()
-        diferencia = (ahora - last).total_seconds()
-        cd_total = 6 * 3600  # 6 horas
-        faltante = cd_total - diferencia
-
+        ahora    = datetime.utcnow()
+        faltante = 6 * 3600 - (ahora - last).total_seconds()
         if faltante <= 0:
             update.message.reply_text("No tienes cooldown activo de /idolday.")
             return
-
         nuevo_faltante = faltante / 2
-        nuevo_last = ahora - timedelta(seconds=(cd_total - nuevo_faltante))
+        nuevo_last     = ahora - timedelta(seconds=(6 * 3600 - nuevo_faltante))
         col_usuarios.update_one(
             {"user_id": user_id},
-            {
-                "$set": {"last_idolday": nuevo_last},
-                "$inc": {f"objetos.{obj_id}": -1}
-            }
+            {"$set": {"last_idolday": nuevo_last}, "$inc": {f"objetos.{obj_id}": -1}}
         )
-
-        def formatear_tiempo(segundos):
-            h = int(segundos // 3600)
-            m = int((segundos % 3600) // 60)
-            s = int(segundos % 60)
-            partes = []
-            if h > 0: partes.append(f"{h}h")
-            if m > 0: partes.append(f"{m}m")
-            if s > 0 or not partes: partes.append(f"{s}s")
-            return " ".join(partes)
-
-        texto = (
+        def fmt(s):
+            h=int(s//3600); m=int((s%3600)//60); ss=int(s%60)
+            return " ".join(filter(None, [f"{h}h" if h else "", f"{m}m" if m else "", f"{ss}s"]))
+        update.message.reply_text(
             f"🤗 <b>¡Usaste Abrazo de Bias!</b>\n"
-            f"Tiempo restante antes: <b>{formatear_tiempo(faltante)}</b>\n"
-            f"Nuevo tiempo restante: <b>{formatear_tiempo(nuevo_faltante)}</b>\n"
-            f"¡Ahora puedes usar /idolday mucho antes!"
+            f"Antes: <b>{fmt(faltante)}</b> → Ahora: <b>{fmt(nuevo_faltante)}</b>",
+            parse_mode="HTML"
         )
-        update.message.reply_text(texto, parse_mode="HTML")
         return
 
     if obj_id == "lightstick":
-        # Busca cartas mejorables
-        cartas_usuario = list(col_cartas_usuario.find({"user_id": user_id}))
-        cartas_mejorables = [
-            c for c in cartas_usuario if c.get("estrellas", "") != "★★★"
-        ]
+        cartas_usuario  = list(col_cartas_usuario.find({"user_id": user_id}))
+        cartas_mejorables = [c for c in cartas_usuario if c.get("estrellas", "") != "★★★"]
         if not cartas_mejorables:
-            update.message.reply_text("No tienes cartas que puedas mejorar con Lightstick (todas son ★★★).")
+            update.message.reply_text("No tienes cartas que puedas mejorar.")
             return
-        # Llama a la función que muestra el menú de mejora
         mostrar_lista_mejorables(update, context, user_id, cartas_mejorables, pagina=1)
         return
 
-
+# ─── Reclamar carta (con lock para evitar race condition) ─────────────────────
 @grupo_oficial
 def manejador_reclamar(update, context):
-    query = update.callback_query
+    query         = update.callback_query
     usuario_click = query.from_user.id
-    data = query.data
-    partes = data.split("_")
+    data          = query.data
+    partes        = data.split("_")
     if len(partes) != 4:
         query.answer()
         return
     _, chat_id, mensaje_id, idx = partes
-    chat_id = int(chat_id)
+    chat_id    = int(chat_id)
     mensaje_id = int(mensaje_id)
-    carta_idx = int(idx)
-    drop_id = crear_drop_id(chat_id, mensaje_id)
+    carta_idx  = int(idx)
+    drop_id    = crear_drop_id(chat_id, mensaje_id)
 
-    # --- Busca en RAM, si no en MongoDB ---
     drop = DROPS_ACTIVOS.get(drop_id)
-    if not drop and "col_drops" in globals():
-        drop = col_drops.find_one({"drop_id": drop_id})
-        if drop:
-            DROPS_ACTIVOS[drop_id] = drop
-
-    ahora = time.time()
-    thread_id = drop.get("thread_id") if drop else getattr(query.message, "message_thread_id", None)
-
     if not drop:
         mensaje_fecha = getattr(query.message, "date", None)
         if mensaje_fecha:
-            segundos_desde_envio = (datetime.utcnow() - mensaje_fecha.replace(tzinfo=None)).total_seconds()
-            if segundos_desde_envio < 60:
-                query.answer("⏳ El drop aún se está inicializando. Intenta reclamar de nuevo en unos segundos.", show_alert=True)
+            secs = (datetime.utcnow() - mensaje_fecha.replace(tzinfo=None)).total_seconds()
+            if secs < 60:
+                query.answer("⏳ El drop aún se está inicializando. Intenta en unos segundos.", show_alert=True)
                 return
         query.answer("Este drop ya expiró o no existe.", show_alert=True)
         return
 
-    if drop.get("expirado"):
-        query.answer("Este drop ya expiró o no existe.", show_alert=True)
+    # ─── LOCK para evitar race condition ─────────────────────────────────────
+    lock = get_drop_lock(drop_id)
+    acquired = lock.acquire(blocking=False)
+    if not acquired:
+        query.answer("⏳ Procesando... intenta en un momento.", show_alert=True)
         return
 
-    carta = drop["cartas"][carta_idx]
-    if carta.get("reclamada"):
-        query.answer("Esta carta ya fue reclamada.", show_alert=True)
-        return
+    try:
+        # Re-leer el drop DENTRO del lock (estado fresco)
+        drop = DROPS_ACTIVOS.get(drop_id)
+        if not drop or drop.get("expirado"):
+            query.answer("Este drop ya expiró.", show_alert=True)
+            return
 
-    tiempo_desde_drop = ahora - drop["inicio"]
+        carta = drop["cartas"][carta_idx]
+        if carta.get("reclamada"):
+            query.answer("Esta carta ya fue reclamada.", show_alert=True)
+            return
+
+        # ─── Marcar INMEDIATAMENTE dentro del lock ────────────────────────
+        carta["reclamada"]     = True
+        carta["usuario"]       = usuario_click
+        carta["hora_reclamada"]= time.time()
+        # ─────────────────────────────────────────────────────────────────
+
+    finally:
+        lock.release()
+
+    # A partir de aquí la carta está reservada, el resto puede ir fuera del lock
+    ahora    = time.time()
+    thread_id= drop.get("thread_id") or getattr(query.message, "message_thread_id", None)
 
     if "intentos" not in carta:
         carta["intentos"] = 0
     if usuario_click != drop["dueño"]:
         carta["intentos"] += 1
 
-    user_doc = col_usuarios.find_one({"user_id": usuario_click}) or {}
-    objetos = user_doc.get("objetos", {})
+    user_doc         = col_usuarios.find_one({"user_id": usuario_click}) or {}
+    objetos          = user_doc.get("objetos", {})
     bonos_inventario = objetos.get('bono_idolday', 0)
-    bono_legacy = user_doc.get('bono', 0)
-    last = user_doc.get('last_idolday')
-    ahora_dt = datetime.utcnow()
-    cooldown_listo = False
-    bono_listo = False
+    bono_legacy      = user_doc.get('bono', 0)
+    last             = user_doc.get('last_idolday')
+    ahora_dt         = datetime.utcnow()
+    cooldown_listo   = False
+    bono_listo       = False
 
     if last:
-        diferencia = ahora_dt - last
-        cooldown_listo = diferencia.total_seconds() >= 6 * 3600
+        cooldown_listo = (ahora_dt - last).total_seconds() >= 6 * 3600
     else:
         cooldown_listo = True
 
@@ -2574,8 +1797,8 @@ def manejador_reclamar(update, context):
         bono_listo = True
 
     puede_reclamar = False
+    tiempo_desde_drop = ahora - drop["inicio"]
 
-    # --- Lógica para el dueño del drop ---
     if usuario_click == drop["dueño"]:
         primer_reclamo = drop.get("primer_reclamo_dueño")
         if primer_reclamo is None:
@@ -2584,134 +1807,77 @@ def manejador_reclamar(update, context):
         else:
             tiempo_faltante = 15 - (ahora - drop["primer_reclamo_dueño"])
             if tiempo_faltante > 0:
-                segundos_faltantes = int(round(tiempo_faltante))
-                query.answer(
-                    f"Te quedan {segundos_faltantes} segundos para poder reclamar la otra.",
-                    show_alert=True
-                )
+                # Revertir reserva
+                carta["reclamada"] = False; carta["usuario"] = None
+                query.answer(f"Te quedan {int(round(tiempo_faltante))} segundos para reclamar la otra.", show_alert=True)
                 return
             if cooldown_listo:
                 puede_reclamar = True
-                col_usuarios.update_one(
-                    {"user_id": usuario_click},
-                    {"$set": {"last_idolday": ahora_dt}},
-                    upsert=True
-                )
+                col_usuarios.update_one({"user_id": usuario_click}, {"$set": {"last_idolday": ahora_dt}}, upsert=True)
             elif bono_listo:
                 puede_reclamar = True
                 if bonos_inventario and bonos_inventario > 0:
-                    col_usuarios.update_one(
-                        {"user_id": usuario_click},
-                        {"$inc": {"objetos.bono_idolday": -1}},
-                        upsert=True
-                    )
+                    col_usuarios.update_one({"user_id": usuario_click}, {"$inc": {"objetos.bono_idolday": -1}}, upsert=True)
                 else:
-                    col_usuarios.update_one(
-                        {"user_id": usuario_click},
-                        {"$inc": {"bono": -1}},
-                        upsert=True
-                    )
+                    col_usuarios.update_one({"user_id": usuario_click}, {"$inc": {"bono": -1}}, upsert=True)
             else:
+                carta["reclamada"] = False; carta["usuario"] = None
                 if last:
-                    faltante = 6*3600 - (ahora_dt - last).total_seconds()
-                    horas = int(faltante // 3600)
-                    minutos = int((faltante % 3600) // 60)
-                    segundos = int(faltante % 60)
-                    query.answer(
-                        f"No puedes reclamar: espera cooldown ({horas}h {minutos}m {segundos}s) o compra un Bono Idolday.",
-                        show_alert=True
-                    )
+                    f = 6*3600 - (ahora_dt - last).total_seconds()
+                    query.answer(f"No puedes reclamar: espera {int(f//3600)}h {int((f%3600)//60)}m {int(f%60)}s.", show_alert=True)
                 else:
-                    query.answer(
-                        "No puedes reclamar: espera el cooldown o compra un Bono Idolday.",
-                        show_alert=True
-                    )
+                    query.answer("No puedes reclamar. Espera el cooldown.", show_alert=True)
                 return
     else:
         if tiempo_desde_drop < 15:
-            segundos_faltantes = int(round(15 - tiempo_desde_drop))
-            query.answer(
-                f"Aún no puedes reclamar esta carta, te quedan {segundos_faltantes} segundos.",
-                show_alert=True
-            )
+            carta["reclamada"] = False; carta["usuario"] = None
+            query.answer(f"Aún no puedes reclamar. Te quedan {int(round(15 - tiempo_desde_drop))} segundos.", show_alert=True)
             return
         if cooldown_listo:
             puede_reclamar = True
-            col_usuarios.update_one(
-                {"user_id": usuario_click},
-                {"$set": {"last_idolday": ahora_dt}},
-                upsert=True
-            )
+            col_usuarios.update_one({"user_id": usuario_click}, {"$set": {"last_idolday": ahora_dt}}, upsert=True)
         elif bono_listo:
             puede_reclamar = True
             if bonos_inventario and bonos_inventario > 0:
-                col_usuarios.update_one(
-                    {"user_id": usuario_click},
-                    {"$inc": {"objetos.bono_idolday": -1}},
-                    upsert=True
-                )
+                col_usuarios.update_one({"user_id": usuario_click}, {"$inc": {"objetos.bono_idolday": -1}}, upsert=True)
             else:
-                col_usuarios.update_one(
-                    {"user_id": usuario_click},
-                    {"$inc": {"bono": -1}},
-                    upsert=True
-                )
+                col_usuarios.update_one({"user_id": usuario_click}, {"$inc": {"bono": -1}}, upsert=True)
         else:
+            carta["reclamada"] = False; carta["usuario"] = None
             if last:
-                faltante = 6*3600 - (ahora_dt - last).total_seconds()
-                horas = int(faltante // 3600)
-                minutos = int((faltante % 3600) // 60)
-                segundos = int(faltante % 60)
-                query.answer(
-                    f"No puedes reclamar: espera cooldown ({horas}h {minutos}m {segundos}s) o compra un Bono Idolday.",
-                    show_alert=True
-                )
+                f = 6*3600 - (ahora_dt - last).total_seconds()
+                query.answer(f"No puedes reclamar: espera {int(f//3600)}h {int((f%3600)//60)}m {int(f%60)}s.", show_alert=True)
             else:
-                query.answer(
-                    "No puedes reclamar: espera el cooldown o compra un Bono Idolday.",
-                    show_alert=True
-                )
+                query.answer("No puedes reclamar. Espera el cooldown.", show_alert=True)
             return
 
     if not puede_reclamar:
+        carta["reclamada"] = False; carta["usuario"] = None
         return
 
-    # --- Marcar carta como reclamada ---
-    carta["reclamada"] = True
-    carta["usuario"] = usuario_click
-    carta["hora_reclamada"] = ahora
-
-    if "col_drops" in globals():
-        col_drops.update_one(
-            {"drop_id": drop_id},
-            {"$set": {"cartas": drop["cartas"]}}
-        )
-
-    # ----------- ACTUALIZA LOS BOTONES SOLO EN EL THREAD -----------
+    # ─── Actualizar botones ───────────────────────────────────────────────────
     teclado = []
     for i, c in enumerate(drop["cartas"]):
         if c.get("reclamada"):
-            teclado.append(InlineKeyboardButton("❌", callback_data="reclamada", disabled=True))
+            teclado.append(InlineKeyboardButton("❌", callback_data="reclamada"))
         else:
             teclado.append(InlineKeyboardButton(f"{i+1}️⃣", callback_data=f"reclamar_{chat_id}_{mensaje_id}_{i}"))
     try:
         context.bot.edit_message_reply_markup(
-            chat_id=chat_id,
-            message_id=mensaje_id,
+            chat_id=chat_id, message_id=mensaje_id,
             reply_markup=InlineKeyboardMarkup([teclado])
         )
     except Exception as e:
         if "Message is not modified" not in str(e):
-            print("[manejador_reclamar] No se pudieron editar los botones (2):", e)
+            print("[manejador_reclamar] Error botones:", e)
 
-    # --- ENTREGA DE CARTA, ESTADO, PRECIO ---
-    nombre = carta['nombre']
-    version = carta['version']
-    grupo = carta['grupo']
-    nuevo_id = carta.get("card_id", 1)
-    id_unico = random_id_unico(nuevo_id)
+    # ─── Entregar carta ───────────────────────────────────────────────────────
+    nombre    = carta['nombre']
+    version   = carta['version']
+    grupo     = carta['grupo']
+    nuevo_id  = carta.get("card_id", 1)
+    id_unico  = random_id_unico(nuevo_id)
 
-    # --- Filtrar solo opciones del mismo grupo ---
     posibles_estados = [
         c for c in estados_disponibles_para_carta(nombre, version)
         if c.get("grupo") == grupo
@@ -2719,18 +1885,15 @@ def manejador_reclamar(update, context):
     if not posibles_estados:
         posibles_estados = estados_disponibles_para_carta(nombre, version)
     carta_entregada = random.choice(posibles_estados)
-    estado = carta_entregada['estado']
-    estrellas = carta_entregada.get('estado_estrella', '★??')  # <-- AQUÍ ESTÁ EL CAMBIO
+    estado   = carta_entregada['estado']
+    estrellas= carta_entregada.get('estado_estrella', '★??')
     imagen_url = carta_entregada['imagen']
     intentos = carta.get("intentos", 0)
-    precio = precio_carta_karuta(nombre, version, estado, id_unico=id_unico, card_id=nuevo_id) + 200 * max(0, intentos - 1)
+    precio   = precio_carta_karuta(nombre, version, estado, id_unico=id_unico, card_id=nuevo_id) + 200 * max(0, intentos - 1)
 
     existente = col_cartas_usuario.find_one({
-        "user_id": usuario_click,
-        "nombre": nombre,
-        "version": version,
-        "card_id": nuevo_id,
-        "estado": estado,
+        "user_id": usuario_click, "nombre": nombre,
+        "version": version, "card_id": nuevo_id, "estado": estado,
     })
     if existente:
         col_cartas_usuario.update_one(
@@ -2738,273 +1901,84 @@ def manejador_reclamar(update, context):
             {"$inc": {"count": 1}}
         )
     else:
-        col_cartas_usuario.insert_one(
-            {
-                "user_id": usuario_click,
-                "nombre": nombre,
-                "version": version,
-                "grupo": grupo,
-                "estado": estado,
-                "estrellas": estrellas,   # <-- AQUÍ TAMBIÉN
-                "imagen": imagen_url,
-                "card_id": nuevo_id,
-                "count": 1,
-                "id_unico": id_unico,
-                "estado_estrella": estrellas.count("★"),
-            }
-        )
-    revisar_sets_completados(usuario_click, context)
-    carta["reclamada"] = True
-    carta["usuario"] = usuario_click
-    carta["hora_reclamada"] = ahora
-    drop.setdefault("usuarios_reclamaron", []).append(usuario_click)
-
-    # --- REGISTRO DE RECLAMO EN AUDITORÍA ---
-    if "col_drops_log" in globals():
-        col_drops_log.insert_one({
-            "evento": "reclamado",
-            "drop_id": drop_id,
-            "user_id": usuario_click,
-            "username": query.from_user.username if hasattr(query.from_user, "username") else "",
-            "nombre": carta['nombre'],
-            "version": carta['version'],
-            "grupo": carta.get('grupo', ''),
-            "card_id": carta.get("card_id"),
-            "estado": estado,
-            "estrellas": estrellas,
-            "fecha": datetime.utcnow(),
-            "intentos": carta.get("intentos", 0),
-            "expirado": drop.get("expirado", False),
-            "chat_id": chat_id,
-            "mensaje_id": mensaje_id,
+        col_cartas_usuario.insert_one({
+            "user_id": usuario_click, "nombre": nombre, "version": version,
+            "grupo": grupo, "estado": estado, "estrellas": estrellas,
+            "imagen": imagen_url, "card_id": nuevo_id, "count": 1,
+            "id_unico": id_unico, "estado_estrella": estrellas.count("★"),
         })
 
+    revisar_sets_completados(usuario_click, context)
+    drop.setdefault("usuarios_reclamaron", []).append(usuario_click)
+
+    try:
+        col_drops_log.insert_one({
+            "evento": "reclamado", "drop_id": drop_id,
+            "user_id": usuario_click,
+            "username": query.from_user.username if hasattr(query.from_user, "username") else "",
+            "nombre": carta['nombre'], "version": carta['version'],
+            "grupo": carta.get('grupo', ''), "card_id": carta.get("card_id"),
+            "estado": estado, "estrellas": estrellas,
+            "fecha": datetime.utcnow(), "intentos": carta.get("intentos", 0),
+            "chat_id": chat_id, "mensaje_id": mensaje_id,
+        })
+    except Exception:
+        pass
+
     DROPS_ACTIVOS[drop_id] = drop
-    if "col_drops" in globals():
-        col_drops.update_one({"drop_id": drop_id}, {"$set": drop})
 
-    # === MENSAJE DE ALERTA EN EL TEMA ===
-    user_mention = f"@{query.from_user.username or query.from_user.first_name}"
-    FRASES_ESTADO = {
-        "Excelente estado": "Genial!",
-        "Buen estado": "Nada mal.",
-        "Mal estado": "Podría estar mejor...",
-        "Muy mal estado": "¡Oh no!"
-    }
-    frase_estado = FRASES_ESTADO.get(estado, "")
-
+    user_mention  = f"@{query.from_user.username or query.from_user.first_name}"
+    frase_estado  = FRASES_ESTADO.get(estado, "")
     mensaje_extra = ""
     intentos_otros = max(0, intentos - 1)
     if intentos_otros > 0:
-        mensaje_extra = f"\n💸 Esta carta fue disputada con <b>{intentos_otros}</b> intentos de otros usuarios."
+        mensaje_extra = f"\n💸 Esta carta fue disputada con <b>{intentos_otros}</b> intentos."
 
     context.bot.send_message(
         chat_id=drop["chat_id"],
-        text=f"{user_mention} tomaste la carta <code>{id_unico}</code> #{nuevo_id} [{version}] {nombre} - {grupo}, {frase_estado} está en <b>{estado.lower()}</b>!\n"
-             f"{mensaje_extra}",
+        text=(
+            f"{user_mention} tomaste la carta <code>{id_unico}</code> #{nuevo_id} "
+            f"[{version}] {nombre} - {grupo}, {frase_estado} está en <b>{estado.lower()}</b>!\n"
+            f"{mensaje_extra}"
+        ),
         parse_mode='HTML',
-        message_thread_id=thread_id if thread_id else None
+        message_thread_id=thread_id
     )
 
-
-    # --- Mensaje de favoritos (en el thread/tema correcto) ---
-# --- MENSAJE DE FAVORITOS: compara nombre, version y grupo ---
     favoritos = []
     for user in col_usuarios.find({}):
         for fav in user.get("favoritos", []):
             if (
-                fav.get("nombre", "").lower() == nombre.lower()
-                and fav.get("version", "").lower() == version.lower()
-                and fav.get("grupo", "").lower() == grupo.lower()
+                fav.get("nombre", "").lower() == nombre.lower() and
+                fav.get("version", "").lower() == version.lower() and
+                fav.get("grupo", "").lower() == grupo.lower()
             ):
                 favoritos.append(user)
-                break  # Solo una vez por usuario
+                break
 
     if favoritos:
         nombres = [
-            f"⭐ @{user.get('username', 'SinUser')}" if user.get("username") else f"⭐ ID:{user['user_id']}"
-            for user in favoritos
+            f"⭐ @{u.get('username', 'SinUser')}" if u.get("username") else f"⭐ ID:{u['user_id']}"
+            for u in favoritos
         ]
-        texto_favs = "👀 <b>Favoritos de esta carta:</b>\n" + "\n".join(nombres)
         context.bot.send_message(
             chat_id=drop["chat_id"],
-            text=texto_favs,
+            text="👀 <b>Favoritos de esta carta:</b>\n" + "\n".join(nombres),
             parse_mode='HTML',
-            message_thread_id=thread_id if thread_id else None
+            message_thread_id=thread_id
         )
-
 
     query.answer("¡Carta reclamada!", show_alert=True)
 
-
-
-
 def gastar_gemas(user_id, cantidad):
-    doc = col_usuarios.find_one({"user_id": user_id}) or {}
+    doc   = col_usuarios.find_one({"user_id": user_id}) or {}
     gemas = doc.get("gemas", 0)
     if gemas < cantidad:
         return False
     col_usuarios.update_one({"user_id": user_id}, {"$inc": {"gemas": -cantidad}})
     return True
 
-
-
-
-# ----------------- Resto de funciones: album, paginación, etc. -----------------
-
-def mostrar_lista_mejorables(update, context, user_id, cartas_mejorables, pagina, mensaje=None, editar=False):
-    por_pagina = 8
-    total = len(cartas_mejorables)
-    paginas = max(1, (total - 1) // por_pagina + 1)
-    if pagina < 1: pagina = 1
-    if pagina > paginas: pagina = paginas
-    inicio = (pagina - 1) * por_pagina
-    fin = min(inicio + por_pagina, total)
-    cartas_pag = cartas_mejorables[inicio:fin]
-
-    texto = "<b>Elige la carta que quieres mejorar:</b>\n"
-    botones = []
-    for c in cartas_pag:
-        nombre = c.get("nombre", "")
-        version = c.get("version", "")
-        estrellas = c.get("estrellas", "")
-        id_unico = c.get("id_unico", "")
-        texto += f"{estrellas} <b>{nombre}</b> [{version}] (<code>{id_unico}</code>)\n"
-        botones.append([InlineKeyboardButton(
-            f"{estrellas} {nombre} [{version}]", callback_data=f"mejorar_{id_unico}"
-        )])
-
-    # Botones de navegación
-    nav = []
-    if pagina > 1:
-        nav.append(InlineKeyboardButton("⬅️", callback_data=f"mejorarpag_{pagina-1}_{user_id}"))
-    if pagina < paginas:
-        nav.append(InlineKeyboardButton("➡️", callback_data=f"mejorarpag_{pagina+1}_{user_id}"))
-    if nav:
-        botones.append(nav)
-
-    teclado = InlineKeyboardMarkup(botones)
-
-    if editar and mensaje:
-        try:
-            mensaje.edit_text(texto, parse_mode='HTML', reply_markup=teclado)
-        except Exception:
-            context.bot.send_message(chat_id=mensaje.chat_id, text=texto, parse_mode='HTML', reply_markup=teclado)
-    else:
-        update.message.reply_text(texto, parse_mode='HTML', reply_markup=teclado)
-
-
-
-
-
-
-from telegram import InlineQueryResultPhoto
-from telegram.error import BadRequest
-
-def inline_album_handler(update, context):
-    query = update.inline_query
-    user_id = query.from_user.id
-    first_name = query.from_user.first_name or "Usuario"
-
-    PER_PAGE = 50  # Máximo permitido por Telegram
-    offset = int(query.offset) if query.offset else 0
-
-    texto = query.query.strip()
-    partes = texto.split(maxsplit=1)
-    filtro = partes[1].strip() if len(partes) > 1 else None
-
-    mongo_query = {"user_id": user_id}
-    if filtro:
-        mongo_query["$or"] = [
-            {"nombre": {"$regex": filtro, "$options": "i"}},
-            {"grupo": {"$regex": filtro, "$options": "i"}},
-        ]
-    total_cartas = col_cartas_usuario.count_documents(mongo_query)
-
-    cartas = list(
-        col_cartas_usuario.find(mongo_query)
-        .sort([("grupo", 1), ("nombre", 1)])
-        .skip(offset)
-        .limit(PER_PAGE)
-    )
-
-    results = []
-    for carta in cartas:
-        nombre = carta['nombre']
-        estrellas = carta.get('estrellas', '')
-        grupo = carta.get('grupo', '')
-        version = carta.get('version', '')
-        card_id = carta.get('card_id', '')
-        estado = carta.get('estado', '')
-        precio = precio_carta_tabla(estrellas, card_id)
-        copias = col_cartas_usuario.count_documents({
-            "nombre": nombre,
-            "version": version,
-            "grupo": grupo
-        })
-        caption = (
-            f"🎴 <b>Info de carta</b> <code>{carta['id_unico']}</code>\n"
-            f"• Nombre: <b>{nombre}</b>\n"
-            f"• Grupo: <b>{grupo}</b>\n"
-            f"• Versión: <b>{version}</b>\n"
-            f"• Nº de carta: <b>#{card_id}</b>\n"
-            f"• Estado: <b>{estrellas}</b>\n"
-            f"• Precio: <code>{precio} Kponey</code>\n"
-            f"• Copias globales: <b>{copias}</b>\n"
-            f"<i>Carta de {first_name}</i>"
-        )
-
-        results.append(
-            InlineQueryResultPhoto(
-                id=carta['id_unico'],
-                photo_url=carta['imagen'],
-                thumb_url=carta['imagen'],
-                title=f"{nombre} {estrellas}",
-                caption=caption,
-                parse_mode="HTML",
-            )
-        )
-
-    next_offset = str(offset + PER_PAGE) if (offset + PER_PAGE) < total_cartas else ""
-
-    try:
-        update.inline_query.answer(
-            results,
-            cache_time=0,
-            is_personal=True,
-            next_offset=next_offset,
-            switch_pm_text=f"Álbum de {first_name}",
-            switch_pm_parameter="start"
-        )
-    except BadRequest as e:
-        print(f"Inline query error: {e}")
-
-# No olvides el handler:
-dispatcher.add_handler(InlineQueryHandler(inline_album_handler, pattern=r"^(Album|album)( |$)"))
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-from PIL import Image
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
-
+# ─── Album 2 (collage con descarga paralela) ──────────────────────────────────
 def descargar_imagen_url(url, path):
     try:
         r = requests.get(url, timeout=10)
@@ -3013,2231 +1987,161 @@ def descargar_imagen_url(url, path):
             f.write(r.content)
         return True
     except Exception as e:
-        print(f"[album2] No se pudo descargar {url}: {e}")
+        print(f"[album2] Error descargando {url}: {e}")
         return False
 
 def crear_cuadricula_cartas_urls(urls, output_path="cuadricula_album2.png"):
     from math import ceil
     imgs = []
     temp_files = []
-    for i, url in enumerate(urls):
-        temp_path = f"temp_album2_{i}.png"
-        ok = descargar_imagen_url(url, temp_path)
+
+    # ─── Descarga paralela de imágenes ───────────────────────────────────────
+    temp_paths = [f"temp_album2_{i}.png" for i in range(len(urls))]
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        resultados = list(executor.map(lambda args: descargar_imagen_url(*args), zip(urls, temp_paths)))
+
+    for i, (ok, path) in enumerate(zip(resultados, temp_paths)):
         if ok:
-            imgs.append(Image.open(temp_path).convert("RGBA"))
-            temp_files.append(temp_path)
+            try:
+                imgs.append(Image.open(path).convert("RGBA"))
+                temp_files.append(path)
+            except Exception:
+                pass
+    # ─────────────────────────────────────────────────────────────────────────
+
     if not imgs:
-        raise ValueError("No se pudo descargar ninguna imagen para el collage.")
-    ancho, alto = imgs[0].size
-    columnas = 5
-    filas = ceil(len(imgs)/columnas)
-    canvas_ancho = ancho * columnas
-    canvas_alto = alto * filas
-    cuadricula = Image.new("RGBA", (canvas_ancho, canvas_alto), (255,255,255,0))
+        raise ValueError("No se pudo descargar ninguna imagen.")
+    ancho, alto  = imgs[0].size
+    columnas     = 5
+    filas        = ceil(len(imgs) / columnas)
+    canvas       = Image.new("RGBA", (ancho * columnas, alto * filas), (255,255,255,0))
     for idx, img in enumerate(imgs):
-        x = (idx % columnas) * ancho
-        y = (idx // columnas) * alto
-        cuadricula.paste(img, (x, y), img)
-    cuadricula.save(output_path)
-    # Limpia los archivos temporales
+        canvas.paste(img, ((idx % columnas) * ancho, (idx // columnas) * alto), img)
+    canvas.save(output_path)
     for path in temp_files:
         try: os.remove(path)
-        except: pass
+        except Exception: pass
     return output_path
 
-
-
 def mostrar_menu_grupos_album2(user_id, pagina):
-    import urllib.parse
-    grupos = sorted({c.get("grupo", "") for c in col_cartas_usuario.find({"user_id": user_id}) if c.get("grupo")})
+    grupos  = sorted({c.get("grupo", "") for c in col_cartas_usuario.find({"user_id": user_id}) if c.get("grupo")})
     botones = []
     for grupo in grupos:
         grupo_cod = urllib.parse.quote(grupo)
         botones.append([InlineKeyboardButton(grupo, callback_data=f"album2_filtragrupo_{user_id}_{grupo_cod}")])
     return InlineKeyboardMarkup(botones)
 
-
-
 @log_command
 @solo_en_temas_permitidos("album2")
 @cooldown_critico
 def comando_album2(update, context):
-    user_id = update.message.from_user.id
-    chat_id = update.effective_chat.id
-    thread_id = getattr(update.message, "message_thread_id", None)
-    pagina = 1
-    grupo = None
+    user_id  = update.message.from_user.id
+    chat_id  = update.effective_chat.id
+    thread_id= getattr(update.message, "message_thread_id", None)
+    pagina   = 1
+    grupo    = None
     if context.args:
         for arg in context.args:
-            if arg.isdigit():
-                pagina = int(arg)
-            else:
-                grupo = arg
+            if arg.isdigit(): pagina = int(arg)
+            else:             grupo  = arg
     mostrar_album2_uno(context.bot, chat_id, user_id, pagina, grupo=grupo, thread_id=thread_id)
-
-
 
 def mostrar_album2_uno(bot, chat_id, user_id, pagina=1, grupo=None, thread_id=None, mensaje=None, editar=False):
     cartas_usuario = list(col_cartas_usuario.find({"user_id": user_id}))
     if grupo:
-        grupo_norm = grupo.lower().strip()
-        cartas_usuario = [c for c in cartas_usuario if c.get("grupo", "").lower().strip() == grupo_norm]
+        g = grupo.lower().strip()
+        cartas_usuario = [c for c in cartas_usuario if c.get("grupo", "").lower().strip() == g]
     cartas_usuario.sort(key=lambda c: (c.get('grupo', ''), c.get('nombre', '')))
-    total = len(cartas_usuario)
-    por_pagina = 10
-    paginas = (total - 1) // por_pagina + 1 if total > 0 else 1
-    if pagina < 1: pagina = 1
-    if pagina > paginas: pagina = paginas
-    inicio = (pagina - 1) * por_pagina
-    fin = min(inicio + por_pagina, total)
-    cartas_pag = cartas_usuario[inicio:fin]
+    total     = len(cartas_usuario)
+    por_pagina= 10
+    paginas   = (total - 1) // por_pagina + 1 if total > 0 else 1
+    pagina    = max(1, min(pagina, paginas))
+    inicio    = (pagina - 1) * por_pagina
+    cartas_pag= cartas_usuario[inicio:min(inicio + por_pagina, total)]
 
     if not cartas_usuario:
         bot.send_message(chat_id, "No tienes cartas en tu álbum.", message_thread_id=thread_id)
         return
 
-    # Menú de filtros y paginación
     botones = []
     botones.append([InlineKeyboardButton("👥 Filtrar por Grupo", callback_data=f"album2_filtrosgrupo_{user_id}_{pagina}")])
     pag_buttons = []
-    if pagina > 1:
-        pag_buttons.append(InlineKeyboardButton("⬅️", callback_data=f"album2_{pagina-1}_{urllib.parse.quote(grupo) if grupo else 'none'}"))
-    if pagina < paginas:
-        pag_buttons.append(InlineKeyboardButton("➡️", callback_data=f"album2_{pagina+1}_{urllib.parse.quote(grupo) if grupo else 'none'}"))
-    if pag_buttons:
-        botones.append(pag_buttons)
+    if pagina > 1:   pag_buttons.append(InlineKeyboardButton("⬅️", callback_data=f"album2_{pagina-1}_{urllib.parse.quote(grupo) if grupo else 'none'}"))
+    if pagina < paginas: pag_buttons.append(InlineKeyboardButton("➡️", callback_data=f"album2_{pagina+1}_{urllib.parse.quote(grupo) if grupo else 'none'}"))
+    if pag_buttons:  botones.append(pag_buttons)
+
     botones_cartas = [
-        InlineKeyboardButton(
-            f"{c['nombre']}",
-            callback_data=f"ampliar_{c['id_unico']}"
-        )
+        InlineKeyboardButton(c['nombre'], callback_data=f"ampliar_{c['id_unico']}")
         for c in cartas_pag
     ]
-    columnas = 5
-    filas_cartas = [botones_cartas[i:i+columnas] for i in range(0, len(botones_cartas), columnas)]
-    teclado = InlineKeyboardMarkup(filas_cartas + botones)
+    filas_cartas = [botones_cartas[i:i+5] for i in range(0, len(botones_cartas), 5)]
+    teclado      = InlineKeyboardMarkup(filas_cartas + botones)
 
-    # Collage de imágenes
     urls_imgs = [c['imagen'] for c in cartas_pag if c.get('imagen')]
     if not urls_imgs:
         bot.send_message(chat_id, "No se encontraron imágenes en esta página.", message_thread_id=thread_id)
         return
     img_path = crear_cuadricula_cartas_urls(urls_imgs, output_path=f"cuadricula_album2_{user_id}.png")
+    caption  = f"🖼️ <b>Selecciona una carta</b> (página {pagina}/{paginas})"
 
-    caption = (
-        f"🖼️ <b>Selecciona una carta</b> (página {pagina}/{paginas})\n"
-        "Toca una carta para ver sus detalles."
-    )
     if editar and mensaje:
         with open(img_path, "rb") as f:
-            mensaje.edit_media(
-                media=InputMediaPhoto(f, caption=caption, parse_mode="HTML"),
-                reply_markup=teclado
-            )
+            mensaje.edit_media(media=InputMediaPhoto(f, caption=caption, parse_mode="HTML"), reply_markup=teclado)
     else:
         with open(img_path, "rb") as f:
-            bot.send_photo(
-                chat_id=chat_id,
-                photo=f,
-                caption=caption,
-                parse_mode="HTML",
-                reply_markup=teclado,
-                message_thread_id=thread_id
-            )
+            bot.send_photo(chat_id=chat_id, photo=f, caption=caption, parse_mode="HTML",
+                           reply_markup=teclado, message_thread_id=thread_id)
 
-
-
- 
 def callback_album2_handler(update, context):
-    query = update.callback_query
-    data = query.data
-    user_id = query.from_user.id
-    chat_id = query.message.chat_id
+    query     = update.callback_query
+    data      = query.data
+    user_id   = query.from_user.id
+    chat_id   = query.message.chat_id
     thread_id = getattr(query.message, "message_thread_id", None)
-    partes = data.split("_")
+    partes    = data.split("_")
 
-    # 1. Abrir menú de filtros de grupo
     if data.startswith("album2_filtrosgrupo_"):
-        # Estructura: album2_filtrosgrupo_<user_id>_<pagina>
-        pagina = int(partes[3]) if len(partes) > 3 else 1
+        pagina  = int(partes[3]) if len(partes) > 3 else 1
         teclado = mostrar_menu_grupos_album2(user_id, pagina)
         query.message.edit_reply_markup(reply_markup=teclado)
-        query.answer()
-        return
+        query.answer(); return
 
-    # 2. Aplicar filtro de grupo (elige grupo y parte en página 1)
     elif data.startswith("album2_filtragrupo_"):
-        # Estructura: album2_filtragrupo_<user_id>_<grupo_codificado>
-        # partes = ["album2", "filtragrupo", user_id, grupo_cod]
         if len(partes) < 4:
-            query.answer("Error al leer el grupo.", show_alert=True)
-            return
+            query.answer("Error.", show_alert=True); return
         user_id_cb = int(partes[2])
-        grupo_cod = partes[3]
-        grupo = urllib.parse.unquote(grupo_cod)
-        pagina = 1
-        mostrar_album2_uno(
-            context.bot, chat_id, user_id_cb, pagina, grupo=grupo, thread_id=thread_id,
-            mensaje=query.message, editar=True
-        )
-        query.answer()
-        return
+        grupo = urllib.parse.unquote(partes[3])
+        mostrar_album2_uno(context.bot, chat_id, user_id_cb, 1, grupo=grupo,
+                           thread_id=thread_id, mensaje=query.message, editar=True)
+        query.answer(); return
 
-    # 3. Navegación entre páginas (puede llevar grupo)
     elif data.startswith("album2_"):
-        # Estructura: album2_<pagina>_<grupo_cod> (grupo_cod puede ser 'none')
         if len(partes) < 3:
-            query.answer("Error en la paginación.", show_alert=True)
-            return
-        pagina = int(partes[1])
+            query.answer("Error.", show_alert=True); return
+        pagina    = int(partes[1])
         grupo_cod = partes[2]
-        grupo = None if grupo_cod == "none" else urllib.parse.unquote(grupo_cod)
-        mostrar_album2_uno(
-            context.bot, chat_id, user_id, pagina, grupo=grupo, thread_id=thread_id,
-            mensaje=query.message, editar=True
-        )
-        query.answer()
-        return
+        grupo     = None if grupo_cod == "none" else urllib.parse.unquote(grupo_cod)
+        mostrar_album2_uno(context.bot, chat_id, user_id, pagina, grupo=grupo,
+                           thread_id=thread_id, mensaje=query.message, editar=True)
+        query.answer(); return
 
-    # 4. Ver carta ampliada
     elif data.startswith("ampliar_"):
         id_unico = data.replace("ampliar_", "")
         comando_ampliar(update, context, id_unico)
-        query.answer()
-        return
+        query.answer(); return
 
 dispatcher.add_handler(CallbackQueryHandler(callback_album2_handler, pattern="^(ampliar_|album2_)"))
 
-
-
-
-
-
-
-
-
-
-
-# Aquí pego la versión adaptada de /album para usar id_unico, estrellas y letra pegada a la izquierda:
+# ─── Album ────────────────────────────────────────────────────────────────────
 @log_command
 @solo_en_temas_permitidos("album")
 @cooldown_critico
 def comando_album(update, context):
-    user_id = update.effective_user.id
-    chat_id = update.effective_chat.id
-    thread_id = getattr(update.message, "message_thread_id", None)
-    msg = context.bot.send_message(
-        chat_id=chat_id,
-        text="Cargando álbum...",
-        message_thread_id=thread_id  # ¡SOLO AQUÍ!
-    )
-    mostrar_album_pagina(
-        update,
-        context,
-        chat_id,
-        msg.message_id,
-        user_id,
-        pagina=1
-        # No incluyas thread_id aquí
-    )
-
-
-
-
-
-# ----------- Función principal para mostrar la lista del álbum -----------
-
-def enviar_lista_pagina(
-    chat_id, user_id, lista_cartas, pagina, context,
-    editar=False, mensaje=None, filtro=None, valor_filtro=None, orden=None, mostrando_filtros=False,
-    thread_id=None  # <-- ¡Aquí el parámetro opcional!
-):
-    total = len(lista_cartas)
-    por_pagina = 10
-    paginas = (total - 1) // por_pagina + 1 if total else 1
-    if pagina < 1:
-        pagina = 1
-    if pagina > paginas:
-        pagina = paginas
-    inicio = (pagina - 1) * por_pagina
-    fin = min(inicio + por_pagina, total)
-
-    if total == 0:
-        texto = (
-            "📕 <b>Tu álbum está vacío.</b>\n"
-            "Usa <code>/idolday</code> para conseguir tus primeras cartas.\n"
-            "¡Ve coleccionando y construye tu colección!"
-        )
-    else:
-        texto = f"<b>📗 Álbum de cartas (página {pagina}/{paginas})</b>\n\n"
-        for carta in lista_cartas[inicio:fin]:
-            cid = carta.get('card_id', '')
-            version = carta.get('version', '')
-            nombre = carta.get('nombre', '')
-            grupo = grupo_de_carta(nombre, version)
-            id_unico = carta.get('id_unico', 'xxxx')
-            estrellas = carta.get('estrellas', '★??')
-            apodo = carta.get('apodo', '')
-            apodo_txt = f'· \"{apodo}\" ' if apodo else ''
-            texto += (
-                f"• <code>{id_unico}</code> · [{estrellas}] · #{cid} · [{version}] {apodo_txt}· {nombre} · {grupo}\n"
-            )
-        texto += "\n<i>Usa <code>/ampliar &lt;id_unico&gt;</code> para ver detalles de cualquier carta.</i>"
-
-    # BOTONES, mismo flujo que mercado
-    botones = []
-    if not mostrando_filtros and not filtro:
-        botones = [[InlineKeyboardButton("⚙️ Filtrar / Ordenar", callback_data=f"album_filtros_{user_id}_{pagina}")]]
-    else:
-        # Menú de filtros
-        botones = [
-            [InlineKeyboardButton("⭐ Filtrar por Estado", callback_data=f"album_filtro_estado_{user_id}_{pagina}")],
-            [InlineKeyboardButton("👥 Filtrar por Grupo", callback_data=f"album_filtro_grupo_{user_id}_{pagina}")]
-        ]
-        # Si hay filtro activo, agrega "Quitar Filtros"
-        if filtro and valor_filtro:
-            botones.append([InlineKeyboardButton("❌ Quitar Filtros", callback_data=f"album_sin_filtro_{user_id}_{pagina}")])
-
-    # Botones de paginación abajo
-    paginacion = []
-    if pagina > 1:
-        paginacion.append(InlineKeyboardButton("⬅️", callback_data=f"album_pagina_{user_id}_{pagina-1}_{filtro or 'none'}_{valor_filtro or 'none'}"))
-    if pagina < paginas:
-        paginacion.append(InlineKeyboardButton("➡️", callback_data=f"album_pagina_{user_id}_{pagina+1}_{filtro or 'none'}_{valor_filtro or 'none'}"))
-    if paginacion:
-        botones.append(paginacion)
-
-    teclado = InlineKeyboardMarkup(botones)
-
-    # --- ADAPTADO PARA ENVIAR SIEMPRE EN EL MISMO THREAD SI thread_id está presente ---
-    if editar and mensaje:
-        try:
-            mensaje.edit_text(texto, reply_markup=teclado, parse_mode='HTML')
-        except Exception:
-            context.bot.send_message(
-                chat_id=chat_id, text=texto, reply_markup=teclado,
-                parse_mode='HTML',
-                message_thread_id=thread_id if thread_id else None
-            )
-    else:
-        context.bot.send_message(
-            chat_id=chat_id, text=texto, reply_markup=teclado,
-            parse_mode='HTML',
-            message_thread_id=thread_id if thread_id else None
-        )
-
-
-# ----------- Menú de ESTRELLAS (Estados) para filtrar -----------
-
-def mostrar_menu_estrellas_album(user_id, pagina):
-    # Busca todas las estrellas que tiene el usuario en sus cartas
-    estrellas_posibles = ["☆☆☆", "★☆☆", "★★☆", "★★★"]
-    # Opción: Solo mostrar las que el usuario tiene
-    # estrellas_disponibles = sorted({c.get("estrellas", "☆☆☆") for c in col_cartas_usuario.find({"user_id": user_id})})
-    botones = []
-    for est in estrellas_posibles:
-        botones.append([
-            InlineKeyboardButton(est, callback_data=f"album_filtraestrella_{user_id}_{pagina}_{est}")
-        ])
-    teclado = InlineKeyboardMarkup(botones)
-    return teclado
-
-# ----------- Menú de GRUPOS para filtrar -----------
-
-def mostrar_menu_grupos_album(user_id, pagina):
-    grupos = sorted({c.get("grupo", "") for c in col_cartas_usuario.find({"user_id": user_id}) if c.get("grupo")})
-    botones = []
-    for grupo in grupos:
-        botones.append([InlineKeyboardButton(grupo, callback_data=f"album_filtragrupo_{user_id}_{pagina}_{grupo}")])
-    teclado = InlineKeyboardMarkup(botones)
-    return teclado
-
-@solo_en_tema_asignado("set")
-def manejador_callback_setdet(update, context):
-    query = update.callback_query
-    data = query.data  # Ejemplo: 'setdet_TWICE_123456789_2'
-    partes = data.split("_", 3)
-    if len(partes) != 4:
-        query.answer("Error en paginación", show_alert=True)
-        return
-    set_name = partes[1]
-    user_id = int(partes[2])
-    pagina = int(partes[3])
-    mostrar_detalle_set(update, context, set_name, user_id, pagina=pagina, mensaje=query.message, editar=True)
-    query.answer()
-
-
-
-
-
-@solo_en_tema_asignado("set")
-def manejador_callback_setlist(update, context):
-    query = update.callback_query
-    data = query.data  # Ejemplo: 'setlist_2'
-    partes = data.split("_")
-    if len(partes) != 2:
-        query.answer("Error en paginación", show_alert=True)
-        return
-    pagina = int(partes[1])
-    thread_id = getattr(query.message, "message_thread_id", None)  # <- AÑADE ESTO
-
-    # Vuelve a mostrar la lista, editando el mensaje anterior
-    mostrar_lista_set(update, context, pagina=pagina, mensaje=query.message, editar=True, thread_id=thread_id)
-    query.answer()  # Elimina el "loading..." de Telegram
-
-
-@solo_en_tema_asignado("setsprogreso")
-def manejador_callback_setsprogreso(update, context):
-    query = update.callback_query
-    data = query.data  # Por ejemplo: 'setsprogreso_2'
-    partes = data.split("_")
-    if len(partes) != 2:
-        query.answer("Error en paginación", show_alert=True)
-        return
-    pagina = int(partes[1])
-    mostrar_setsprogreso(update, context, pagina=pagina, mensaje=query.message, editar=True)
-    query.answer()
-
-
-# ----------- CALLBACK GENERAL para el menú de ALBUM -----------
-@solo_en_tema_asignado("album")
-@solo_en_tema_asignado("setsprogreso")
-@solo_en_tema_asignado("set")
-def manejador_callback_album(update, context):
-    query = update.callback_query
-    data = query.data
-    partes = data.split("_")
-    user_id = query.from_user.id
-
-    # ==== Siempre extrae el user_id de la posición 2 de cualquier callback_data ====
-    # Ejemplo: album_pagina_123456789_2, album_filtros_123456789_1, etc.
-    try:
-        if len(partes) > 2 and partes[2].isdigit():
-            dueño_id = int(partes[2])
-        else:
-            # fallback si algo raro
-            dueño_id = None
-    except Exception:
-        dueño_id = None
-
-    # ==== Bloquea SIEMPRE si no es el dueño ====
-    if dueño_id is not None and user_id != dueño_id:
-        query.answer("Solo puedes interactuar con tu propio álbum.", show_alert=True)
-        return
-
-    # ==== ACCIONES ====
-    # Filtros
-    if data.startswith("album_filtro_estado_"):
-        user_id = int(partes[2])
-        pagina = int(partes[3])
-        context.bot.edit_message_reply_markup(
-            chat_id=query.message.chat_id,
-            message_id=query.message.message_id,
-            reply_markup=mostrar_menu_estrellas_album(user_id, pagina)
-        )
-        return
-
-    if data.startswith("album_filtraestrella_"):
-        user_id = int(partes[2])
-        pagina = int(partes[3])
-        estrellas = partes[4]
-        mostrar_album_pagina(update, context, query.message.chat_id, query.message.message_id, user_id, pagina, filtro="estrellas", valor_filtro=estrellas)
-        return
-
-    if data.startswith("album_filtro_grupo_"):
-        user_id = int(partes[2])
-        pagina = int(partes[3])
-        grupos = sorted({c.get("grupo", "") for c in col_cartas_usuario.find({"user_id": user_id}) if c.get("grupo")})
-        context.bot.edit_message_reply_markup(
-            chat_id=query.message.chat_id,
-            message_id=query.message.message_id,
-            reply_markup=mostrar_menu_grupos_album(user_id, pagina, grupos)
-        )
-        return
-
-    if data.startswith("album_filtragrupo_"):
-        user_id = int(partes[2])
-        pagina = int(partes[3])
-        grupo = "_".join(partes[4:])
-        mostrar_album_pagina(update, context, query.message.chat_id, query.message.message_id, user_id, pagina, filtro="grupo", valor_filtro=grupo)
-        return
-
-    if data.startswith("album_filtros_"):
-        user_id = int(partes[2])
-        pagina = int(partes[3])
-        context.bot.edit_message_reply_markup(
-            chat_id=query.message.chat_id,
-            message_id=query.message.message_id,
-            reply_markup=mostrar_menu_filtros_album(user_id, pagina)
-        )
-        return
-
-    if data.startswith("album_filtro_numero_"):
-        user_id = int(partes[3])
-        pagina = int(partes[4])
-        context.bot.edit_message_reply_markup(
-            chat_id=query.message.chat_id,
-            message_id=query.message.message_id,
-            reply_markup=mostrar_menu_ordenar_album(user_id, pagina)
-        )
-        return
-
-    if data.startswith("album_ordennum_"):
-        user_id = int(partes[2])
-        pagina = int(partes[3])
-        orden = partes[4]
-        mostrar_album_pagina(update, context, query.message.chat_id, query.message.message_id, user_id, pagina, orden=orden)
-        return
-
-    if data.startswith("album_pagina_"):
-        user_id = int(partes[2])
-        pagina = int(partes[3])
-        filtro = partes[4] if len(partes) > 4 and partes[4] != "none" else None
-        valor_filtro = partes[5] if len(partes) > 5 and partes[5] != "none" else None
-        orden = partes[6] if len(partes) > 6 and partes[6] != "none" else None
-        mostrar_album_pagina(update, context, query.message.chat_id, query.message.message_id, user_id, pagina, filtro=filtro, valor_filtro=valor_filtro, orden=orden)
-        return
-
-
-@log_command
-@solo_en_tema_asignado("trk")
-@cooldown_critico
-def comando_trk(update, context):
-    user_id = update.message.from_user.id
-    chat_id = update.effective_chat.id
-    thread_id = getattr(update.message, "message_thread_id", None)
-
-    # Destinatario por reply o @username
-    if update.message.reply_to_message:
-        otro_id = update.message.reply_to_message.from_user.id
-    elif context.args and context.args[0].startswith("@"):
-        user_doc = col_usuarios.find_one({"username": context.args[0][1:].lower()})
-        if not user_doc:
-            update.message.reply_text("Usuario no encontrado o no ha usado el bot.")
-            return
-        otro_id = user_doc["user_id"]
-    else:
-        update.message.reply_text("Debes responder a un usuario o indicar su @username.")
-        return
-
-    if otro_id == user_id:
-        update.message.reply_text("Usa /trk @user o /trk respondiendo un mensaje.")
-        return
-
-    if user_id in TRADES_POR_USUARIO or otro_id in TRADES_POR_USUARIO:
-        update.message.reply_text("Uno de los dos ya tiene un intercambio pendiente.")
-        return
-
-    # Obtiene username o nombre visible de ambos usuarios
-    user_doc_a = col_usuarios.find_one({"user_id": user_id}) or {}
-    user_doc_b = col_usuarios.find_one({"user_id": otro_id}) or {}
-    username_a = user_doc_a.get("username", "")
-    username_b = user_doc_b.get("username", "")
-    nombre_a = user_doc_a.get("nombre", "")
-    nombre_b = user_doc_b.get("nombre", "")
-
-    display_a = f"@{username_a}" if username_a else (nombre_a or str(user_id))
-    display_b = f"@{username_b}" if username_b else (nombre_b or str(otro_id))
-
-    trade_id = str(uuid.uuid4())[:8]
-    TRADES_EN_CURSO[trade_id] = {
-        "usuarios": [user_id, otro_id],
-        "chat_id": chat_id,
-        "thread_id": thread_id,
-        "id_unico": {user_id: None, otro_id: None},
-        "confirmado": {user_id: False, otro_id: False},
-        "estado": "esperando_id",
-        "display": {user_id: display_a, otro_id: display_b}
-    }
-    TRADES_POR_USUARIO[user_id] = trade_id
-    TRADES_POR_USUARIO[otro_id] = trade_id
-
-    texto = (
-        f"🤝 <b>¡Trade iniciado!</b>\n"
-        f"• {display_a}\n"
-        f"• {display_b}\n\n"
-        "Ambos deben ingresar el <b>id_unico</b> de la carta que ofrecen para el intercambio (escríbanlo aquí en el tema):"
-    )
-    context.bot.send_message(
-        chat_id=chat_id, text=texto, parse_mode="HTML", message_thread_id=thread_id
-    )
-
-def mensaje_trade_id(update, context):
-    if not getattr(update, "message", None) or not getattr(update.message, "text", None):
-        return  # Ignora si no es mensaje de texto
-
-    user_id = update.message.from_user.id
-    chat_id = update.message.chat_id
-    thread_id = getattr(update.message, "message_thread_id", None)
-    texto_ingresado = update.message.text.strip()
-
-    # CANCELAR: permite cancelar en cualquier momento
-    if texto_ingresado.lower() in ("cancel", "cancelar"):
-        trade_id = TRADES_POR_USUARIO.pop(user_id, None)
-        if trade_id and trade_id in TRADES_EN_CURSO:
-            trade = TRADES_EN_CURSO.pop(trade_id)
-            for uid in trade["usuarios"]:
-                TRADES_POR_USUARIO.pop(uid, None)
-            context.bot.send_message(
-                chat_id=chat_id,
-                text="❌ El intercambio fue cancelado por uno de los participantes.",
-                message_thread_id=thread_id
-            )
-        else:
-            update.message.reply_text("No tienes ningún intercambio activo.")
-        return
-
-    trade_id = TRADES_POR_USUARIO.get(user_id)
-    if not trade_id:
-        return
-    trade = TRADES_EN_CURSO.get(trade_id)
-    if not trade or trade["chat_id"] != chat_id or trade["thread_id"] != thread_id:
-        return
-    if user_id not in trade["usuarios"]:
-        return
-
-    if trade["estado"] != "esperando_id":
-        return
-
-    if user_id not in trade["usuarios"]:
-        update.message.reply_text("Solo los usuarios del intercambio pueden participar.")
-        return
-
-    carta = col_cartas_usuario.find_one({"user_id": user_id, "id_unico": texto_ingresado})
-    if not carta:
-        update.message.reply_text("No tienes una carta con ese id_unico.")
-        return
-
-    trade["id_unico"][user_id] = texto_ingresado
-
-    if all(trade["id_unico"].values()):
-        trade["estado"] = "confirmacion"
-        mostrar_trade_resumen(context, trade_id)
-    else:
-        update.message.reply_text("Carta seleccionada, esperando al otro usuario...")
-
-def mostrar_trade_resumen(context, trade_id):
-    trade = TRADES_EN_CURSO[trade_id]
-    user_a, user_b = trade["usuarios"]
-    id_a, id_b = trade["id_unico"][user_a], trade["id_unico"][user_b]
-    carta_a = col_cartas_usuario.find_one({"user_id": user_a, "id_unico": id_a})
-    carta_b = col_cartas_usuario.find_one({"user_id": user_b, "id_unico": id_b})
-    chat_id = trade["chat_id"]
-    thread_id = trade["thread_id"]
-
-    display_a = trade["display"][user_a]
-    display_b = trade["display"][user_b]
-
-    texto = (
-        f"🔄 <b>Propuesta de Intercambio</b>\n\n"
-        f"{display_a} ofrece <b>[{carta_a['version']}] {carta_a['nombre']}</b> ({id_a})\n"
-        f"{display_b} ofrece <b>[{carta_b['version']}] {carta_b['nombre']}</b> ({id_b})\n\n"
-        "Ambos deben confirmar con el botón para completar el intercambio."
-    )
-    botones = [
-        [
-            InlineKeyboardButton("✅ Confirmar", callback_data=f"tradeconf_{trade_id}"),
-            InlineKeyboardButton("❌ Cancelar", callback_data=f"tradecancel_{trade_id}")
-        ]
-    ]
-    context.bot.send_message(
-        chat_id=chat_id, text=texto, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(botones),
-        message_thread_id=thread_id
-    )
-
-
-def callback_trade_confirm(update, context):
-    query = update.callback_query
-    data = query.data
-    partes = data.split("_")
-    trade_id = partes[1]
-    user_id = query.from_user.id
-
-    trade = TRADES_EN_CURSO.get(trade_id)
-    if not trade or trade["estado"] != "confirmacion":
-        query.answer("No hay intercambio pendiente.", show_alert=True)
-        return
-
-    # Solo los usuarios del trade pueden interactuar
-    if user_id not in trade["usuarios"]:
-        query.answer("Solo los usuarios del intercambio pueden interactuar.", show_alert=True)
-        return
-
-    if data.startswith("tradeconf_"):
-        trade["confirmado"][user_id] = True
-        query.answer("Confirmaste el trade.", show_alert=True)
-        if all(trade["confirmado"].values()):
-            a, b = trade["usuarios"]
-            id_a, id_b = trade["id_unico"][a], trade["id_unico"][b]
-            carta_a = col_cartas_usuario.find_one_and_delete({"user_id": a, "id_unico": id_a})
-            carta_b = col_cartas_usuario.find_one_and_delete({"user_id": b, "id_unico": id_b})
-
-            # Chequeo de saldo kponey (deben tener al menos 100 ambos)
-            saldo_a = col_usuarios.find_one({"user_id": a}, {"kponey": 1}) or {}
-            saldo_b = col_usuarios.find_one({"user_id": b}, {"kponey": 1}) or {}
-            kponey_a = saldo_a.get("kponey", 0)
-            kponey_b = saldo_b.get("kponey", 0)
-
-            if kponey_a < 100 or kponey_b < 100:
-                txt = (
-                    "❌ Uno de los usuarios no tiene suficiente Kponey (100 🪙) para el intercambio. "
-                    "Ambos deben tener saldo para completar el trade."
-                )
-                # Devuelve las cartas si ya se borraron
-                if carta_a:
-                    col_cartas_usuario.insert_one(carta_a)
-                if carta_b:
-                    col_cartas_usuario.insert_one(carta_b)
-                context.bot.send_message(
-                    chat_id=trade["chat_id"], text=txt, message_thread_id=trade["thread_id"]
-                )
-                for uid in trade["usuarios"]:
-                    TRADES_POR_USUARIO.pop(uid, None)
-                TRADES_EN_CURSO.pop(trade_id, None)
-                return
-
-            if carta_a and carta_b:
-                carta_a["user_id"] = b
-                carta_b["user_id"] = a
-                col_cartas_usuario.insert_one(carta_a)
-                col_cartas_usuario.insert_one(carta_b)
-                # Descontar 100 kponey a cada usuario
-                col_usuarios.update_one({"user_id": a}, {"$inc": {"kponey": -100}})
-                col_usuarios.update_one({"user_id": b}, {"$inc": {"kponey": -100}})
-                revisar_sets_completados(a, context)
-                revisar_sets_completados(b, context)
-                display_a = trade["display"][a]
-                display_b = trade["display"][b]
-                txt = (
-                    f"✅ ¡Intercambio realizado exitosamente!\n"
-                    f"{display_a} y {display_b} han intercambiado sus cartas.\n"
-                    f"- 100 Kponey descontados a cada usuario."
-                )
-            else:
-                txt = "❌ Error: una de las cartas ya no está disponible."
-            context.bot.send_message(
-                chat_id=trade["chat_id"], text=txt, message_thread_id=trade["thread_id"]
-            )
-            for uid in trade["usuarios"]:
-                TRADES_POR_USUARIO.pop(uid, None)
-            TRADES_EN_CURSO.pop(trade_id, None)
-    elif data.startswith("tradecancel_"):
-        context.bot.send_message(
-            chat_id=trade["chat_id"],
-            text="❌ El intercambio fue cancelado.",
-            message_thread_id=trade["thread_id"]
-        )
-        for uid in trade["usuarios"]:
-            TRADES_POR_USUARIO.pop(uid, None)
-        TRADES_EN_CURSO.pop(trade_id, None)
-        query.answer("Trade cancelado.", show_alert=True)
-
-
-dispatcher.add_handler(CallbackQueryHandler(callback_trade_confirm, pattern=r"^trade(conf|cancel)_"))
-
-
-
-
-
-
-
-
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-
-@log_command
-@solo_en_tema_asignado("mejorar")
-@cooldown_critico
-def comando_mejorar(update, context):
-    user_id = update.message.from_user.id
-
-    # Si se pasa un argumento, buscar esa carta y lanzar el menú de mejora SOLO para esa carta
-    if context.args:
-        id_unico = context.args[0].strip()
-        carta = col_cartas_usuario.find_one({"user_id": user_id, "id_unico": id_unico})
-        if not carta:
-            update.message.reply_text("No tienes esa carta (o el id_unico no es válido).")
-            return
-        if carta.get("estrellas", "") == "★★★":
-            update.message.reply_text("Esta carta ya tiene el máximo de estrellas.")
-            return
-        # Llama directo a mostrar_lista_mejorables con SOLO esa carta
-        mostrar_lista_mejorables(update, context, user_id, [carta], pagina=1)
-        return
-
-    # Caso tradicional: mostrar todas las mejorables
-    cartas_usuario = list(col_cartas_usuario.find({"user_id": user_id}))
-    cartas_mejorables = [
-        c for c in cartas_usuario
-        if c.get("estrellas", "") != "★★★"
-    ]
-    # Ordenar por nombre y versión
-    cartas_mejorables.sort(
-        key=lambda x: (
-            x.get("nombre", "").lower(),
-            x.get("version", "").lower()
-        )
-    )
-    if not cartas_mejorables:
-        update.message.reply_text("No tienes cartas que se puedan mejorar (todas son ★★★).")
-        return
-
-    pagina = 1
-    mostrar_lista_mejorables(update, context, user_id, cartas_mejorables, pagina)
-
-
-
-@log_command
-@en_tema_asignado_o_privado("inventario")
-@solo_en_tema_asignado("inventario")
-@cooldown_critico
-def comando_inventario(update, context):
-    user_id = update.message.from_user.id
-    chat_id = update.effective_chat.id
-
-    doc = col_usuarios.find_one({"user_id": user_id}) or {}
-    objetos = doc.get("objetos", {})
-    kponey = doc.get("kponey", 0)
-    bono = doc.get("bono", 0)
-    gemas = doc.get("gemas", 0)   # ← AQUÍ
-
-    texto = f"🎒 <b>Tu inventario</b>\n\n"
-    tiene_objetos = False
-    for obj_id, info in CATALOGO_OBJETOS.items():
-        cantidad = objetos.get(obj_id, 0)
-        if cantidad > 0:
-            tiene_objetos = True
-            texto += f"{info['emoji']} <b>{info['nombre']}</b>: <b>{cantidad}</b>\n"
-    if not tiene_objetos:
-        texto += "No tienes objetos todavía.\n"
-    texto += f"\n💎 <b>Gemas:</b> <code>{gemas}</code>"   # ← AQUÍ
-    texto += f"\n💸 <b>Kponey:</b> <code>{kponey}</code>"
-    texto += "\n\nVe al tema <code>Tienda KaruKpop</code> para comprar objetos."
-    update.message.reply_text(texto, parse_mode="HTML")
-
-
-
-
-
-
-
-
-@log_command
-@solo_en_tema_asignado("tienda")
-@cooldown_critico
-def comando_tienda(update, context):
-    user_id = update.message.from_user.id
-    doc = col_usuarios.find_one({"user_id": user_id}) or {}
-    kponey = doc.get("kponey", 0)
-
-    texto = "🛒 <b>Tienda de objetos</b>\n\n"
-    botones = []
-    for obj_id, info in CATALOGO_OBJETOS.items():
-        texto += (
-            f"{info['emoji']} <b>{info['nombre']}</b> — <code>{info['precio']} Kponey</code>\n"
-            f"{info['desc']}\n\n"
-        )
-        botones.append([InlineKeyboardButton(f"{info['emoji']} Comprar {info['nombre']}", callback_data=f"comprarobj_{obj_id}")])
-    texto += f"💸 <b>Tu saldo:</b> <code>{kponey}</code>"
-
-    teclado = InlineKeyboardMarkup(botones)
-    update.message.reply_text(texto, parse_mode="HTML", reply_markup=teclado)
-
-
-
-
-
-def comprar_objeto(user_id, obj_id, context, chat_id, reply_func):
-    info = CATALOGO_OBJETOS.get(obj_id)
-    if not info:
-        reply_func("Ese objeto no existe.")
-        return
-
-    doc = col_usuarios.find_one({"user_id": user_id}) or {}
-    kponey = doc.get("kponey", 0)
-    precio = info['precio']
-    if kponey < precio:
-        reply_func("No tienes suficiente Kponey para este objeto.")
-        return
-
-    col_usuarios.update_one(
-        {"user_id": user_id},
-        {"$inc": {f"objetos.{obj_id}": 1, "kponey": -precio}},
-        upsert=True
-    )
-    reply_func(
-        f"¡Compraste {info['emoji']} {info['nombre']} por {precio} Kponey!",
-        parse_mode="HTML"
-    )
-
-@log_command
-@solo_en_tema_asignado("comprarobjeto")
-@cooldown_critico
-def comando_comprarobjeto(update, context):
-    user_id = update.message.from_user.id
-    chat_id = update.effective_chat.id
-    if not context.args:
-        update.message.reply_text("Usa: /comprarobjeto <objeto_id>\nEjemplo: /comprarobjeto bono_idolday")
-        return
-    obj_id = context.args[0].strip()
-    comprar_objeto(
-        user_id, obj_id, context, chat_id,
-        lambda text, **kwargs: update.message.reply_text(text, **kwargs)
-    )
-
-
-@solo_en_tema_asignado("tiendaG")
-@cooldown_critico
-def comando_tiendaG(update, context):
-    user_id = update.message.from_user.id
-    doc = col_usuarios.find_one({"user_id": user_id}) or {}
-    gemas = doc.get("gemas", 0)
-
-    texto = "💎 <b>Tienda de objetos (Gemas)</b>\n\n"
-    botones = []
-    for obj_id, info in CATALOGO_OBJETOSG.items():
-        if "precio_gemas" not in info:
-            continue  # Solo muestra objetos con precio en gemas
-        texto += (
-            f"{info['emoji']} <b>{info['nombre']}</b> — <code>{info['precio_gemas']} Gemas</code>\n"
-            f"{info['desc']}\n\n"
-        )
-        botones.append([InlineKeyboardButton(f"{info['emoji']} Comprar {info['nombre']}", callback_data=f"comprarG_{obj_id}")])
-    texto += f"💎 <b>Tu saldo:</b> <code>{gemas}</code>"
-
-    teclado = InlineKeyboardMarkup(botones)
-    update.message.reply_text(texto, parse_mode="HTML", reply_markup=teclado)
-
-
-def solo_admin(func):
-    def wrapper(update, context, *args, **kwargs):
-        user_id = None
-        if hasattr(update, "message") and update.message:
-            user_id = update.message.from_user.id
-        elif hasattr(update, "callback_query") and update.callback_query:
-            user_id = update.callback_query.from_user.id
-
-        # Pon aquí tus IDs de admin (agrega los tuyos)
-        ADMIN_IDS = [1111798714]  # ← Reemplaza por tus IDs
-
-        if user_id not in ADMIN_IDS:
-            if hasattr(update, "message") and update.message:
-                update.message.reply_text("Este comando solo puede usarlo un admin.")
-            elif hasattr(update, "callback_query") and update.callback_query:
-                update.callback_query.answer("Este comando solo puede usarlo un admin.", show_alert=True)
-            return
-        return func(update, context, *args, **kwargs)
-    return wrapper
-
-
-@log_command
-@solo_admin
-def comando_sorteo(update, context):
-    args = context.args
-    if len(args) < 4:
-        update.message.reply_text(
-            "Uso: /sorteo <Premio> <Cantidad> <Duración horas> <Ganadores>\n"
-            "Ejemplo: /sorteo \"Bono Idolday\" 1 6 2"
-        )
-        return
-
-    premio = " ".join(args[:-3])
-    try:
-        cantidad = int(args[-3])
-        duracion_horas = float(args[-2])  # Permite decimales (minutos)
-        num_ganadores = int(args[-1])
-    except Exception:
-        update.message.reply_text("Cantidad, duración y ganadores deben ser números.")
-        return
-
-    if premio.lower() not in [obj["nombre"].lower() for obj in CATALOGO_OBJETOS.values()]:
-        premios_posibles = ", ".join(obj["nombre"] for obj in CATALOGO_OBJETOS.values())
-        update.message.reply_text(f"Premio no válido. Premios permitidos: {premios_posibles}")
-        return
-
-    now = datetime.utcnow()
-    fin = now + timedelta(hours=duracion_horas)
-    sorteo_id = str(int(now.timestamp() * 1000))
-    thread_id = getattr(update.message, "message_thread_id", None)
-
-    texto = (
-        f"🎉 <b>Sorteo KaruKpop</b> 🎉\n"
-        f"¡Presiona el botón para participar por <b>{cantidad}x {premio}</b>!\n"
-        f"Este sorteo expira en <b>{duracion_horas} horas</b>.\n"
-        f"Habrá <b>{num_ganadores}</b> ganador{'es' if num_ganadores > 1 else ''}.\n\n"
-        f"👥 <b>Participantes:</b>\n<i>Aún no hay participantes.</i>"
-    )
-    botones = [
-        [InlineKeyboardButton("🎉 Participar", callback_data=f"sorteopart_{sorteo_id}")]
-    ]
-    msg = update.message.reply_text(
-        texto, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(botones)
-    )
-    col_sorteos.insert_one({
-        "sorteo_id": sorteo_id,
-        "premio": premio,
-        "cantidad": cantidad,
-        "creador_id": update.message.from_user.id,
-        "chat_id": msg.chat_id,
-        "mensaje_id": msg.message_id,
-        "fin": fin,
-        "num_ganadores": num_ganadores,
-        "participantes": [],
-        "finalizado": False,
-        "ganadores": [],
-        "message_thread_id": thread_id,
-    })
-
-    # Borra el mensaje original del comando
-    try:
-        update.message.delete()
-    except Exception as e:
-        print(f"[comando_sorteo] Error al borrar el mensaje del comando: {e}")
-
-
-def callback_sorteo_participar(update, context):
-    query = update.callback_query
-    user_id = query.from_user.id
-    username = query.from_user.username or ""
-    nombre = (query.from_user.first_name or "") + ((" " + query.from_user.last_name) if hasattr(query.from_user, "last_name") and query.from_user.last_name else "")
-
-    data = query.data
-    if not data.startswith("sorteopart_"):
-        return
-    sorteo_id = data.replace("sorteopart_", "")
-    sorteo = col_sorteos.find_one({"sorteo_id": sorteo_id, "finalizado": False})
-    if not sorteo:
-        query.answer("Este sorteo ya terminó o no existe.", show_alert=True)
-        return
-
-    # Evitar doble participación
-    if any(p["user_id"] == user_id for p in sorteo.get("participantes", [])):
-        query.answer("🎉Ya estás participando en este sorteo🎉", show_alert=True)
-        return
-
-    # Agrega participante
-    participante = {
-        "user_id": user_id,
-        "username": username,
-        "nombre": nombre.strip()
-    }
-    col_sorteos.update_one(
-        {"sorteo_id": sorteo_id},
-        {"$push": {"participantes": participante}}
-    )
-
-    # Refresca mensaje con la lista de participantes
-    sorteo = col_sorteos.find_one({"sorteo_id": sorteo_id})
-    participantes = sorteo.get("participantes", [])
-    if participantes:
-        lista = "\n".join([
-            f"• @{p['username']}" if p['username'] else f"• {p['nombre']}"
-            for p in participantes
-        ])
-    else:
-        lista = "<i>Aún no hay participantes.</i>"
-
-    texto = (
-        f"🎉 <b>Sorteo KaruKpop</b> 🎉\n"
-        f"¡Presiona el botón para participar por <b>{sorteo['cantidad']}x {sorteo['premio']}</b>!\n"
-        f"Este sorteo expira en <b>{(sorteo['fin'] - datetime.utcnow()).total_seconds() // 3600:.0f} horas</b>.\n"
-        f"Habrá <b>{sorteo['num_ganadores']}</b> ganador{'es' if sorteo['num_ganadores'] > 1 else ''}.\n\n"
-        f"👥 <b>Participantes:</b>\n{lista}"
-    )
-    try:
-        context.bot.edit_message_text(
-            chat_id=sorteo["chat_id"],
-            message_id=sorteo["mensaje_id"],
-            text=texto,
-            parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🎉 Participar", callback_data=f"sorteopart_{sorteo_id}")]
-            ])
-        )
-    except Exception as e:
-        print(f"[callback_sorteo_participar] Error editando mensaje: {e}")
-
-    query.answer("¡Estás participando en el sorteo!", show_alert=True)
-
-def premio_clave(nombre_premio):
-    for key, obj in CATALOGO_OBJETOS.items():
-        if obj["nombre"].lower() == nombre_premio.lower():
-            return key
-    return nombre_premio.lower().replace(" ", "_")
-
-def proceso_sorteos_auto(context):
-    while True:
-        ahora = datetime.utcnow()
-        sorteos = list(col_sorteos.find({"finalizado": False, "fin": {"$lte": ahora}}))
-        for sorteo in sorteos:
-            participantes = sorteo.get("participantes", [])
-            num_ganadores = sorteo.get("num_ganadores", 1)
-            premio_key = premio_clave(sorteo["premio"])
-            cantidad = int(sorteo["cantidad"])
-
-            if participantes:
-                ganadores = random.sample(participantes, min(num_ganadores, len(participantes)))
-                ganadores_ids = [g["user_id"] for g in ganadores]
-                col_sorteos.update_one(
-                    {"sorteo_id": sorteo["sorteo_id"]},
-                    {"$set": {"finalizado": True, "ganadores": ganadores_ids}}
-                )
-                # Premia a los ganadores
-                for ganador in ganadores:
-                    col_usuarios.update_one(
-                        {"user_id": ganador["user_id"]},
-                        {"$inc": {f"objetos.{premio_key}": cantidad}},
-                        upsert=True
-                    )
-                    try:
-                        context.bot.send_message(
-                            chat_id=ganador["user_id"],
-                            text=f"🎉 ¡Felicidades! Ganaste el sorteo de <b>{cantidad}x {sorteo['premio']}</b>.",
-                            parse_mode="HTML"
-                        )
-                    except Exception:
-                        pass
-
-                # Solo edita el mensaje original (no envía mensaje nuevo al grupo)
-                ganador_texto = "\n".join([
-                    f"• @{g['username']}" if g['username'] else f"• {g['nombre']}"
-                    for g in ganadores
-                ])
-                texto_final = (
-                    f"🎉 <b>Sorteo KaruKpop</b> 🎉\n"
-                    f"<b>Finalizado</b>\n\n"
-                    f"Ganador{'es' if len(ganadores) > 1 else ''}:\n{ganador_texto}\n\n"
-                    f"Premio: <b>{cantidad}x {sorteo['premio']}</b>"
-                )
-            else:
-                col_sorteos.update_one(
-                    {"sorteo_id": sorteo["sorteo_id"]},
-                    {"$set": {"finalizado": True, "ganadores": []}}
-                )
-
-                texto_final = (
-                    f"🎉 <b>Sorteo KaruKpop</b> 🎉\n"
-                    f"<b>Finalizado</b>\n\n"
-                    f"Nadie participó, sin ganador."
-                )
-
-            # Edita el mensaje del sorteo (quita botón y pone resumen final)
-            try:
-                context.bot.edit_message_text(
-                    chat_id=sorteo["chat_id"],
-                    message_id=sorteo["mensaje_id"],
-                    text=texto_final,
-                    parse_mode="HTML"
-                )
-            except Exception as e:
-                print(f"[proceso_sorteos_auto] Error al editar mensaje final de sorteo: {e}")
-        time.sleep(60)
-
-def iniciar_proceso_sorteos(context):
-    hilo = threading.Thread(target=proceso_sorteos_auto, args=(context,), daemon=True)
-    hilo.start()
-
-
-
-
-
-
-
-
-
-#----------------------------------------------------
-
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-
-def mostrar_mercado_pagina(
-    chat_id, message_id, context, user_id, pagina=1, filtro=None, valor_filtro=None, orden=None, thread_id=None
-):
-    # --- FILTRO DE CARTAS ---
-    query_mercado = {}
-    if filtro == "estrellas":
-        query_mercado["estrellas"] = valor_filtro
-    elif filtro == "grupo":
-        query_mercado["grupo"] = valor_filtro
-
-    cartas = list(col_mercado.find(query_mercado))
-
-    # --- ORDEN ---
-    if orden == "menor":
-        cartas.sort(key=lambda x: x.get("card_id", 0))
-    elif orden == "mayor":
-        cartas.sort(key=lambda x: -x.get("card_id", 0))
-    else:
-        cartas.sort(key=lambda x: (x.get("grupo", "").lower(), x.get("nombre", "").lower(), x.get("card_id", 0)))
-
-    # --- PAGINACIÓN ---
-    cartas_por_pagina = 10
-    total_paginas = max(1, ((len(cartas) - 1) // cartas_por_pagina) + 1)
-    pagina = max(1, min(pagina, total_paginas))
-    inicio = (pagina - 1) * cartas_por_pagina
-    fin = inicio + cartas_por_pagina
-    cartas_pagina = cartas[inicio:fin]
-
-    # --- PREPARA FAVORITOS DEL USUARIO ---
-    usuario = col_usuarios.find_one({"user_id": user_id}) or {}
-    favoritos = usuario.get("favoritos", [])
-
-    texto = "<b>🛒 Mercado</b>\n"
-    for c in cartas_pagina:
-        estrellas = f"[{c.get('estrellas', '?')}]"
-        num = f"#{c.get('card_id', '?')}"
-        ver = f"[{c.get('version', '?')}]"
-        nom = c.get('nombre', '?')
-        grp = c.get('grupo', '?')
-        idu = c.get('id_unico', '')
-
-        precio = precio_carta_tabla(
-            c.get('estrellas', '☆☆☆'),
-            c.get('card_id', 0)
-        )
-
-        es_fav = any(
-            fav.get("nombre") == c.get("nombre") and fav.get("version") == c.get("version")
-            for fav in favoritos
-        )
-        estrella_fav = " ⭐" if es_fav else ""
-
-        # --- Mostrar vendedor ---
-        vendedor_id = c.get("vendedor_id")
-        vendedor_linea = ""
-        if vendedor_id:
-            vendedor_doc = col_usuarios.find_one({"user_id": vendedor_id}) or {}
-            username = vendedor_doc.get("username")
-            if username:
-                vendedor_linea = f'👤 Vendedor: <code>{username}</code>\n'
-
-        texto += (
-            f"{estrellas} · {num} · {ver} · {nom} · {grp}{estrella_fav}\n"
-            f"💲{precio:,}\n"
-            f"{vendedor_linea}"
-            f"<code>/comprar {idu}</code>\n\n"
-        )
-    if not cartas_pagina:
-        texto += "\n(No hay cartas para mostrar con este filtro)"
-
-    # --- BOTONES ---
-    botones = []
-    botones.append([InlineKeyboardButton("🔎 Filtrar / Ordenar", callback_data=f"mercado_filtros_{user_id}_{pagina}")])
-    paginacion = []
-    if pagina > 1:
-        paginacion.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_pagina_{user_id}_{pagina-1}_{filtro or 'none'}_{valor_filtro or 'none'}_{orden or 'none'}_{thread_id if thread_id else 'none'}"))
-    if pagina < total_paginas:
-        paginacion.append(InlineKeyboardButton("➡️", callback_data=f"mercado_pagina_{user_id}_{pagina+1}_{filtro or 'none'}_{valor_filtro or 'none'}_{orden or 'none'}_{thread_id if thread_id else 'none'}"))
-    if paginacion:
-        botones.append(paginacion)
-    teclado = InlineKeyboardMarkup(botones)
-
-    # --- Protege contra Flood control y otros errores ---
-    import telegram
-    try:
-        context.bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=message_id,
-            text=texto,
-            parse_mode="HTML",
-            reply_markup=teclado
-            # NO pongas message_thread_id aquí JAMÁS
-        )
-    except telegram.error.RetryAfter as e:
-        print(f"[mercado] Flood control: debes esperar {e.retry_after} segundos para editar mensaje.")
-        try:
-            if hasattr(context, 'bot') and hasattr(context, 'update') and hasattr(context.update, 'callback_query'):
-                context.update.callback_query.answer(
-                    f"⚠️ ¡Calma! Debes esperar {int(e.retry_after)}s para cambiar de página (Telegram limita los cambios rápidos).",
-                    show_alert=True
-                )
-        except Exception:
-            pass
-    except Exception as ex:
-        print("[mercado] Otro error al editar mensaje:", ex)
-        try:
-            if hasattr(context, 'bot') and hasattr(context, 'update') and hasattr(context.update, 'callback_query'):
-                context.update.callback_query.answer(
-                    "Ocurrió un error inesperado al cambiar de página.",
-                    show_alert=True
-                )
-        except Exception:
-            pass
-
-
-
-
-
-
-
-def mostrar_menu_filtros(user_id, pagina, thread_id=None):
-    botones = [
-        [InlineKeyboardButton("⭐ Filtrar por Estado", callback_data=f"mercado_filtro_estado_{user_id}_{pagina}_{thread_id if thread_id else 'none'}")],
-        [InlineKeyboardButton("👥 Filtrar por Grupo", callback_data=f"mercado_filtro_grupo_{user_id}_{pagina}_1_{thread_id if thread_id else 'none'}")],
-        [InlineKeyboardButton("🔢 Ordenar por Número", callback_data=f"mercado_filtro_numero_{user_id}_{pagina}_{thread_id if thread_id else 'none'}")],
-        [InlineKeyboardButton("⬅️ Volver", callback_data=f"mercado_pagina_{user_id}_{pagina}_none_none_none_{thread_id if thread_id else 'none'}")]
-    ]
-    return InlineKeyboardMarkup(botones)
-
-def mostrar_menu_estrellas(user_id, pagina, thread_id=None):
-    botones = [
-        [InlineKeyboardButton("★★★", callback_data=f"mercado_filtraestrella_{user_id}_{pagina}_★★★_{thread_id if thread_id else 'none'}")],
-        [InlineKeyboardButton("★★☆", callback_data=f"mercado_filtraestrella_{user_id}_{pagina}_★★☆_{thread_id if thread_id else 'none'}")],
-        [InlineKeyboardButton("★☆☆", callback_data=f"mercado_filtraestrella_{user_id}_{pagina}_★☆☆_{thread_id if thread_id else 'none'}")],
-        [InlineKeyboardButton("☆☆☆", callback_data=f"mercado_filtraestrella_{user_id}_{pagina}_☆☆☆_{thread_id if thread_id else 'none'}")],
-        [InlineKeyboardButton("⬅️ Volver", callback_data=f"mercado_filtros_{user_id}_{pagina}_{thread_id if thread_id else 'none'}")]
-    ]
-    return InlineKeyboardMarkup(botones)
-
-
-def mostrar_menu_grupos(user_id, pagina, grupos, thread_id=None):
-    por_pagina = 5
-    total = len(grupos)
-    paginas = max(1, (total - 1) // por_pagina + 1)
-    if pagina < 1: pagina = 1
-    if pagina > paginas: pagina = paginas
-    inicio = (pagina - 1) * por_pagina
-    fin = min(inicio + por_pagina, total)
-    grupos_pagina = grupos[inicio:fin]
-
-    matriz = []
-    for g in grupos_pagina:
-        grupo_codificado = urllib.parse.quote_plus(g)
-        matriz.append([InlineKeyboardButton(
-            g,
-            callback_data=f"mercado_filtragrupo_{user_id}_{pagina}_{grupo_codificado}_{thread_id if thread_id else 'none'}"
-        )])
-
-    nav = []
-    if pagina > 1:
-        nav.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_filtro_grupo_{user_id}_{pagina-1}_{thread_id if thread_id else 'none'}"))
-    if pagina < paginas:
-        nav.append(InlineKeyboardButton("➡️", callback_data=f"mercado_filtro_grupo_{user_id}_{pagina+1}_{thread_id if thread_id else 'none'}"))
-    if nav:
-        matriz.append(nav)
-    matriz.append([InlineKeyboardButton("⬅️ Volver", callback_data=f"mercado_filtros_{user_id}_{pagina}_{thread_id if thread_id else 'none'}")])
-
-    return InlineKeyboardMarkup(matriz)
-
-
-
-def normalizar_nombre_carta(nombre):
-    nombre = nombre.lower()
-    nombre = re.sub(r"\s+", " ", nombre)
-    nombre = re.sub(r"\s+\[", " [", nombre)
-    nombre = re.sub(r"\]\s+", "] ", nombre)
-    return nombre.strip()
-
-
-
-#----------Comando FAV1---------------
-@log_command
-@en_tema_asignado_o_privado("favoritos")
-@solo_en_tema_asignado("favoritos")
-@cooldown_critico
-def comando_favoritos(update, context):
-    user_id = update.message.from_user.id
-    doc = col_usuarios.find_one({"user_id": user_id})
-    favoritos = doc.get("favoritos", []) if doc else []
-
-    if not favoritos:
-        update.message.reply_text(
-            "⭐ No tienes cartas favoritas aún. Usa <code>/fav Twice [V1] Dahyun</code> para añadir una.",
-            parse_mode="HTML"
-        )
-        return
-
-    texto = "⭐ <b>Tus cartas favoritas:</b>\n\n"
-    for fav in favoritos:
-        grupo = fav.get("grupo", "SinGrupo")
-        nombre = fav.get("nombre", "")
-        version = fav.get("version", "")
-        texto += f"<code>{grupo} [{version}] {nombre}</code>\n"
-    texto += "\n<i>Puedes añadir o quitar favoritos usando /fav &lt;grupo&gt; [Vn] Nombre</i>"
-
-    update.message.reply_text(texto, parse_mode="HTML")
-
-
-#----------Comando FAV---------------
-@log_command
-@solo_en_tema_asignado("fav")
-@cooldown_critico
-def comando_fav(update, context):
-    user_id = update.message.from_user.id
-    args = context.args
-    if not args or len(args) < 3:
-        update.message.reply_text(
-            "Usa: /fav <grupo> [Vn] Nombre\nEjemplo: /fav Twice [V1] Dahyun",
-            parse_mode="HTML"
-        )
-        return
-
-    # Buscar el índice de la versión (debe estar entre corchetes)
-    version_idx = next((i for i, x in enumerate(args) if x.startswith("[") and x.endswith("]")), -1)
-    if version_idx == -1 or version_idx == 0 or version_idx == len(args) - 1:
-        update.message.reply_text(
-            "Formato incorrecto. Ejemplo: /fav Twice [V1] Dahyun",
-            parse_mode="HTML"
-        )
-        return
-
-    grupo = " ".join(args[:version_idx])
-    version = args[version_idx][1:-1]
-    nombre = " ".join(args[version_idx+1:]).strip()
-
-    # Normaliza la búsqueda
-    nombre_usuario_normalizado = normalizar_nombre_carta(f"{grupo} [{version}] {nombre}")
-
-    existe = next((
-        c for c in cartas
-        if normalizar_nombre_carta(f"{c.get('grupo', c.get('set'))} [{c['version']}] {c['nombre']}") == nombre_usuario_normalizado
-    ), None)
-
-    if not existe:
-        update.message.reply_text(
-            f"No se encontró la carta: <code>{grupo} [{version}] {nombre}</code>\n"
-            "Asegúrate de copiar el nombre tal como aparece en el set.",
-            parse_mode="HTML"
-        )
-        return
-
-    doc = col_usuarios.find_one({"user_id": user_id}) or {}
-    favoritos = doc.get("favoritos", [])
-
-    key = {"grupo": grupo, "nombre": nombre, "version": version}
-    ya_es_fav = any(
-        normalizar_nombre_carta(f"{f['grupo']} [{f['version']}] {f['nombre']}") == nombre_usuario_normalizado
-        for f in favoritos
-    )
-
-    if ya_es_fav:
-        favoritos = [
-            f for f in favoritos
-            if normalizar_nombre_carta(f"{f['grupo']} [{f['version']}] {f['nombre']}") != nombre_usuario_normalizado
-        ]
-        col_usuarios.update_one({"user_id": user_id}, {"$set": {"favoritos": favoritos}}, upsert=True)
-        update.message.reply_text(
-            f"❌ Quitaste de favoritos: <code>{grupo} [{version}] {nombre}</code>",
-            parse_mode="HTML"
-        )
-    else:
-        favoritos.append(key)
-        col_usuarios.update_one({"user_id": user_id}, {"$set": {"favoritos": favoritos}}, upsert=True)
-        update.message.reply_text(
-            f"⭐ Añadiste a favoritos: <code>{grupo} [{version}] {nombre}</code>",
-            parse_mode="HTML"
-        )
-
-
-
-#------------COMANDO PRECIO---------------------
-@log_command
-@solo_en_tema_asignado("precio")
-@cooldown_critico
-def comando_precio(update, context):
-    if not context.args:
-        update.message.reply_text("Usa: /precio <id_unico>\nEjemplo: /precio f4fg1")
-        return
-    id_unico = context.args[0].strip()
-    carta = col_cartas_usuario.find_one({"id_unico": id_unico})
-    if not carta:
-        update.message.reply_text("No se encontró la carta con ese ID único en la base de datos.")
-        return
-
-    nombre = carta['nombre']
-    version = carta['version']
-    estrellas = carta.get('estrellas', '☆☆☆')
-    card_id = carta.get('card_id') or extraer_card_id_de_id_unico(id_unico)
-    total_copias = col_cartas_usuario.count_documents({"nombre": nombre, "version": version})
-
-    # Calcula el precio REAL usando tu tabla
-    precio = precio_carta_tabla(estrellas, card_id)
-
-    texto = (
-        f"🖼️ <b>Información de carta [{id_unico}]</b>\n"
-        f"• Nombre: <b>{nombre}</b>\n"
-        f"• Versión: <b>{version}</b>\n"
-        f"• Estado: <b>{estrellas}</b>\n"
-        f"• Nº de carta: <b>#{card_id}</b>\n"
-        f"• Precio: <code>{precio} Kponey</code>\n"
-        f"• Copias globales: <b>{total_copias}</b>"
-    )
-    update.message.reply_text(texto, parse_mode='HTML')
-
-
-
-#------Comando vender--------------------
-@log_command
-@solo_en_tema_asignado("vender")
-@cooldown_critico
-def comando_vender(update, context):
-    user_id = update.message.from_user.id
-    chat_id = update.effective_chat.id
-
-    if not context.args:
-        update.message.reply_text("Usa: /vender <id_unico>")
-        return
-    id_unico = context.args[0].strip()
-    carta = col_cartas_usuario.find_one({"user_id": user_id, "id_unico": id_unico})
-    if not carta:
-        update.message.reply_text("No tienes esa carta en tu inventario.")
-        return
-
-    nombre = carta['nombre']
-    version = carta['version']
-    estado = carta['estado']
-    estrellas = carta.get('estrellas')
-    id_unico = carta.get("id_unico", "")
-    card_id = carta.get('card_id', extraer_card_id_de_id_unico(id_unico))
-    precio = precio_carta_tabla(estrellas, card_id)
-
-    # Verifica si ya está en mercado
-    ya = col_mercado.find_one({"id_unico": id_unico})
-    if ya:
-        update.message.reply_text("Esta carta ya está en el mercado.")
-        return
-
-    # Quitar de inventario y poner en mercado
-    col_cartas_usuario.delete_one({"user_id": user_id, "id_unico": id_unico})
-
-    col_mercado.insert_one({
-        "id_unico": id_unico,
-        "vendedor_id": user_id,     # ← SIEMPRE lo guarda aquí
-        "nombre": nombre,
-        "version": version,
-        "estado": estado,
-        "estrellas": estrellas,
-        "precio": precio,
-        "card_id": card_id,
-        "fecha": datetime.utcnow(),
-        "imagen": carta.get("imagen"),
-        "grupo": carta.get("grupo", "")
-    })
-
-    update.message.reply_text(
-        f"📦 Carta <b>{nombre} [{version}]</b> puesta en el mercado por <b>{precio} Kponey</b>.",
-        parse_mode='HTML'
-    )
-
-
-
-#----------Comprar carta del mercado------------------
-@log_command
-@solo_en_tema_asignado("comprar")
-@cooldown_critico
-def comando_comprar(update, context):
-    user_id = update.message.from_user.id
-    if not context.args:
-        update.message.reply_text("Usa: /comprar <id_unico>")
-        return
-    id_unico = context.args[0].strip()
-    # Transacción atómica: solo uno puede comprarla
-    carta = col_mercado.find_one_and_delete({"id_unico": id_unico})
-    if not carta:
-        update.message.reply_text("Esa carta ya no está disponible o ya fue comprada.")
-        return
-    if carta["vendedor_id"] == user_id:
-        update.message.reply_text("No puedes comprar tu propia carta.")
-        col_mercado.insert_one(carta)
-        return
-
-    usuario = col_usuarios.find_one({"user_id": user_id}) or {}
-    saldo = usuario.get("kponey", 0)
-
-    # Calcula el precio REAL al momento de comprar
-    estrellas = carta.get("estrellas", "☆☆☆")
-    card_id = carta.get("card_id") or extraer_card_id_de_id_unico(carta.get("id_unico"))
-    precio = precio_carta_tabla(estrellas, card_id)
-
-    if saldo < precio:
-        update.message.reply_text(f"No tienes suficiente Kponey. Precio: {precio}, tu saldo: {saldo}")
-        col_mercado.insert_one(carta)
-        return
-
-    # Transacción de dinero
-    col_usuarios.update_one({"user_id": user_id}, {"$inc": {"kponey": -precio}}, upsert=True)
-    col_usuarios.update_one({"user_id": carta["vendedor_id"]}, {"$inc": {"kponey": precio}}, upsert=True)
-
-    # Guardar historial de venta (nuevo para el ranking)
-    col_historial_ventas.insert_one({
-        "carta": {
-            "nombre": carta.get('nombre'),
-            "version": carta.get('version'),
-            "card_id": card_id,
-            "estrellas": estrellas,
-        },
-        "precio": precio,
-        "comprador_id": user_id,
-        "vendedor_id": carta["vendedor_id"],
-        "fecha": datetime.utcnow()
-    })
-
-    # Preparar carta para el inventario del usuario
-    carta['user_id'] = user_id
-    for key in ['_id', 'vendedor_id', 'precio', 'fecha']:
-        carta.pop(key, None)
-    if 'estrellas' not in carta or not carta['estrellas']:
-        carta['estrellas'] = estrellas
-    if 'card_id' not in carta or not carta['card_id']:
-        carta['card_id'] = card_id
-
-    col_cartas_usuario.insert_one(carta)
-    revisar_sets_completados(user_id, context)
-
-    update.message.reply_text(
-        f"✅ Compraste la carta <b>{carta['nombre']} [{carta['version']}]</b> por <b>{precio} Kponey</b>.",
-        parse_mode="HTML"
-    )
-
-    # Notificar al vendedor (privado, incluye nombre y username de comprador)
-    try:
-        comprador = update.message.from_user
-        comprador_txt = f"<b>{comprador.full_name}</b>"
-        if comprador.username:
-            comprador_txt += f" (<code>{comprador.username}</code>)"
-        context.bot.send_message(
-            chat_id=carta["vendedor_id"],
-            text=(
-                f"💸 ¡Vendiste la carta <b>{carta['nombre']} [{carta['version']}]</b>!\n"
-                f"Ganaste <b>{precio} Kponey</b>.\n"
-                f"Comprador: {comprador_txt}"
-            ),
-            parse_mode="HTML"
-        )
-    except Exception as e:
-        print(f"[AVISO] No se pudo notificar al vendedor: {e}")
-
-
-
-@solo_en_tema_asignado("rankingmercado")
-def comando_rankingmercado(update, context):
-    # Ranking de vendedores (top 10)
-    pipeline_v = [
-        {"$group": {"_id": "$vendedor_id", "ventas": {"$sum": 1}}},
-        {"$sort": {"ventas": -1}},
-        {"$limit": 10}
-    ]
-    top_vendedores = list(col_historial_ventas.aggregate(pipeline_v))
-
-    # Ranking de compradores (top 10)
-    pipeline_c = [
-        {"$group": {"_id": "$comprador_id", "compras": {"$sum": 1}}},
-        {"$sort": {"compras": -1}},
-        {"$limit": 10}
-    ]
-    top_compradores = list(col_historial_ventas.aggregate(pipeline_c))
-
-    texto = "<b>🏆 Ranking Mercado</b>\n"
-    texto += "\n<b>🔹 Top 10 Vendedores:</b>\n"
-    for i, v in enumerate(top_vendedores, 1):
-        if not v["_id"]: continue  # omite ventas anónimas (por si acaso)
-        user = col_usuarios.find_one({"user_id": v["_id"]}) or {}
-        username = user.get("username") or f"ID:{v['_id']}"
-        texto += f"{i}. <code>{username}</code> — {v['ventas']} ventas\n"
-
-    texto += "\n<b>🔸 Top 10 Compradores:</b>\n"
-    for i, c in enumerate(top_compradores, 1):
-        if not c["_id"]: continue
-        user = col_usuarios.find_one({"user_id": c["_id"]}) or {}
-        username = user.get("username") or f"ID:{c['_id']}"
-        texto += f"{i}. <code>{username}</code> — {c['compras']} compras\n"
-
-    update.message.reply_text(texto, parse_mode="HTML")
-
-
-
-
-
-
-
-
-
-
-#----------Retirar carta del mercado------------------
-@log_command
-@solo_en_tema_asignado("retirar")
-def comando_retirar(update, context):
-    user_id = update.message.from_user.id
-    if not context.args:
-        update.message.reply_text("Usa: /retirar <id_unico>")
-        return
-    id_unico = context.args[0].strip()
-    carta = col_mercado.find_one({"id_unico": id_unico, "vendedor_id": user_id})
-    if not carta:
-        update.message.reply_text("No tienes esa carta en el mercado.")
-        return
-    # Devolver carta al usuario
-    col_mercado.delete_one({"id_unico": id_unico})
-    carta['user_id'] = user_id
-    del carta['_id']
-    del carta['vendedor_id']
-    del carta['precio']
-    del carta['fecha']
-
-    # --- CORRECCIÓN: asegura el campo 'estrellas' ---
-    if 'estrellas' not in carta or not carta['estrellas'] or carta['estrellas'] == '★??':
-        estado = carta.get('estado')
-        for c in cartas:
-            if c['nombre'] == carta['nombre'] and c['version'] == carta['version'] and c['estado'] == estado:
-                carta['estrellas'] = c.get('estado_estrella', '★??')
-                break
-        else:
-            carta['estrellas'] = '★??'
-
-    col_cartas_usuario.insert_one(carta)
-    update.message.reply_text("Carta retirada del mercado y devuelta a tu álbum.")
-    
-#--------------------------------------------------------------------------------
-
-
-#---------Dinero del bot------------
-@log_command
-@en_tema_asignado_o_privado("saldo")
-@solo_en_tema_asignado("saldo")
-@cooldown_critico
-def comando_saldo(update, context):
-    user_id = update.message.from_user.id
-    usuario = col_usuarios.find_one({"user_id": user_id}) or {}
-    kponey = usuario.get("kponey", 0)
-    update.message.reply_text(f"💸 <b>Tus Kponey:</b> <code>{kponey}</code>", parse_mode="HTML")
-    
-@log_command
-@en_tema_asignado_o_privado("gemas")
-@solo_en_tema_asignado("gemas")
-@grupo_oficial
-def comando_gemas(update, context):
-    user_id = update.message.from_user.id
-    usuario = col_usuarios.find_one({"user_id": user_id}) or {}
-    gemas = usuario.get("gemas", 0)
-    update.message.reply_text(f"💎 <b>Tus gemas:</b> <code>{gemas}</code>", parse_mode="HTML")
-
-
-#---------Para dar dinero------------
-@log_command
-@grupo_oficial
-def comando_darKponey(update, context):
-    TU_USER_ID = 1111798714  # <-- Reemplaza por tu verdadero ID de Telegram
-    if update.message.from_user.id != TU_USER_ID:
-        update.message.reply_text("Este comando solo puede usarlo el creador del bot.")
-        return
-
-    # Revisar si se responde a alguien (reply)
-    if update.message.reply_to_message:
-        dest_id = update.message.reply_to_message.from_user.id
-    # Revisar si se menciona usuario (@usuario)
-    elif context.args and context.args[0].startswith('@'):
-        username = context.args[0][1:].lower()
-        dest_user = col_usuarios.find_one({"username": username})
-        if not dest_user:
-            update.message.reply_text("Usuario no encontrado. Debe haber usado el bot antes.")
-            return
-        dest_id = dest_user["user_id"]
-    # Revisar si se pasa user_id directamente
-    elif context.args:
-        try:
-            dest_id = int(context.args[0])
-        except ValueError:
-            update.message.reply_text("Uso: /darKponey <@usuario|user_id> <cantidad>")
-            return
-    else:
-        update.message.reply_text("Debes responder a un usuario o especificar @usuario o user_id.")
-        return
-
-    # Cantidad a dar/quitar (negativo para quitar)
-    if update.message.reply_to_message and len(context.args) >= 1:
-        try:
-            cantidad = int(context.args[0])
-        except:
-            update.message.reply_text("Debes poner la cantidad después del comando.")
-            return
-    elif len(context.args) >= 2:
-        try:
-            cantidad = int(context.args[1])
-        except:
-            update.message.reply_text("La cantidad debe ser un número.")
-            return
-    else:
-        update.message.reply_text("Debes indicar la cantidad de Kponey.")
-        return
-
-    col_usuarios.update_one({"user_id": dest_id}, {"$inc": {"kponey": cantidad}}, upsert=True)
-    update.message.reply_text(f"💸 Kponey actualizado para <code>{dest_id}</code> ({cantidad:+})", parse_mode="HTML")
-
-
-
-
-
-def mostrar_carta_individual(chat_id, user_id, lista_cartas, idx, context, mensaje_a_editar=None, query=None):
-    carta = lista_cartas[idx]
-    version = carta.get('version', '')
-    nombre = carta.get('nombre', '')
-    grupo = grupo_de_carta(nombre, version)
-    imagen_url = carta.get('imagen', imagen_de_carta(nombre, version))
-    id_unico = carta.get('id_unico', '')
-    estrellas = carta.get('estrellas', '★??')
-    estado = carta.get('estado', '')
-
-    texto = (
-    f"<b>[{version}] {nombre} {grupo}</b>\n"
-    f"ID: <code>{id_unico}</code>\n"
-)
-
-    if query is not None:
-        try:
-            query.edit_message_media(
-                media=InputMediaPhoto(media=imagen_url, caption=texto, parse_mode='HTML'),
-                reply_markup=query.message.reply_markup
-            )
-        except Exception as e:
-            query.answer(text="No se pudo actualizar la imagen.", show_alert=True)
-    else:
-        context.bot.send_photo(chat_id=chat_id, photo=imagen_url, caption=texto, parse_mode='HTML')
-
-# ... Aquí pegas la versión nueva de comando_giveidol y resto de comandos extras adaptados ...
-# Si quieres esa parte dime y te la entrego lista para copiar y pegar
-@en_tema_asignado_o_privado("miid")
-@solo_en_tema_asignado("miid")
-def comando_miid(update, context):
-    usuario = update.effective_user
-    update.message.reply_text(f"Tu ID de Telegram es: {usuario.id}")
-    
-@log_command
-@grupo_oficial
-def comando_bonoidolday(update, context):
-    user_id = update.message.from_user.id
-    chat = update.effective_chat
-
-    if chat.type not in ["group", "supergroup"]:
-        update.message.reply_text("Este comando solo puede usarse en grupos.")
-        return
-    if not es_admin(update):
-        update.message.reply_text("Solo los administradores pueden usar este comando.")
-        return
-
-    # 1. Si es respuesta a un mensaje, toma ese usuario como destino
-    if update.message.reply_to_message:
-        dest_user = update.message.reply_to_message.from_user
-        dest_id = dest_user.id
-        # Toma cantidad desde el argumento, si existe
-        args = context.args
-        if len(args) != 1:
-            update.message.reply_text("Uso: responde a un mensaje y pon: /bonoidolday <cantidad>")
-            return
-        try:
-            cantidad = int(args[0])
-            if cantidad < 1:
-                update.message.reply_text("La cantidad debe ser mayor que 0.")
-                return
-        except:
-            update.message.reply_text("Uso: responde a un mensaje y pon: /bonoidolday <cantidad>")
-            return
-    else:
-        # Modo clásico: /bonoidolday <user_id> <cantidad>
-        args = context.args
-        if len(args) != 2:
-            update.message.reply_text("Uso: /bonoidolday <user_id> <cantidad>")
-            return
-        try:
-            dest_id = int(args[0])
-            cantidad = int(args[1])
-            if cantidad < 1:
-                update.message.reply_text("La cantidad debe ser mayor que 0.")
-                return
-        except:
-            update.message.reply_text("Uso: /bonoidolday <user_id> <cantidad>")
-            return
-
-    # Suma el bono
-    col_usuarios.update_one({"user_id": dest_id}, {"$inc": {"bono": cantidad}}, upsert=True)
-
-    # Busca username si existe
-    usuario = col_usuarios.find_one({"user_id": dest_id}) or {}
-    username = usuario.get("username")
-    if username:
-        mencion = f"@{username}"
-    else:
-        mencion = f"<code>{dest_id}</code>"
-
-    # Responde mencionando y respondiendo al mensaje original si aplica
-    update.message.reply_text(
-        f"✅ Bono de {cantidad} tiradas de /idolday entregado a {mencion}.",
-        parse_mode='HTML',
-        reply_to_message_id=update.message.reply_to_message.message_id if update.message.reply_to_message else None
-    )
-
-
-@log_command
-@solo_en_tema_asignado("ampliar")
-def comando_ampliar(update, context, id_unico=None):
-    # Detecta si viene de comando (/ampliar) o de callback (botón en el álbum)
-    if id_unico is None:
-        if not context.args:
-            update.message.reply_text("Debes indicar el ID único de la carta: /ampliar <id_unico>")
-            return
-        id_unico = context.args[0].strip()
-        user_id = update.message.from_user.id
-        enviar = lambda **kwargs: update.message.reply_photo(**kwargs)
-        chat_id = update.message.chat_id
-        thread_id = getattr(update.message, "message_thread_id", None)
-    else:
-        # Si es callback (botón)
-        user_id = update.effective_user.id if hasattr(update, "effective_user") else update.callback_query.from_user.id
-        msg = update.callback_query.message
-        chat_id = msg.chat_id
-        thread_id = getattr(msg, "message_thread_id", None)
-        bot = context.bot
-        enviar = lambda **kwargs: bot.send_photo(chat_id=chat_id, message_thread_id=thread_id, **kwargs)
-
-    # 1. Busca en inventario
-    carta = col_cartas_usuario.find_one({"user_id": user_id, "id_unico": id_unico})
-    fuente = "album"
-    if not carta:
-        carta = col_mercado.find_one({"id_unico": id_unico})
-        fuente = "mercado"
-    if not carta:
-        # Mensaje según origen
-        if hasattr(update, "message") and update.message:
-            update.message.reply_text("No tienes esta carta.")
-        else:
-            update.callback_query.answer("No tienes esta carta.", show_alert=True)
-        return
-
-    # Extrae datos de la carta
-    imagen_url = carta.get('imagen')
-    nombre = carta.get('nombre', '')
-    apodo = carta.get('apodo', '')
-    nombre_mostrar = f'({apodo}) {nombre}' if apodo else nombre
-    version = carta.get('version', '')
-    grupo = carta.get('grupo', version)
-    estrellas = carta.get('estrellas', '☆☆☆')
-    estado = carta.get('estado', '')
-    card_id = carta.get('card_id') or extraer_card_id_de_id_unico(id_unico)
-    total_copias = col_cartas_usuario.count_documents({
-        "nombre": nombre,
-        "version": version,
-        "grupo": grupo
-    })
-    doc_user = col_usuarios.find_one({"user_id": user_id}) or {}
-    favoritos = doc_user.get("favoritos", [])
-    es_fav = any(
-        fav.get("nombre") == nombre
-        and fav.get("version") == version
-        and fav.get("grupo", version) == grupo
-        for fav in favoritos
-    )
-    estrella_fav = "⭐ " if es_fav else ""
-    precio = precio_carta_tabla(estrellas, card_id)
-
-    texto = (
-        f"🎴 <b>Info de carta [{id_unico}]</b>\n"
-        f"• Nombre: {estrella_fav}<b>{nombre_mostrar}</b>\n"
-        f"• Grupo: <b>{grupo}</b>\n"
-        f"• Versión: <b>{version}</b>\n"
-        f"• Nº de carta: <b>#{card_id}</b>\n"
-        f"• Estado: <b>{estrellas}</b>\n"
-        f"• Precio: <code>{precio} Kponey</code>\n"
-        f"• Copias globales: <b>{total_copias}</b>"
-    )
-
-    # Botón de vender (solo si está en álbum)
-    if fuente == "album":
-        teclado = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🛒 Poner en el mercado", callback_data=f"ampliar_vender_{id_unico}")]
-        ])
-    else:
-        teclado = None
-
-    try:
-        if imagen_url:
-            enviar(photo=imagen_url, caption=texto, parse_mode='HTML', reply_markup=teclado)
-        else:
-            enviar(caption=f"[Imagen no disponible]\n\n{texto}", parse_mode='HTML', reply_markup=teclado)
-    except Exception as e:
-        enviar(caption=f"[Imagen no disponible]\n\n{texto}", parse_mode='HTML', reply_markup=teclado)
-
-
-
-@log_command
-@solo_en_tema_asignado("comandos")
-@grupo_oficial
-@cooldown_critico
-def comando_comandos(update, context):
-    texto = (
-        "📋 <b>Lista de comandos disponibles:</b>\n\n"
-        "<b>🎴 Cartas</b>\n"
-        "/idolday — Drop de 2 cartas en el grupo\n"
-        "/album — Muestra tu colección de cartas\n"
-        "/ampliar <code>id_unico</code> — Ver detalles y precio de una carta\n"
-        "/giveidol <code>id_unico</code> @usuario — Regala una carta a otro usuario\n"
-        "/favoritos — Muestra tus cartas favoritas\n"
-        "/fav [Vn] Nombre — Añade o quita una carta de favoritos\n"
-        "\n"
-        "<b>🛒 Mercado</b>\n"
-        "/vender <code>id_unico</code> — Vender una carta en el mercado\n"
-        "/mercado — Ver cartas disponibles en el mercado\n"
-        "/comprar <code>id_unico</code> — Comprar una carta del mercado\n"
-        "/retirar <code>id_unico</code> — Retirar tu carta del mercado\n"
-        "\n"
-        "<b>💸 Economía y extras</b>\n"
-        "/inventario — Ver tus objetos y saldo\n"
-        "/kponey — Consultar tu saldo de Kponey\n"
-        "/precio <code>id_unico</code> — Consultar el precio de una carta\n"
-        "/darKponey <code>@usuario</code>|<code>user_id</code> <code>cantidad</code> — (Admin) Dar/quitar Kponey\n"
-        "\n"
-        "<b>🔖 Otros</b>\n"
-        "/setsprogreso — Ver progreso de sets/colecciones\n"
-        "/set <code>nombre_set</code> — Ver detalles de un set\n"
-        "/miid — Consultar tu ID de Telegram\n"
-        "/bonoidolday <code>user_id</code> <code>cantidad</code> — (Admin) Dar bonos de tiradas extra\n"
-    )
-    update.message.reply_text(texto, parse_mode='HTML')
-
-@log_command
-@solo_en_temas_permitidos("mercado")
-@cooldown_critico
-def comando_mercado(update, context):
-    user_id = update.message.from_user.id
-    chat_id = update.effective_chat.id
-    thread_id = getattr(update.message, "message_thread_id", None)
-
-    # Mensaje inicial, muestra la primera página en el tema
-    msg = context.bot.send_message(
-        chat_id=chat_id,
-        text="🛒 Mercado (cargando...)",
-        message_thread_id=thread_id if thread_id else None
-    )
-    mostrar_mercado_pagina(
-        chat_id, msg.message_id, context, user_id, pagina=1, thread_id=thread_id
-    )
-
-
-
-@log_command
-@grupo_oficial
-def comando_giveidol(update, context):
-    # Uso: /giveidol <id_unico> @usuario_destino
-    if len(context.args) < 2:
-        update.message.reply_text("Uso: /giveidol <id_unico> @usuario_destino")
-        return
-    id_unico = context.args[0].strip()
-    user_dest = context.args[1].strip()
-    user_id = update.message.from_user.id
-    chat = update.effective_chat
-
-    # Buscar la carta exacta del usuario por id_unico
-    carta = col_cartas_usuario.find_one({"user_id": user_id, "id_unico": id_unico})
-    if not carta:
-        update.message.reply_text("No tienes esa carta para regalar.")
-        return
-
-    # Buscar id Telegram del destino
-    if user_dest.startswith('@'):
-        username_dest = user_dest[1:].lower()
-        posible = col_usuarios.find_one({"username": username_dest})
-        if posible:
-            target_user_id = posible["user_id"]
-        else:
-            try:
-                member = context.bot.get_chat_member(chat.id, username_dest)
-                if member and member.user and member.user.username and member.user.username.lower() == username_dest:
-                    target_user_id = member.user.id
-            except Exception:
-                target_user_id = None
-    else:
-        try:
-            target_user_id = int(user_dest)
-        except:
-            target_user_id = None
-
-    if not target_user_id:
-        update.message.reply_text("No pude identificar al usuario destino. Usa @username o el ID numérico de Telegram.")
-        return
-    if user_id == target_user_id:
-        update.message.reply_text("No puedes regalarte cartas a ti mismo.")
-        return
-
-    # Quitar carta al remitente
-    col_cartas_usuario.delete_one({"user_id": user_id, "id_unico": id_unico})
-
-    # Entregar carta al destinatario (misma id_unico)
-    carta["user_id"] = target_user_id
-    col_cartas_usuario.insert_one(carta)
-
-    update.message.reply_text(
-        f"🎁 ¡Carta [{id_unico}] enviada correctamente a <b>@{user_dest.lstrip('@')}</b>!",
-        parse_mode='HTML'
-    )
-    try:
-        notif = (
-            f"🎉 <b>¡Has recibido una carta!</b>\n"
-            f"Te han regalado <b>{id_unico}</b>.\n"
-            f"¡Revisa tu álbum con <code>/album</code>!"
-        )
-        context.bot.send_message(chat_id=target_user_id, text=notif, parse_mode='HTML')
-    except Exception:
-        pass
-
-
-
-def mostrar_album_pagina(
-    update, context,
-    chat_id, 
-    message_id,  
-    user_id, 
-    pagina=1, 
-    filtro=None, 
-    valor_filtro=None, 
-    orden=None, 
-    solo_botones=False,
-    thread_id=None
-):
-
-
-    # === 1. Consulta cartas del usuario y aplica filtro ===
-    query_album = {"user_id": user_id}
-    if filtro == "estrellas":
-        query_album["estrellas"] = valor_filtro
-    elif filtro == "grupo":
-        query_album["grupo"] = valor_filtro
-
-    cartas = list(col_cartas_usuario.find(query_album))
-    # === 2. Ordenamiento ===
-    if orden == "menor":
-        cartas.sort(key=lambda x: x.get("card_id", 0))
-    elif orden == "mayor":
-        cartas.sort(key=lambda x: -x.get("card_id", 0))
-    else:
-        cartas.sort(key=lambda x: (x.get("grupo", "").lower(), x.get("nombre", "").lower(), x.get("card_id", 0)))
-
-    # === 3. Paginación ===
-    cartas_por_pagina = 10
-    total_paginas = max(1, ((len(cartas) - 1) // cartas_por_pagina) + 1)
-    pagina = max(1, min(pagina, total_paginas))
-    inicio = (pagina - 1) * cartas_por_pagina
-    fin = inicio + cartas_por_pagina
-    cartas_pagina = cartas[inicio:fin]
-
-    texto = f"📗 <b>Álbum de cartas (página {pagina}/{total_paginas})</b>\n\n"
-
-    ANCHO_ID = 5    
-    ANCHO_EST = 5
-
-    def corta(txt, n):
-        return (txt[:n-1] + "…") if len(txt) > n else txt
-
-    if cartas_pagina:
-        for c in cartas_pagina:
-            idu = str(c['id_unico']).ljust(ANCHO_ID)
-            est = f"[{c.get('estrellas','?')}]".ljust(ANCHO_EST)
-            num = f"#{c.get('card_id','?')}"
-            ver = f"[{c.get('version','?')}]"
-            nom = c.get('nombre','?')
-            grp = c.get('grupo','?')
-            texto += f"• <code>{idu}</code> · {est} · {num} · {ver} · {nom} · {grp}\n"
-    else:
-        texto += "\n(No tienes cartas para mostrar con este filtro)\n"
-
-    texto += '\n<i>Usa <b>/ampliar &lt;id_unico&gt;</b> para ver detalles de cualquier carta.</i>'
-
-# === 4. Botones ===
-    botones = []
-    if not solo_botones:
-        botones.append([telegram.InlineKeyboardButton(
-            "🔎 Filtrar / Ordenar",
-            callback_data=f"album_filtros_{user_id}_{pagina}"
-        )])
-
-    paginacion = []
-    if pagina > 1:
-        paginacion.append(telegram.InlineKeyboardButton(
-            "⬅️",
-            callback_data=f"album_pagina_{user_id}_{pagina-1}_{filtro or 'none'}_{valor_filtro or 'none'}_{orden or 'none'}"
-        ))
-    if pagina < total_paginas:
-        paginacion.append(telegram.InlineKeyboardButton(
-            "➡️",
-            callback_data=f"album_pagina_{user_id}_{pagina+1}_{filtro or 'none'}_{valor_filtro or 'none'}_{orden or 'none'}"
-        ))
-    if paginacion and not solo_botones:
-        botones.append(paginacion)
-
-    teclado = telegram.InlineKeyboardMarkup(botones) if botones else None
-
-    # --- Cambia SOLO los botones (al entrar a filtros) ---
-    if solo_botones:
-        try:
-            context.bot.edit_message_reply_markup(
-                chat_id=chat_id, 
-                message_id=message_id, 
-                reply_markup=teclado
-            )
-        except telegram.error.RetryAfter as e:
-            if update and hasattr(update, 'callback_query'):
-                try:
-                    update.callback_query.answer(
-                        f"⚠️ ¡Calma! Debes esperar {int(e.retry_after)}s para cambiar de página (Telegram limita los cambios rápidos).",
-                        show_alert=True
-                    )
-                except Exception:
-                    pass
-        except Exception as ex:
-            print("[album] Otro error al cambiar botones:", ex)
-            if update and hasattr(update, 'callback_query'):
-                try:
-                    update.callback_query.answer(
-                        "Ocurrió un error inesperado al cambiar los botones.",
-                        show_alert=True
-                    )
-                except Exception:
-                    pass
-        return
-
-    # Cambia texto + botones (página, filtro, etc):
-    try:
-        context.bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=message_id,
-            text=texto,
-            reply_markup=teclado,
-            parse_mode="HTML"
-        )
-    except telegram.error.RetryAfter as e:
-        print(f"[album] Flood control: debes esperar {e.retry_after} segundos para editar mensaje.")
-        if update and hasattr(update, 'callback_query'):
-            try:
-                update.callback_query.answer(
-                    f"⚠️ ¡Calma! Debes esperar {int(e.retry_after)}s para cambiar de página (Telegram limita los cambios rápidos).",
-                    show_alert=True
-                )
-            except Exception:
-                pass
-        else:
-            try:
-                context.bot.send_message(
-                    chat_id=chat_id,
-                    text=f"⚠️ Telegram está saturado, intenta en {int(e.retry_after)} segundos."
-                )
-            except Exception:
-                pass
-    except Exception as ex:
-        print("[album] Otro error al editar mensaje:", ex)
-        if update and hasattr(update, 'callback_query'):
-            try:
-                update.callback_query.answer(
-                    "Ocurrió un error inesperado al cambiar de página.",
-                    show_alert=True
-                )
-            except Exception:
-                pass
-
-
-def mostrar_menu_filtros_album(user_id, pagina):
-    botones = [
-        [InlineKeyboardButton("⭐ Filtrar por Estado", callback_data=f"album_filtro_estado_{user_id}_{pagina}")],
-        [InlineKeyboardButton("👥 Filtrar por Grupo", callback_data=f"album_filtro_grupo_{user_id}_1")],
-        [InlineKeyboardButton("🔢 Ordenar por Número", callback_data=f"album_filtro_numero_{user_id}_{pagina}")],
-        [InlineKeyboardButton("⬅️ Volver", callback_data=f"album_pagina_{user_id}_{pagina}_none_none_none")]
-    ]
-    return InlineKeyboardMarkup(botones)
-
+    user_id  = update.effective_user.id
+    chat_id  = update.effective_chat.id
+    thread_id= getattr(update.message, "message_thread_id", None)
+    msg = context.bot.send_message(chat_id=chat_id, text="Cargando álbum...", message_thread_id=thread_id)
+    mostrar_album_pagina(update, context, chat_id, msg.message_id, user_id, pagina=1)
 
 def mostrar_menu_estrellas_album(user_id, pagina):
     botones = [
@@ -5249,1158 +2153,1420 @@ def mostrar_menu_estrellas_album(user_id, pagina):
     ]
     return InlineKeyboardMarkup(botones)
 
-
 def mostrar_menu_grupos_album(user_id, pagina, grupos):
-    por_pagina = 5
-    total = len(grupos)
-    paginas = max(1, (total - 1) // por_pagina + 1)
-    if pagina < 1: pagina = 1
-    if pagina > paginas: pagina = paginas
-    inicio = (pagina - 1) * por_pagina
-    fin = min(inicio + por_pagina, total)
-    grupos_pagina = grupos[inicio:fin]
-
-    matriz = []
-    for g in grupos_pagina:
-        matriz.append([InlineKeyboardButton(g, callback_data=f"album_filtragrupo_{user_id}_{pagina}_{g}")])
-
+    por_pagina = 5; total = len(grupos)
+    paginas    = max(1, (total - 1) // por_pagina + 1)
+    pagina     = max(1, min(pagina, paginas))
+    inicio     = (pagina - 1) * por_pagina
+    grupos_pag = grupos[inicio:min(inicio + por_pagina, total)]
+    matriz     = [[InlineKeyboardButton(g, callback_data=f"album_filtragrupo_{user_id}_{pagina}_{g}")] for g in grupos_pag]
     nav = []
-    if pagina > 1:
-        nav.append(InlineKeyboardButton("⬅️", callback_data=f"album_filtro_grupo_{user_id}_{pagina-1}"))
-    if pagina < paginas:
-        nav.append(InlineKeyboardButton("➡️", callback_data=f"album_filtro_grupo_{user_id}_{pagina+1}"))
-    if nav:
-        matriz.append(nav)
+    if pagina > 1:      nav.append(InlineKeyboardButton("⬅️", callback_data=f"album_filtro_grupo_{user_id}_{pagina-1}"))
+    if pagina < paginas:nav.append(InlineKeyboardButton("➡️", callback_data=f"album_filtro_grupo_{user_id}_{pagina+1}"))
+    if nav: matriz.append(nav)
     matriz.append([InlineKeyboardButton("⬅️ Volver", callback_data=f"album_filtros_{user_id}_{pagina}")])
-
     return InlineKeyboardMarkup(matriz)
 
+def mostrar_menu_filtros_album(user_id, pagina):
+    botones = [
+        [InlineKeyboardButton("⭐ Filtrar por Estado",  callback_data=f"album_filtro_estado_{user_id}_{pagina}")],
+        [InlineKeyboardButton("👥 Filtrar por Grupo",   callback_data=f"album_filtro_grupo_{user_id}_1")],
+        [InlineKeyboardButton("🔢 Ordenar por Número",  callback_data=f"album_filtro_numero_{user_id}_{pagina}")],
+        [InlineKeyboardButton("⬅️ Volver",              callback_data=f"album_pagina_{user_id}_{pagina}_none_none_none")]
+    ]
+    return InlineKeyboardMarkup(botones)
 
 def mostrar_menu_ordenar_album(user_id, pagina):
     botones = [
         [InlineKeyboardButton("⬆️ Menor a mayor", callback_data=f"album_ordennum_{user_id}_{pagina}_menor")],
         [InlineKeyboardButton("⬇️ Mayor a menor", callback_data=f"album_ordennum_{user_id}_{pagina}_mayor")],
-        [InlineKeyboardButton("⬅️ Volver", callback_data=f"album_filtros_{user_id}_{pagina}")]
+        [InlineKeyboardButton("⬅️ Volver",        callback_data=f"album_filtros_{user_id}_{pagina}")]
     ]
     return InlineKeyboardMarkup(botones)
 
+def mostrar_lista_mejorables(update, context, user_id, cartas_mejorables, pagina, mensaje=None, editar=False):
+    por_pagina = 8; total = len(cartas_mejorables)
+    paginas    = max(1, (total - 1) // por_pagina + 1)
+    pagina     = max(1, min(pagina, paginas))
+    inicio     = (pagina - 1) * por_pagina
+    cartas_pag = cartas_mejorables[inicio:min(inicio + por_pagina, total)]
+    texto      = "<b>Elige la carta que quieres mejorar:</b>\n"
+    botones    = []
+    for c in cartas_pag:
+        nombre   = c.get("nombre", ""); version = c.get("version", "")
+        estrellas= c.get("estrellas", ""); id_unico = c.get("id_unico", "")
+        texto   += f"{estrellas} <b>{nombre}</b> [{version}] (<code>{id_unico}</code>)\n"
+        botones.append([InlineKeyboardButton(f"{estrellas} {nombre} [{version}]", callback_data=f"mejorar_{id_unico}")])
+    nav = []
+    if pagina > 1:      nav.append(InlineKeyboardButton("⬅️", callback_data=f"mejorarpag_{pagina-1}_{user_id}"))
+    if pagina < paginas:nav.append(InlineKeyboardButton("➡️", callback_data=f"mejorarpag_{pagina+1}_{user_id}"))
+    if nav: botones.append(nav)
+    teclado = InlineKeyboardMarkup(botones)
+    if editar and mensaje:
+        try:
+            mensaje.edit_text(texto, parse_mode='HTML', reply_markup=teclado)
+        except Exception:
+            context.bot.send_message(chat_id=mensaje.chat_id, text=texto, parse_mode='HTML', reply_markup=teclado)
+    else:
+        update.message.reply_text(texto, parse_mode='HTML', reply_markup=teclado)
 
+def inline_album_handler(update, context):
+    query      = update.inline_query
+    user_id    = query.from_user.id
+    first_name = query.from_user.first_name or "Usuario"
+    PER_PAGE   = 50
+    offset     = int(query.offset) if query.offset else 0
+    texto      = query.query.strip()
+    partes     = texto.split(maxsplit=1)
+    filtro     = partes[1].strip() if len(partes) > 1 else None
+    mongo_query= {"user_id": user_id}
+    if filtro:
+        mongo_query["$or"] = [
+            {"nombre": {"$regex": filtro, "$options": "i"}},
+            {"grupo":  {"$regex": filtro, "$options": "i"}},
+        ]
+    total_cartas = col_cartas_usuario.count_documents(mongo_query)
+    cartas_list  = list(col_cartas_usuario.find(mongo_query).sort([("grupo", 1), ("nombre", 1)]).skip(offset).limit(PER_PAGE))
+    results = []
+    for carta in cartas_list:
+        nombre    = carta['nombre']
+        estrellas = carta.get('estrellas', '')
+        grupo     = carta.get('grupo', '')
+        version   = carta.get('version', '')
+        card_id   = carta.get('card_id', '')
+        precio    = precio_carta_tabla(estrellas, card_id)
+        copias    = col_cartas_usuario.count_documents({"nombre": nombre, "version": version, "grupo": grupo})
+        caption   = (
+            f"🎴 <b>Info de carta</b> <code>{carta['id_unico']}</code>\n"
+            f"• Nombre: <b>{nombre}</b>\n• Grupo: <b>{grupo}</b>\n"
+            f"• Versión: <b>{version}</b>\n• Nº: <b>#{card_id}</b>\n"
+            f"• Estado: <b>{estrellas}</b>\n• Precio: <code>{precio} Kponey</code>\n"
+            f"• Copias globales: <b>{copias}</b>\n<i>Carta de {first_name}</i>"
+        )
+        results.append(InlineQueryResultPhoto(
+            id=carta['id_unico'], photo_url=carta['imagen'], thumb_url=carta['imagen'],
+            title=f"{nombre} {estrellas}", caption=caption, parse_mode="HTML",
+        ))
+    next_offset = str(offset + PER_PAGE) if (offset + PER_PAGE) < total_cartas else ""
+    try:
+        update.inline_query.answer(results, cache_time=0, is_personal=True, next_offset=next_offset,
+                                   switch_pm_text=f"Álbum de {first_name}", switch_pm_parameter="start")
+    except BadRequest as e:
+        print(f"Inline query error: {e}")
 
+dispatcher.add_handler(InlineQueryHandler(inline_album_handler, pattern=r"^(Album|album)( |$)"))
 
+def mostrar_album_pagina(update, context, chat_id, message_id, user_id, pagina=1,
+                         filtro=None, valor_filtro=None, orden=None, solo_botones=False, thread_id=None):
+    query_album = {"user_id": user_id}
+    if filtro == "estrellas": query_album["estrellas"] = valor_filtro
+    elif filtro == "grupo":   query_album["grupo"]     = valor_filtro
 
+    cartas_list = list(col_cartas_usuario.find(query_album))
+    if orden == "menor":    cartas_list.sort(key=lambda x: x.get("card_id", 0))
+    elif orden == "mayor":  cartas_list.sort(key=lambda x: -x.get("card_id", 0))
+    else:
+        cartas_list.sort(key=lambda x: (x.get("grupo", "").lower(), x.get("nombre", "").lower(), x.get("card_id", 0)))
 
-# --------- Sets/Progreso ---------
+    por_pagina  = 10
+    total_pag   = max(1, ((len(cartas_list) - 1) // por_pagina) + 1)
+    pagina      = max(1, min(pagina, total_pag))
+    inicio      = (pagina - 1) * por_pagina
+    cartas_pag  = cartas_list[inicio:inicio + por_pagina]
+
+    texto = f"📗 <b>Álbum de cartas (página {pagina}/{total_pag})</b>\n\n"
+    if cartas_pag:
+        for c in cartas_pag:
+            idu = str(c['id_unico']).ljust(5)
+            est = f"[{c.get('estrellas','?')}]".ljust(5)
+            texto += f"• <code>{idu}</code> · {est} · #{c.get('card_id','?')} · [{c.get('version','?')}] · {c.get('nombre','?')} · {c.get('grupo','?')}\n"
+    else:
+        texto += "\n(No tienes cartas para mostrar con este filtro)\n"
+    texto += '\n<i>Usa <b>/ampliar &lt;id_unico&gt;</b> para ver detalles.</i>'
+
+    botones = []
+    if not solo_botones:
+        botones.append([telegram.InlineKeyboardButton("🔎 Filtrar / Ordenar", callback_data=f"album_filtros_{user_id}_{pagina}")])
+    paginacion = []
+    if pagina > 1:       paginacion.append(telegram.InlineKeyboardButton("⬅️", callback_data=f"album_pagina_{user_id}_{pagina-1}_{filtro or 'none'}_{valor_filtro or 'none'}_{orden or 'none'}"))
+    if pagina < total_pag:paginacion.append(telegram.InlineKeyboardButton("➡️", callback_data=f"album_pagina_{user_id}_{pagina+1}_{filtro or 'none'}_{valor_filtro or 'none'}_{orden or 'none'}"))
+    if paginacion and not solo_botones: botones.append(paginacion)
+    teclado = telegram.InlineKeyboardMarkup(botones) if botones else None
+
+    if solo_botones:
+        try:
+            context.bot.edit_message_reply_markup(chat_id=chat_id, message_id=message_id, reply_markup=teclado)
+        except RetryAfter as e:
+            if update and hasattr(update, 'callback_query'):
+                try: update.callback_query.answer(f"⏳ Espera {int(e.retry_after)}s.", show_alert=True)
+                except Exception: pass
+        return
+
+    try:
+        context.bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=texto, reply_markup=teclado, parse_mode="HTML")
+    except RetryAfter as e:
+        if update and hasattr(update, 'callback_query'):
+            try: update.callback_query.answer(f"⏳ Espera {int(e.retry_after)}s.", show_alert=True)
+            except Exception: pass
+    except Exception as ex:
+        print("[album] Error al editar:", ex)
+
+# ─── Callback álbum (única definición) ───────────────────────────────────────
+def manejador_callback_album(update, context):
+    from telegram.error import RetryAfter
+    query   = update.callback_query
+    data    = query.data
+    partes  = data.split("_")
+    user_id = query.from_user.id
+
+    def obtener_thread_id():
+        if len(partes) > 0 and partes[-1].isdigit():
+            return int(partes[-1])
+        return getattr(query.message, "message_thread_id", None)
+
+    # Validar dueño
+    try:
+        dueño_id = next((int(p) for p in partes if p.isdigit() and len(p) >= 5), None)
+    except Exception:
+        dueño_id = None
+    if dueño_id and user_id != dueño_id:
+        query.answer("Solo puedes interactuar con tu propio álbum.", show_alert=True)
+        return
+
+    if data.startswith("album_filtro_estado_"):
+        uid = int(partes[3]); pag = int(partes[4])
+        try: context.bot.edit_message_reply_markup(chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=mostrar_menu_estrellas_album(uid, pag))
+        except RetryAfter as e: query.answer(f"⏳ {int(e.retry_after)}s", show_alert=True)
+        return
+
+    if data.startswith("album_filtraestrella_"):
+        uid = int(partes[2]); pag = int(partes[3]); est = partes[4]
+        try: mostrar_album_pagina(update, context, query.message.chat_id, query.message.message_id, uid, int(pag), filtro="estrellas", valor_filtro=est)
+        except RetryAfter as e: query.answer(f"⏳ {int(e.retry_after)}s", show_alert=True)
+        return
+
+    if data.startswith("album_filtro_grupo_"):
+        uid = int(partes[3]); pag = int(partes[4]) if len(partes) > 4 else 1
+        grupos = sorted({c.get("grupo", "") for c in col_cartas_usuario.find({"user_id": uid}) if c.get("grupo")})
+        try: context.bot.edit_message_reply_markup(chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=mostrar_menu_grupos_album(uid, pag, grupos))
+        except RetryAfter as e: query.answer(f"⏳ {int(e.retry_after)}s", show_alert=True)
+        return
+
+    if data.startswith("album_filtragrupo_"):
+        uid = int(partes[2]); pag = int(partes[3])
+        grupo = "_".join(partes[4:])
+        try: mostrar_album_pagina(update, context, query.message.chat_id, query.message.message_id, uid, int(pag), filtro="grupo", valor_filtro=grupo)
+        except RetryAfter as e: query.answer(f"⏳ {int(e.retry_after)}s", show_alert=True)
+        return
+
+    if data.startswith("album_filtros_"):
+        uid = int(partes[2]); pag = int(partes[3])
+        try: context.bot.edit_message_reply_markup(chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=mostrar_menu_filtros_album(uid, pag))
+        except RetryAfter as e: query.answer(f"⏳ {int(e.retry_after)}s", show_alert=True)
+        return
+
+    if data.startswith("album_filtro_numero_"):
+        uid = int(partes[3]); pag = int(partes[4])
+        try: context.bot.edit_message_reply_markup(chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=mostrar_menu_ordenar_album(uid, pag))
+        except RetryAfter as e: query.answer(f"⏳ {int(e.retry_after)}s", show_alert=True)
+        return
+
+    if data.startswith("album_ordennum_"):
+        uid = int(partes[2]); pag = int(partes[3]); orden = partes[4]
+        try: mostrar_album_pagina(update, context, query.message.chat_id, query.message.message_id, uid, int(pag), orden=orden)
+        except RetryAfter as e: query.answer(f"⏳ {int(e.retry_after)}s", show_alert=True)
+        return
+
+    if data.startswith("album_pagina_"):
+        uid          = int(partes[2]); pag = int(partes[3])
+        filtro       = partes[4] if len(partes) > 4 and partes[4] != "none" else None
+        valor_filtro = partes[5] if len(partes) > 5 and partes[5] != "none" else None
+        orden        = partes[6] if len(partes) > 6 and partes[6] != "none" else None
+        try: mostrar_album_pagina(update, context, query.message.chat_id, query.message.message_id, uid, int(pag), filtro=filtro, valor_filtro=valor_filtro, orden=orden)
+        except RetryAfter as e: query.answer(f"⏳ {int(e.retry_after)}s", show_alert=True)
+        return
+
+    # Paginación mejorar
+    if data.startswith("mejorarpag_"):
+        pag = int(partes[1]); uid = int(partes[2])
+        if query.from_user.id != uid:
+            query.answer("Solo puedes ver tu propio menú.", show_alert=True); return
+        cartas_usuario  = list(col_cartas_usuario.find({"user_id": uid}))
+        cartas_mejorables = sorted(
+            [c for c in cartas_usuario if c.get("estrellas", "") != "★★★"],
+            key=lambda x: (x.get("nombre", "").lower(), x.get("version", "").lower())
+        )
+        mostrar_lista_mejorables(update, context, uid, cartas_mejorables, pag, mensaje=query.message, editar=True)
+        query.answer(); return
+
+# ─── Trades ───────────────────────────────────────────────────────────────────
+@log_command
+@solo_en_tema_asignado("trk")
+@cooldown_critico
+def comando_trk(update, context):
+    user_id  = update.message.from_user.id
+    chat_id  = update.effective_chat.id
+    thread_id= getattr(update.message, "message_thread_id", None)
+
+    if update.message.reply_to_message:
+        otro_id = update.message.reply_to_message.from_user.id
+    elif context.args and context.args[0].startswith("@"):
+        user_doc = col_usuarios.find_one({"username": context.args[0][1:].lower()})
+        if not user_doc:
+            update.message.reply_text("Usuario no encontrado.")
+            return
+        otro_id = user_doc["user_id"]
+    else:
+        update.message.reply_text("Debes responder a un usuario o indicar su @username.")
+        return
+
+    if otro_id == user_id:
+        update.message.reply_text("No puedes hacer trade contigo mismo.")
+        return
+    if user_id in TRADES_POR_USUARIO or otro_id in TRADES_POR_USUARIO:
+        update.message.reply_text("Uno de los dos ya tiene un intercambio pendiente.")
+        return
+
+    user_doc_a = col_usuarios.find_one({"user_id": user_id})   or {}
+    user_doc_b = col_usuarios.find_one({"user_id": otro_id})   or {}
+    display_a  = f"@{user_doc_a.get('username', '')}" if user_doc_a.get('username') else str(user_id)
+    display_b  = f"@{user_doc_b.get('username', '')}" if user_doc_b.get('username') else str(otro_id)
+
+    trade_id = str(uuid.uuid4())[:8]
+    TRADES_EN_CURSO[trade_id] = {
+        "usuarios": [user_id, otro_id],
+        "chat_id": chat_id, "thread_id": thread_id,
+        "id_unico": {user_id: None, otro_id: None},
+        "confirmado": {user_id: False, otro_id: False},
+        "estado": "esperando_id",
+        "display": {user_id: display_a, otro_id: display_b},
+        "inicio": time.time(),   # Para el timeout automático
+    }
+    TRADES_POR_USUARIO[user_id]  = trade_id
+    TRADES_POR_USUARIO[otro_id]  = trade_id
+
+    context.bot.send_message(
+        chat_id=chat_id,
+        text=f"🤝 <b>¡Trade iniciado!</b>\n• {display_a}\n• {display_b}\n\nAmbos deben ingresar el <b>id_unico</b> de su carta:",
+        parse_mode="HTML", message_thread_id=thread_id
+    )
+
+def mensaje_trade_id(update, context):
+    if not getattr(update, "message", None) or not getattr(update.message, "text", None):
+        return
+    user_id   = update.message.from_user.id
+    chat_id   = update.message.chat_id
+    thread_id = getattr(update.message, "message_thread_id", None)
+    texto     = update.message.text.strip()
+
+    if texto.lower() in ("cancel", "cancelar"):
+        trade_id = TRADES_POR_USUARIO.pop(user_id, None)
+        if trade_id and trade_id in TRADES_EN_CURSO:
+            trade = TRADES_EN_CURSO.pop(trade_id)
+            for uid in trade["usuarios"]:
+                TRADES_POR_USUARIO.pop(uid, None)
+            context.bot.send_message(chat_id=chat_id, text="❌ Intercambio cancelado.", message_thread_id=thread_id)
+        else:
+            update.message.reply_text("No tienes ningún intercambio activo.")
+        return
+
+    trade_id = TRADES_POR_USUARIO.get(user_id)
+    if not trade_id: return
+    trade = TRADES_EN_CURSO.get(trade_id)
+    if not trade or trade["chat_id"] != chat_id or trade["thread_id"] != thread_id: return
+    if trade["estado"] != "esperando_id": return
+
+    carta = col_cartas_usuario.find_one({"user_id": user_id, "id_unico": texto})
+    if not carta:
+        update.message.reply_text("No tienes una carta con ese id_unico.")
+        return
+
+    trade["id_unico"][user_id] = texto
+    if all(trade["id_unico"].values()):
+        trade["estado"] = "confirmacion"
+        mostrar_trade_resumen(context, trade_id)
+    else:
+        update.message.reply_text("Carta seleccionada, esperando al otro usuario...")
+
+def mostrar_trade_resumen(context, trade_id):
+    trade   = TRADES_EN_CURSO[trade_id]
+    user_a, user_b = trade["usuarios"]
+    id_a, id_b     = trade["id_unico"][user_a], trade["id_unico"][user_b]
+    carta_a = col_cartas_usuario.find_one({"user_id": user_a, "id_unico": id_a})
+    carta_b = col_cartas_usuario.find_one({"user_id": user_b, "id_unico": id_b})
+    display_a = trade["display"][user_a]; display_b = trade["display"][user_b]
+    texto = (
+        f"🔄 <b>Propuesta de Intercambio</b>\n\n"
+        f"{display_a} ofrece <b>[{carta_a['version']}] {carta_a['nombre']}</b> ({id_a})\n"
+        f"{display_b} ofrece <b>[{carta_b['version']}] {carta_b['nombre']}</b> ({id_b})\n\n"
+        "Ambos deben confirmar para completar el intercambio."
+    )
+    botones = [[
+        InlineKeyboardButton("✅ Confirmar", callback_data=f"tradeconf_{trade_id}"),
+        InlineKeyboardButton("❌ Cancelar",  callback_data=f"tradecancel_{trade_id}")
+    ]]
+    context.bot.send_message(
+        chat_id=trade["chat_id"], text=texto, parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(botones), message_thread_id=trade["thread_id"]
+    )
+
+def callback_trade_confirm(update, context):
+    query    = update.callback_query
+    data     = query.data
+    partes   = data.split("_")
+    trade_id = partes[1]
+    user_id  = query.from_user.id
+    trade    = TRADES_EN_CURSO.get(trade_id)
+
+    if not trade or trade["estado"] != "confirmacion":
+        query.answer("No hay intercambio pendiente.", show_alert=True); return
+    if user_id not in trade["usuarios"]:
+        query.answer("Solo los usuarios del intercambio pueden interactuar.", show_alert=True); return
+
+    if data.startswith("tradeconf_"):
+        trade["confirmado"][user_id] = True
+        query.answer("Confirmaste el trade.", show_alert=True)
+
+        if all(trade["confirmado"].values()):
+            a, b     = trade["usuarios"]
+            id_a, id_b = trade["id_unico"][a], trade["id_unico"][b]
+            carta_a  = col_cartas_usuario.find_one_and_delete({"user_id": a, "id_unico": id_a})
+            carta_b  = col_cartas_usuario.find_one_and_delete({"user_id": b, "id_unico": id_b})
+
+            saldo_a = (col_usuarios.find_one({"user_id": a}) or {}).get("kponey", 0)
+            saldo_b = (col_usuarios.find_one({"user_id": b}) or {}).get("kponey", 0)
+            if saldo_a < 100 or saldo_b < 100:
+                if carta_a: col_cartas_usuario.insert_one(carta_a)
+                if carta_b: col_cartas_usuario.insert_one(carta_b)
+                context.bot.send_message(
+                    chat_id=trade["chat_id"],
+                    text="❌ Uno de los usuarios no tiene suficiente Kponey (100 🪙).",
+                    message_thread_id=trade["thread_id"]
+                )
+                for uid in trade["usuarios"]: TRADES_POR_USUARIO.pop(uid, None)
+                TRADES_EN_CURSO.pop(trade_id, None)
+                return
+
+            if carta_a and carta_b:
+                carta_a["user_id"] = b; carta_b["user_id"] = a
+                col_cartas_usuario.insert_one(carta_a)
+                col_cartas_usuario.insert_one(carta_b)
+                col_usuarios.update_one({"user_id": a}, {"$inc": {"kponey": -100}})
+                col_usuarios.update_one({"user_id": b}, {"$inc": {"kponey": -100}})
+                revisar_sets_completados(a, context)
+                revisar_sets_completados(b, context)
+                txt = (
+                    f"✅ ¡Intercambio realizado!\n"
+                    f"{trade['display'][a]} y {trade['display'][b]} intercambiaron sus cartas.\n"
+                    f"- 100 Kponey descontados a cada uno."
+                )
+            else:
+                txt = "❌ Error: una de las cartas ya no está disponible."
+
+            context.bot.send_message(chat_id=trade["chat_id"], text=txt, message_thread_id=trade["thread_id"])
+            for uid in trade["usuarios"]: TRADES_POR_USUARIO.pop(uid, None)
+            TRADES_EN_CURSO.pop(trade_id, None)
+
+    elif data.startswith("tradecancel_"):
+        context.bot.send_message(
+            chat_id=trade["chat_id"], text="❌ Intercambio cancelado.",
+            message_thread_id=trade["thread_id"]
+        )
+        for uid in trade["usuarios"]: TRADES_POR_USUARIO.pop(uid, None)
+        TRADES_EN_CURSO.pop(trade_id, None)
+        query.answer("Trade cancelado.", show_alert=True)
+
+dispatcher.add_handler(CallbackQueryHandler(callback_trade_confirm, pattern=r"^trade(conf|cancel)_"))
+
+# ─── Mejorar ──────────────────────────────────────────────────────────────────
+@log_command
+@solo_en_tema_asignado("mejorar")
+@cooldown_critico
+def comando_mejorar(update, context):
+    user_id = update.message.from_user.id
+    if context.args:
+        id_unico = context.args[0].strip()
+        carta    = col_cartas_usuario.find_one({"user_id": user_id, "id_unico": id_unico})
+        if not carta:
+            update.message.reply_text("No tienes esa carta.")
+            return
+        if carta.get("estrellas", "") == "★★★":
+            update.message.reply_text("Esta carta ya tiene el máximo de estrellas.")
+            return
+        mostrar_lista_mejorables(update, context, user_id, [carta], pagina=1)
+        return
+    cartas_usuario    = list(col_cartas_usuario.find({"user_id": user_id}))
+    cartas_mejorables = sorted(
+        [c for c in cartas_usuario if c.get("estrellas", "") != "★★★"],
+        key=lambda x: (x.get("nombre", "").lower(), x.get("version", "").lower())
+    )
+    if not cartas_mejorables:
+        update.message.reply_text("No tienes cartas que se puedan mejorar.")
+        return
+    mostrar_lista_mejorables(update, context, user_id, cartas_mejorables, pagina=1)
+
+# ─── Inventario ───────────────────────────────────────────────────────────────
+@log_command
+@en_tema_asignado_o_privado("inventario")
+@cooldown_critico
+def comando_inventario(update, context):
+    user_id = update.message.from_user.id
+    doc     = col_usuarios.find_one({"user_id": user_id}) or {}
+    objetos = doc.get("objetos", {})
+    kponey  = doc.get("kponey", 0)
+    gemas   = doc.get("gemas", 0)
+    texto   = "🎒 <b>Tu inventario</b>\n\n"
+    tiene   = False
+    for obj_id, info in CATALOGO_OBJETOS.items():
+        cantidad = objetos.get(obj_id, 0)
+        if cantidad > 0:
+            tiene = True
+            texto += f"{info['emoji']} <b>{info['nombre']}</b>: <b>{cantidad}</b>\n"
+    if not tiene:
+        texto += "No tienes objetos todavía.\n"
+    texto += f"\n💎 <b>Gemas:</b> <code>{gemas}</code>"
+    texto += f"\n💸 <b>Kponey:</b> <code>{kponey}</code>"
+    update.message.reply_text(texto, parse_mode="HTML")
+
+# ─── Tienda ───────────────────────────────────────────────────────────────────
+@log_command
+@solo_en_tema_asignado("tienda")
+@cooldown_critico
+def comando_tienda(update, context):
+    user_id = update.message.from_user.id
+    doc     = col_usuarios.find_one({"user_id": user_id}) or {}
+    kponey  = doc.get("kponey", 0)
+    texto   = "🛒 <b>Tienda de objetos</b>\n\n"
+    botones = []
+    for obj_id, info in CATALOGO_OBJETOS.items():
+        texto += f"{info['emoji']} <b>{info['nombre']}</b> — <code>{info['precio']} Kponey</code>\n{info['desc']}\n\n"
+        botones.append([InlineKeyboardButton(f"{info['emoji']} Comprar {info['nombre']}", callback_data=f"comprarobj_{obj_id}")])
+    texto += f"💸 <b>Tu saldo:</b> <code>{kponey}</code>"
+    update.message.reply_text(texto, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(botones))
+
+def comprar_objeto(user_id, obj_id, context, chat_id, reply_func):
+    info = CATALOGO_OBJETOS.get(obj_id)
+    if not info:
+        reply_func("Ese objeto no existe."); return
+    doc    = col_usuarios.find_one({"user_id": user_id}) or {}
+    kponey = doc.get("kponey", 0)
+    precio = info['precio']
+    if kponey < precio:
+        reply_func("No tienes suficiente Kponey."); return
+    col_usuarios.update_one({"user_id": user_id}, {"$inc": {f"objetos.{obj_id}": 1, "kponey": -precio}}, upsert=True)
+    reply_func(f"¡Compraste {info['emoji']} {info['nombre']} por {precio} Kponey!", parse_mode="HTML")
+
+@log_command
+@solo_en_tema_asignado("comprarobjeto")
+@cooldown_critico
+def comando_comprarobjeto(update, context):
+    user_id = update.message.from_user.id
+    if not context.args:
+        update.message.reply_text("Usa: /comprarobjeto <objeto_id>"); return
+    comprar_objeto(update.message.from_user.id, context.args[0].strip(), context,
+                   update.effective_chat.id,
+                   lambda text, **kwargs: update.message.reply_text(text, **kwargs))
+
+@solo_en_tema_asignado("tiendaG")
+@cooldown_critico
+def comando_tiendaG(update, context):
+    user_id = update.message.from_user.id
+    doc     = col_usuarios.find_one({"user_id": user_id}) or {}
+    gemas   = doc.get("gemas", 0)
+    texto   = "💎 <b>Tienda de objetos (Gemas)</b>\n\n"
+    botones = []
+    for obj_id, info in CATALOGO_OBJETOSG.items():
+        if "precio_gemas" not in info: continue
+        texto += f"{info['emoji']} <b>{info['nombre']}</b> — <code>{info['precio_gemas']} Gemas</code>\n{info['desc']}\n\n"
+        botones.append([InlineKeyboardButton(f"{info['emoji']} Comprar {info['nombre']}", callback_data=f"comprarG_{obj_id}")])
+    texto += f"💎 <b>Tu saldo:</b> <code>{gemas}</code>"
+    update.message.reply_text(texto, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(botones))
+
+def solo_admin(func):
+    @wraps(func)
+    def wrapper(update, context, *args, **kwargs):
+        uid = (update.message.from_user.id if update.message else
+               update.callback_query.from_user.id if update.callback_query else None)
+        if uid not in ADMIN_IDS:
+            if update.message:
+                update.message.reply_text("Solo un admin puede usar esto.")
+            elif update.callback_query:
+                update.callback_query.answer("Solo un admin.", show_alert=True)
+            return
+        return func(update, context, *args, **kwargs)
+    return wrapper
+
+# ─── Sorteos ──────────────────────────────────────────────────────────────────
+@log_command
+@solo_admin
+def comando_sorteo(update, context):
+    args = context.args
+    if len(args) < 4:
+        update.message.reply_text("Uso: /sorteo <Premio> <Cantidad> <Duración horas> <Ganadores>"); return
+    premio = " ".join(args[:-3])
+    try:
+        cantidad = int(args[-3]); duracion_horas = float(args[-2]); num_ganadores = int(args[-1])
+    except Exception:
+        update.message.reply_text("Cantidad, duración y ganadores deben ser números."); return
+
+    now       = datetime.utcnow()
+    fin       = now + timedelta(hours=duracion_horas)
+    sorteo_id = str(int(now.timestamp() * 1000))
+    thread_id = getattr(update.message, "message_thread_id", None)
+
+    texto = (
+        f"🎉 <b>Sorteo KaruKpop</b> 🎉\n"
+        f"¡Participa por <b>{cantidad}x {premio}</b>!\n"
+        f"Expira en <b>{duracion_horas} horas</b>. Ganadores: <b>{num_ganadores}</b>.\n\n"
+        f"👥 <b>Participantes:</b>\n<i>Aún no hay participantes.</i>"
+    )
+    msg = update.message.reply_text(
+        texto, parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🎉 Participar", callback_data=f"sorteopart_{sorteo_id}")]])
+    )
+    col_sorteos.insert_one({
+        "sorteo_id": sorteo_id, "premio": premio, "cantidad": cantidad,
+        "creador_id": update.message.from_user.id, "chat_id": msg.chat_id,
+        "mensaje_id": msg.message_id, "fin": fin, "num_ganadores": num_ganadores,
+        "participantes": [], "finalizado": False, "ganadores": [],
+        "message_thread_id": thread_id,
+    })
+    try: update.message.delete()
+    except Exception: pass
+
+def callback_sorteo_participar(update, context):
+    query    = update.callback_query
+    user_id  = query.from_user.id
+    username = query.from_user.username or ""
+    nombre_u = (query.from_user.first_name or "").strip()
+    sorteo_id= query.data.replace("sorteopart_", "")
+    sorteo   = col_sorteos.find_one({"sorteo_id": sorteo_id, "finalizado": False})
+    if not sorteo:
+        query.answer("Este sorteo ya terminó.", show_alert=True); return
+    if any(p["user_id"] == user_id for p in sorteo.get("participantes", [])):
+        query.answer("🎉 Ya estás participando.", show_alert=True); return
+
+    col_sorteos.update_one({"sorteo_id": sorteo_id}, {"$push": {"participantes": {"user_id": user_id, "username": username, "nombre": nombre_u}}})
+    sorteo = col_sorteos.find_one({"sorteo_id": sorteo_id})
+    participantes = sorteo.get("participantes", [])
+    lista = "\n".join([f"• @{p['username']}" if p['username'] else f"• {p['nombre']}" for p in participantes]) or "<i>Aún no hay participantes.</i>"
+    texto = (
+        f"🎉 <b>Sorteo KaruKpop</b> 🎉\n"
+        f"¡Participa por <b>{sorteo['cantidad']}x {sorteo['premio']}</b>!\n\n"
+        f"👥 <b>Participantes:</b>\n{lista}"
+    )
+    try:
+        context.bot.edit_message_text(
+            chat_id=sorteo["chat_id"], message_id=sorteo["mensaje_id"], text=texto, parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🎉 Participar", callback_data=f"sorteopart_{sorteo_id}")]])
+        )
+    except Exception: pass
+    query.answer("¡Estás participando!", show_alert=True)
+
+def premio_clave(nombre_premio):
+    for key, obj in CATALOGO_OBJETOS.items():
+        if obj["nombre"].lower() == nombre_premio.lower():
+            return key
+    return nombre_premio.lower().replace(" ", "_")
+
+def proceso_sorteos_auto(context):
+    while True:
+        try:
+            ahora   = datetime.utcnow()
+            sorteos = list(col_sorteos.find({"finalizado": False, "fin": {"$lte": ahora}}))
+            for sorteo in sorteos:
+                participantes = sorteo.get("participantes", [])
+                num_ganadores = sorteo.get("num_ganadores", 1)
+                premio_key    = premio_clave(sorteo["premio"])
+                cantidad      = int(sorteo["cantidad"])
+
+                if participantes:
+                    ganadores = random.sample(participantes, min(num_ganadores, len(participantes)))
+                    col_sorteos.update_one(
+                        {"sorteo_id": sorteo["sorteo_id"]},
+                        {"$set": {"finalizado": True, "ganadores": [g["user_id"] for g in ganadores]}}
+                    )
+                    for g in ganadores:
+                        col_usuarios.update_one({"user_id": g["user_id"]}, {"$inc": {f"objetos.{premio_key}": cantidad}}, upsert=True)
+                        try:
+                            context.bot.send_message(chat_id=g["user_id"], text=f"🎉 ¡Ganaste el sorteo de <b>{cantidad}x {sorteo['premio']}</b>!", parse_mode="HTML")
+                        except Exception: pass
+                    ganador_texto = "\n".join([f"• @{g['username']}" if g['username'] else f"• {g['nombre']}" for g in ganadores])
+                    texto_final = f"🎉 <b>Sorteo finalizado</b>\n\nGanador(es):\n{ganador_texto}\n\nPremio: <b>{cantidad}x {sorteo['premio']}</b>"
+                else:
+                    col_sorteos.update_one({"sorteo_id": sorteo["sorteo_id"]}, {"$set": {"finalizado": True, "ganadores": []}})
+                    texto_final = "🎉 <b>Sorteo finalizado</b>\n\nNadie participó."
+
+                try:
+                    context.bot.edit_message_text(chat_id=sorteo["chat_id"], message_id=sorteo["mensaje_id"], text=texto_final, parse_mode="HTML")
+                except Exception: pass
+        except Exception as e:
+            print("[proceso_sorteos_auto] Error:", e)
+        time.sleep(60)
+
+def iniciar_proceso_sorteos(context):
+    threading.Thread(target=proceso_sorteos_auto, args=(context,), daemon=True).start()
+
+# ─── Mercado ──────────────────────────────────────────────────────────────────
+def mostrar_mercado_pagina(chat_id, message_id, context, user_id, pagina=1,
+                            filtro=None, valor_filtro=None, orden=None, thread_id=None):
+    query_mercado = {}
+    if filtro == "estrellas": query_mercado["estrellas"] = valor_filtro
+    elif filtro == "grupo":   query_mercado["grupo"]     = valor_filtro
+
+    cartas_list = list(col_mercado.find(query_mercado))
+    if orden == "menor":    cartas_list.sort(key=lambda x: x.get("card_id", 0))
+    elif orden == "mayor":  cartas_list.sort(key=lambda x: -x.get("card_id", 0))
+    else:
+        cartas_list.sort(key=lambda x: (x.get("grupo", "").lower(), x.get("nombre", "").lower(), x.get("card_id", 0)))
+
+    por_pagina  = 10
+    total_pag   = max(1, ((len(cartas_list) - 1) // por_pagina) + 1)
+    pagina      = max(1, min(pagina, total_pag))
+    cartas_pag  = cartas_list[(pagina-1)*por_pagina: pagina*por_pagina]
+
+    usuario    = col_usuarios.find_one({"user_id": user_id}) or {}
+    favoritos  = usuario.get("favoritos", [])
+
+    texto = "<b>🛒 Mercado</b>\n"
+    for c in cartas_pag:
+        est = f"[{c.get('estrellas','?')}]"; num = f"#{c.get('card_id','?')}"
+        ver = f"[{c.get('version','?')}]";   nom = c.get('nombre','?'); grp = c.get('grupo','?')
+        idu = c.get('id_unico','')
+        precio   = precio_carta_tabla(c.get('estrellas','☆☆☆'), c.get('card_id', 0))
+        es_fav   = any(fav.get("nombre") == c.get("nombre") and fav.get("version") == c.get("version") for fav in favoritos)
+        fav_icon = " ⭐" if es_fav else ""
+        vendedor_id = c.get("vendedor_id")
+        vendedor_linea = ""
+        if vendedor_id:
+            vd = col_usuarios.find_one({"user_id": vendedor_id}) or {}
+            if vd.get("username"):
+                vendedor_linea = f'👤 <code>{vd["username"]}</code>\n'
+        texto += f"{est} · {num} · {ver} · {nom} · {grp}{fav_icon}\n💲{precio:,}\n{vendedor_linea}<code>/comprar {idu}</code>\n\n"
+    if not cartas_pag:
+        texto += "\n(No hay cartas)"
+
+    botones = [[InlineKeyboardButton("🔎 Filtrar / Ordenar", callback_data=f"mercado_filtros_{user_id}_{pagina}")]]
+    paginacion = []
+    if pagina > 1:       paginacion.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_pagina_{user_id}_{pagina-1}_{filtro or 'none'}_{valor_filtro or 'none'}_{orden or 'none'}_{thread_id or 'none'}"))
+    if pagina < total_pag:paginacion.append(InlineKeyboardButton("➡️", callback_data=f"mercado_pagina_{user_id}_{pagina+1}_{filtro or 'none'}_{valor_filtro or 'none'}_{orden or 'none'}_{thread_id or 'none'}"))
+    if paginacion: botones.append(paginacion)
+    teclado = InlineKeyboardMarkup(botones)
+
+    try:
+        context.bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=texto, parse_mode="HTML", reply_markup=teclado)
+    except RetryAfter as e:
+        print(f"[mercado] Flood control: {e.retry_after}s")
+    except Exception as ex:
+        print("[mercado] Error:", ex)
+
+def mostrar_menu_filtros(user_id, pagina, thread_id=None):
+    botones = [
+        [InlineKeyboardButton("⭐ Estado",   callback_data=f"mercado_filtro_estado_{user_id}_{pagina}_{thread_id or 'none'}")],
+        [InlineKeyboardButton("👥 Grupo",    callback_data=f"mercado_filtro_grupo_{user_id}_{pagina}_1_{thread_id or 'none'}")],
+        [InlineKeyboardButton("🔢 Número",   callback_data=f"mercado_filtro_numero_{user_id}_{pagina}_{thread_id or 'none'}")],
+        [InlineKeyboardButton("⬅️ Volver",  callback_data=f"mercado_pagina_{user_id}_{pagina}_none_none_none_{thread_id or 'none'}")]
+    ]
+    return InlineKeyboardMarkup(botones)
+
+def mostrar_menu_estrellas(user_id, pagina, thread_id=None):
+    botones = [
+        [InlineKeyboardButton(e, callback_data=f"mercado_filtraestrella_{user_id}_{pagina}_{e}_{thread_id or 'none'}")]
+        for e in ["★★★","★★☆","★☆☆","☆☆☆"]
+    ]
+    botones.append([InlineKeyboardButton("⬅️ Volver", callback_data=f"mercado_filtros_{user_id}_{pagina}_{thread_id or 'none'}")])
+    return InlineKeyboardMarkup(botones)
+
+def mostrar_menu_grupos(user_id, pagina, grupos, thread_id=None):
+    por_pagina = 5; total = len(grupos)
+    paginas    = max(1, (total-1)//por_pagina+1)
+    pagina     = max(1, min(pagina, paginas))
+    inicio     = (pagina-1)*por_pagina
+    grupos_pag = grupos[inicio:inicio+por_pagina]
+    matriz     = [[InlineKeyboardButton(g, callback_data=f"mercado_filtragrupo_{user_id}_{pagina}_{urllib.parse.quote_plus(g)}_{thread_id or 'none'}")] for g in grupos_pag]
+    nav = []
+    if pagina > 1:      nav.append(InlineKeyboardButton("⬅️", callback_data=f"mercado_filtro_grupo_{user_id}_{pagina-1}_{thread_id or 'none'}"))
+    if pagina < paginas:nav.append(InlineKeyboardButton("➡️", callback_data=f"mercado_filtro_grupo_{user_id}_{pagina+1}_{thread_id or 'none'}"))
+    if nav: matriz.append(nav)
+    matriz.append([InlineKeyboardButton("⬅️ Volver", callback_data=f"mercado_filtros_{user_id}_{pagina}_{thread_id or 'none'}")])
+    return InlineKeyboardMarkup(matriz)
+
+def mostrar_menu_ordenar(user_id, pagina, thread_id=None):
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("⬆️ Menor a mayor", callback_data=f"mercado_ordennum_{user_id}_{pagina}_menor_{thread_id or 'none'}")],
+        [InlineKeyboardButton("⬇️ Mayor a menor", callback_data=f"mercado_ordennum_{user_id}_{pagina}_mayor_{thread_id or 'none'}")],
+    ])
+
+def normalizar_nombre_carta(nombre):
+    nombre = nombre.lower()
+    nombre = re.sub(r"\s+", " ", nombre).strip()
+    return nombre
+
+# ─── Favoritos ────────────────────────────────────────────────────────────────
+@log_command
+@en_tema_asignado_o_privado("favoritos")
+@cooldown_critico
+def comando_favoritos(update, context):
+    user_id  = update.message.from_user.id
+    doc      = col_usuarios.find_one({"user_id": user_id})
+    favoritos= doc.get("favoritos", []) if doc else []
+    if not favoritos:
+        update.message.reply_text("⭐ No tienes cartas favoritas aún.", parse_mode="HTML"); return
+    texto = "⭐ <b>Tus cartas favoritas:</b>\n\n"
+    for fav in favoritos:
+        texto += f"<code>{fav.get('grupo','')} [{fav.get('version','')}] {fav.get('nombre','')}</code>\n"
+    update.message.reply_text(texto, parse_mode="HTML")
+
+@log_command
+@solo_en_tema_asignado("fav")
+@cooldown_critico
+def comando_fav(update, context):
+    user_id = update.message.from_user.id
+    args    = context.args
+    if not args or len(args) < 3:
+        update.message.reply_text("Usa: /fav <grupo> [Vn] Nombre"); return
+    version_idx = next((i for i, x in enumerate(args) if x.startswith("[") and x.endswith("]")), -1)
+    if version_idx <= 0 or version_idx == len(args) - 1:
+        update.message.reply_text("Formato: /fav Twice [V1] Dahyun"); return
+    grupo   = " ".join(args[:version_idx])
+    version = args[version_idx][1:-1]
+    nombre  = " ".join(args[version_idx+1:]).strip()
+    nombre_norm = normalizar_nombre_carta(f"{grupo} [{version}] {nombre}")
+    existe = next((c for c in cartas if normalizar_nombre_carta(f"{c.get('grupo', c.get('set'))} [{c['version']}] {c['nombre']}") == nombre_norm), None)
+    if not existe:
+        update.message.reply_text(f"No se encontró: <code>{grupo} [{version}] {nombre}</code>", parse_mode="HTML"); return
+    doc       = col_usuarios.find_one({"user_id": user_id}) or {}
+    favoritos = doc.get("favoritos", [])
+    ya_es_fav = any(normalizar_nombre_carta(f"{f['grupo']} [{f['version']}] {f['nombre']}") == nombre_norm for f in favoritos)
+    if ya_es_fav:
+        favoritos = [f for f in favoritos if normalizar_nombre_carta(f"{f['grupo']} [{f['version']}] {f['nombre']}") != nombre_norm]
+        col_usuarios.update_one({"user_id": user_id}, {"$set": {"favoritos": favoritos}}, upsert=True)
+        update.message.reply_text(f"❌ Quitaste de favoritos: <code>{grupo} [{version}] {nombre}</code>", parse_mode="HTML")
+    else:
+        favoritos.append({"grupo": grupo, "nombre": nombre, "version": version})
+        col_usuarios.update_one({"user_id": user_id}, {"$set": {"favoritos": favoritos}}, upsert=True)
+        update.message.reply_text(f"⭐ Añadiste a favoritos: <code>{grupo} [{version}] {nombre}</code>", parse_mode="HTML")
+
+# ─── Precio ───────────────────────────────────────────────────────────────────
+@log_command
+@solo_en_tema_asignado("precio")
+@cooldown_critico
+def comando_precio(update, context):
+    if not context.args:
+        update.message.reply_text("Usa: /precio <id_unico>"); return
+    id_unico    = context.args[0].strip()
+    carta       = col_cartas_usuario.find_one({"id_unico": id_unico})
+    if not carta:
+        update.message.reply_text("No se encontró la carta."); return
+    estrellas   = carta.get('estrellas', '☆☆☆')
+    card_id     = carta.get('card_id') or extraer_card_id_de_id_unico(id_unico)
+    total_copias= col_cartas_usuario.count_documents({"nombre": carta['nombre'], "version": carta['version']})
+    precio      = precio_carta_tabla(estrellas, card_id)
+    update.message.reply_text(
+        f"🖼️ <b>[{id_unico}]</b>\n• Nombre: <b>{carta['nombre']}</b>\n"
+        f"• Estado: <b>{estrellas}</b>\n• Nº: <b>#{card_id}</b>\n"
+        f"• Precio: <code>{precio} Kponey</code>\n• Copias globales: <b>{total_copias}</b>",
+        parse_mode='HTML'
+    )
+
+# ─── Vender ───────────────────────────────────────────────────────────────────
+@log_command
+@solo_en_tema_asignado("vender")
+@cooldown_critico
+def comando_vender(update, context):
+    user_id = update.message.from_user.id
+    if not context.args:
+        update.message.reply_text("Usa: /vender <id_unico>"); return
+    id_unico = context.args[0].strip()
+    carta    = col_cartas_usuario.find_one({"user_id": user_id, "id_unico": id_unico})
+    if not carta:
+        update.message.reply_text("No tienes esa carta."); return
+    if col_mercado.find_one({"id_unico": id_unico}):
+        update.message.reply_text("Esta carta ya está en el mercado."); return
+    estrellas = carta.get('estrellas')
+    card_id   = carta.get('card_id', extraer_card_id_de_id_unico(id_unico))
+    precio    = precio_carta_tabla(estrellas, card_id)
+    col_cartas_usuario.delete_one({"user_id": user_id, "id_unico": id_unico})
+    col_mercado.insert_one({
+        "id_unico": id_unico, "vendedor_id": user_id,
+        "nombre": carta['nombre'], "version": carta['version'],
+        "estado": carta['estado'], "estrellas": estrellas, "precio": precio,
+        "card_id": card_id, "fecha": datetime.utcnow(),
+        "imagen": carta.get("imagen"), "grupo": carta.get("grupo", "")
+    })
+    update.message.reply_text(
+        f"📦 Carta <b>{carta['nombre']} [{carta['version']}]</b> puesta en el mercado por <b>{precio} Kponey</b>.",
+        parse_mode='HTML'
+    )
+
+# ─── Comprar ──────────────────────────────────────────────────────────────────
+@log_command
+@solo_en_tema_asignado("comprar")
+@cooldown_critico
+def comando_comprar(update, context):
+    user_id = update.message.from_user.id
+    if not context.args:
+        update.message.reply_text("Usa: /comprar <id_unico>"); return
+    id_unico = context.args[0].strip()
+    carta    = col_mercado.find_one_and_delete({"id_unico": id_unico})
+    if not carta:
+        update.message.reply_text("Esa carta ya no está disponible."); return
+    if carta["vendedor_id"] == user_id:
+        update.message.reply_text("No puedes comprar tu propia carta.")
+        col_mercado.insert_one(carta); return
+
+    estrellas = carta.get("estrellas", "☆☆☆")
+    card_id   = carta.get("card_id") or extraer_card_id_de_id_unico(carta.get("id_unico"))
+    precio    = precio_carta_tabla(estrellas, card_id)
+    saldo     = (col_usuarios.find_one({"user_id": user_id}) or {}).get("kponey", 0)
+    if saldo < precio:
+        update.message.reply_text(f"No tienes suficiente Kponey. Precio: {precio}, tu saldo: {saldo}")
+        col_mercado.insert_one(carta); return
+
+    col_usuarios.update_one({"user_id": user_id}, {"$inc": {"kponey": -precio}}, upsert=True)
+    col_usuarios.update_one({"user_id": carta["vendedor_id"]}, {"$inc": {"kponey": precio}}, upsert=True)
+
+    col_historial_ventas.insert_one({
+        "carta": {"nombre": carta.get('nombre'), "version": carta.get('version'), "card_id": card_id, "estrellas": estrellas},
+        "precio": precio, "comprador_id": user_id, "vendedor_id": carta["vendedor_id"],
+        "fecha": datetime.utcnow()
+    })
+
+    carta['user_id'] = user_id
+    for key in ['_id', 'vendedor_id', 'precio', 'fecha']:
+        carta.pop(key, None)
+    if not carta.get('estrellas'): carta['estrellas'] = estrellas
+    if not carta.get('card_id'):   carta['card_id']   = card_id
+    col_cartas_usuario.insert_one(carta)
+    revisar_sets_completados(user_id, context)
+
+    update.message.reply_text(
+        f"✅ Compraste <b>{carta['nombre']} [{carta['version']}]</b> por <b>{precio} Kponey</b>.",
+        parse_mode="HTML"
+    )
+    try:
+        comprador = update.message.from_user
+        txt_comp  = f"<b>{comprador.full_name}</b>"
+        if comprador.username: txt_comp += f" (<code>{comprador.username}</code>)"
+        context.bot.send_message(
+            chat_id=carta["vendedor_id"],
+            text=f"💸 Vendiste <b>{carta['nombre']} [{carta['version']}]</b> por <b>{precio} Kponey</b>.\nComprador: {txt_comp}",
+            parse_mode="HTML"
+        )
+    except Exception: pass
+
+# ─── Ranking mercado ──────────────────────────────────────────────────────────
+@solo_en_tema_asignado("rankingmercado")
+def comando_rankingmercado(update, context):
+    pipeline_v = [{"$group": {"_id": "$vendedor_id",  "ventas":  {"$sum": 1}}}, {"$sort": {"ventas":  -1}}, {"$limit": 10}]
+    pipeline_c = [{"$group": {"_id": "$comprador_id", "compras": {"$sum": 1}}}, {"$sort": {"compras": -1}}, {"$limit": 10}]
+    top_v = list(col_historial_ventas.aggregate(pipeline_v))
+    top_c = list(col_historial_ventas.aggregate(pipeline_c))
+    texto = "<b>🏆 Ranking Mercado</b>\n\n<b>🔹 Top Vendedores:</b>\n"
+    for i, v in enumerate(top_v, 1):
+        if not v["_id"]: continue
+        u = col_usuarios.find_one({"user_id": v["_id"]}) or {}
+        texto += f"{i}. <code>{u.get('username', v['_id'])}</code> — {v['ventas']} ventas\n"
+    texto += "\n<b>🔸 Top Compradores:</b>\n"
+    for i, c in enumerate(top_c, 1):
+        if not c["_id"]: continue
+        u = col_usuarios.find_one({"user_id": c["_id"]}) or {}
+        texto += f"{i}. <code>{u.get('username', c['_id'])}</code> — {c['compras']} compras\n"
+    update.message.reply_text(texto, parse_mode="HTML")
+
+# ─── Retirar ──────────────────────────────────────────────────────────────────
+@log_command
+@solo_en_tema_asignado("retirar")
+def comando_retirar(update, context):
+    user_id  = update.message.from_user.id
+    if not context.args:
+        update.message.reply_text("Usa: /retirar <id_unico>"); return
+    id_unico = context.args[0].strip()
+    carta    = col_mercado.find_one({"id_unico": id_unico, "vendedor_id": user_id})
+    if not carta:
+        update.message.reply_text("No tienes esa carta en el mercado."); return
+    col_mercado.delete_one({"id_unico": id_unico})
+    carta['user_id'] = user_id
+    # Usar pop con default None para evitar KeyError
+    for key in ['_id', 'vendedor_id', 'precio', 'fecha']:
+        carta.pop(key, None)
+    if not carta.get('estrellas') or carta.get('estrellas') == '★??':
+        estado = carta.get('estado')
+        for c in cartas:
+            if c['nombre'] == carta['nombre'] and c['version'] == carta['version'] and c['estado'] == estado:
+                carta['estrellas'] = c.get('estado_estrella', '★??')
+                break
+    col_cartas_usuario.insert_one(carta)
+    update.message.reply_text("Carta retirada del mercado y devuelta a tu álbum.")
+
+# ─── Saldo / Gemas ───────────────────────────────────────────────────────────
+@log_command
+@en_tema_asignado_o_privado("saldo")
+@cooldown_critico
+def comando_saldo(update, context):
+    user_id = update.message.from_user.id
+    usuario = col_usuarios.find_one({"user_id": user_id}) or {}
+    update.message.reply_text(f"💸 <b>Tus Kponey:</b> <code>{usuario.get('kponey', 0)}</code>", parse_mode="HTML")
+
+@log_command
+@en_tema_asignado_o_privado("gemas")
+@grupo_oficial
+def comando_gemas(update, context):
+    user_id = update.message.from_user.id
+    usuario = col_usuarios.find_one({"user_id": user_id}) or {}
+    update.message.reply_text(f"💎 <b>Tus gemas:</b> <code>{usuario.get('gemas', 0)}</code>", parse_mode="HTML")
+
+@log_command
+@grupo_oficial
+def comando_darKponey(update, context):
+    if update.message.from_user.id != TU_USER_ID:
+        update.message.reply_text("Solo el creador puede usar esto."); return
+    dest_id = None
+    if update.message.reply_to_message:
+        dest_id = update.message.reply_to_message.from_user.id
+    elif context.args and context.args[0].startswith('@'):
+        u = col_usuarios.find_one({"username": context.args[0][1:].lower()})
+        if not u:
+            update.message.reply_text("Usuario no encontrado."); return
+        dest_id = u["user_id"]
+    elif context.args:
+        try: dest_id = int(context.args[0])
+        except ValueError:
+            update.message.reply_text("Uso: /darKponey <@usuario|user_id> <cantidad>"); return
+    else:
+        update.message.reply_text("Especifica un usuario."); return
+    try:    cantidad = int(context.args[-1])
+    except Exception:
+        update.message.reply_text("Indica la cantidad."); return
+    col_usuarios.update_one({"user_id": dest_id}, {"$inc": {"kponey": cantidad}}, upsert=True)
+    update.message.reply_text(f"💸 Kponey actualizado para <code>{dest_id}</code> ({cantidad:+})", parse_mode="HTML")
+
+def mostrar_carta_individual(chat_id, user_id, lista_cartas, idx, context, mensaje_a_editar=None, query=None):
+    carta     = lista_cartas[idx]
+    version   = carta.get('version', '')
+    nombre    = carta.get('nombre', '')
+    imagen_url= carta.get('imagen', imagen_de_carta(nombre, version))
+    id_unico  = carta.get('id_unico', '')
+    texto     = f"<b>[{version}] {nombre}</b>\nID: <code>{id_unico}</code>\n"
+    if query is not None:
+        try:
+            query.edit_message_media(
+                media=InputMediaPhoto(media=imagen_url, caption=texto, parse_mode='HTML'),
+                reply_markup=query.message.reply_markup
+            )
+        except Exception:
+            query.answer("No se pudo actualizar la imagen.", show_alert=True)
+    else:
+        context.bot.send_photo(chat_id=chat_id, photo=imagen_url, caption=texto, parse_mode='HTML')
+
+@en_tema_asignado_o_privado("miid")
+def comando_miid(update, context):
+    update.message.reply_text(f"Tu ID de Telegram es: {update.effective_user.id}")
+
+@log_command
+@grupo_oficial
+def comando_bonoidolday(update, context):
+    if not es_admin(update):
+        update.message.reply_text("Solo administradores."); return
+    if update.message.reply_to_message:
+        dest_id = update.message.reply_to_message.from_user.id
+        if len(context.args) != 1:
+            update.message.reply_text("Uso: /bonoidolday <cantidad>"); return
+        try:    cantidad = int(context.args[0])
+        except: update.message.reply_text("La cantidad debe ser un número."); return
+    elif len(context.args) == 2:
+        try:    dest_id = int(context.args[0]); cantidad = int(context.args[1])
+        except: update.message.reply_text("Uso: /bonoidolday <user_id> <cantidad>"); return
+    else:
+        update.message.reply_text("Uso: /bonoidolday <user_id> <cantidad>"); return
+    if cantidad < 1:
+        update.message.reply_text("La cantidad debe ser mayor que 0."); return
+    col_usuarios.update_one({"user_id": dest_id}, {"$inc": {"bono": cantidad}}, upsert=True)
+    u = col_usuarios.find_one({"user_id": dest_id}) or {}
+    mencion = f"@{u.get('username')}" if u.get("username") else f"<code>{dest_id}</code>"
+    update.message.reply_text(f"✅ Bono de {cantidad} tiradas entregado a {mencion}.", parse_mode='HTML')
+
+# ─── Ampliar ──────────────────────────────────────────────────────────────────
+@log_command
+@solo_en_tema_asignado("ampliar")
+def comando_ampliar(update, context, id_unico=None):
+    if id_unico is None:
+        if not context.args:
+            update.message.reply_text("Debes indicar el ID único: /ampliar <id_unico>"); return
+        id_unico  = context.args[0].strip()
+        user_id   = update.message.from_user.id
+        enviar    = lambda **kwargs: update.message.reply_photo(**kwargs)
+        chat_id   = update.message.chat_id
+        thread_id = getattr(update.message, "message_thread_id", None)
+    else:
+        user_id   = update.effective_user.id if hasattr(update, "effective_user") else update.callback_query.from_user.id
+        msg       = update.callback_query.message
+        chat_id   = msg.chat_id
+        thread_id = getattr(msg, "message_thread_id", None)
+        enviar    = lambda **kwargs: context.bot.send_photo(chat_id=chat_id, message_thread_id=thread_id, **kwargs)
+
+    carta = col_cartas_usuario.find_one({"user_id": user_id, "id_unico": id_unico})
+    fuente= "album"
+    if not carta:
+        carta  = col_mercado.find_one({"id_unico": id_unico})
+        fuente = "mercado"
+    if not carta:
+        if hasattr(update, "message") and update.message:
+            update.message.reply_text("No tienes esta carta.")
+        else:
+            update.callback_query.answer("No tienes esta carta.", show_alert=True)
+        return
+
+    imagen_url = carta.get('imagen')
+    nombre     = carta.get('nombre', '')
+    apodo      = carta.get('apodo', '')
+    nombre_m   = f'({apodo}) {nombre}' if apodo else nombre
+    version    = carta.get('version', '')
+    grupo      = carta.get('grupo', version)
+    estrellas  = carta.get('estrellas', '☆☆☆')
+    card_id    = carta.get('card_id') or extraer_card_id_de_id_unico(id_unico)
+    total_copias = col_cartas_usuario.count_documents({"nombre": nombre, "version": version, "grupo": grupo})
+    doc_user   = col_usuarios.find_one({"user_id": user_id}) or {}
+    favoritos  = doc_user.get("favoritos", [])
+    es_fav     = any(fav.get("nombre") == nombre and fav.get("version") == version and fav.get("grupo", version) == grupo for fav in favoritos)
+    precio     = precio_carta_tabla(estrellas, card_id)
+
+    texto = (
+        f"🎴 <b>Info de carta [{id_unico}]</b>\n"
+        f"• Nombre: {'⭐ ' if es_fav else ''}<b>{nombre_m}</b>\n"
+        f"• Grupo: <b>{grupo}</b>\n• Versión: <b>{version}</b>\n"
+        f"• Nº: <b>#{card_id}</b>\n• Estado: <b>{estrellas}</b>\n"
+        f"• Precio: <code>{precio} Kponey</code>\n• Copias globales: <b>{total_copias}</b>"
+    )
+    teclado = InlineKeyboardMarkup([[InlineKeyboardButton("🛒 Poner en el mercado", callback_data=f"ampliar_vender_{id_unico}")]]) if fuente == "album" else None
+
+    try:
+        enviar(photo=imagen_url, caption=texto, parse_mode='HTML', reply_markup=teclado)
+    except Exception:
+        enviar(caption=f"[Imagen no disponible]\n\n{texto}", parse_mode='HTML', reply_markup=teclado)
+
+# ─── /comandos ───────────────────────────────────────────────────────────────
+@log_command
+@solo_en_tema_asignado("comandos")
+@grupo_oficial
+@cooldown_critico
+def comando_comandos(update, context):
+    update.message.reply_text(
+        "📋 <b>Comandos disponibles:</b>\n\n"
+        "/idolday — Drop de cartas\n/album — Tu colección\n/ampliar — Ver carta\n"
+        "/vender — Vender carta\n/mercado — Ver mercado\n/comprar — Comprar carta\n"
+        "/retirar — Retirar del mercado\n/inventario — Objetos y saldo\n"
+        "/kponey — Tu saldo\n/precio — Precio de carta\n/setsprogreso — Progreso\n"
+        "/set — Detalle de set\n/miid — Tu ID\n/trk — Intercambio de cartas",
+        parse_mode='HTML'
+    )
+
+# ─── Mercado (comando) ────────────────────────────────────────────────────────
+@log_command
+@solo_en_temas_permitidos("mercado")
+@cooldown_critico
+def comando_mercado(update, context):
+    user_id  = update.message.from_user.id
+    chat_id  = update.effective_chat.id
+    thread_id= getattr(update.message, "message_thread_id", None)
+    msg = context.bot.send_message(chat_id=chat_id, text="🛒 Mercado (cargando...)", message_thread_id=thread_id)
+    mostrar_mercado_pagina(chat_id, msg.message_id, context, user_id, pagina=1, thread_id=thread_id)
+
+# ─── Dar / regalar cartas ─────────────────────────────────────────────────────
+@log_command
+@grupo_oficial
+def comando_giveidol(update, context):
+    if len(context.args) < 2:
+        update.message.reply_text("Uso: /giveidol <id_unico> @usuario_destino"); return
+    id_unico  = context.args[0].strip()
+    user_dest = context.args[1].strip()
+    user_id   = update.message.from_user.id
+    chat      = update.effective_chat
+    carta     = col_cartas_usuario.find_one({"user_id": user_id, "id_unico": id_unico})
+    if not carta:
+        update.message.reply_text("No tienes esa carta."); return
+
+    target_user_id = None
+    if user_dest.startswith('@'):
+        posible = col_usuarios.find_one({"username": user_dest[1:].lower()})
+        if posible: target_user_id = posible["user_id"]
+    else:
+        try: target_user_id = int(user_dest)
+        except Exception: pass
+
+    if not target_user_id:
+        update.message.reply_text("No pude identificar al usuario destino."); return
+    if user_id == target_user_id:
+        update.message.reply_text("No puedes regalarte cartas a ti mismo."); return
+
+    col_cartas_usuario.delete_one({"user_id": user_id, "id_unico": id_unico})
+    carta["user_id"] = target_user_id
+    col_cartas_usuario.insert_one(carta)
+    update.message.reply_text(f"🎁 Carta [{id_unico}] enviada a <b>@{user_dest.lstrip('@')}</b>!", parse_mode='HTML')
+    try:
+        context.bot.send_message(chat_id=target_user_id, text=f"🎉 ¡Recibiste la carta <b>{id_unico}</b>! Revisa tu /album.", parse_mode='HTML')
+    except Exception: pass
+
+# ─── Sets / Progreso ──────────────────────────────────────────────────────────
 def obtener_sets_disponibles():
-    sets = set()
-    for carta in cartas:
-        if "set" in carta:
-            sets.add(carta["set"])
-        elif "grupo" in carta:
-            sets.add(carta["grupo"])
-    return sorted(list(sets), key=lambda s: s.lower())
+    return sorted(SETS_PRECALCULADOS.keys(), key=lambda s: s.lower())
 
 def mostrar_setsprogreso(update, context, pagina=1, mensaje=None, editar=False, thread_id=None):
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
-    sets = obtener_sets_disponibles()
-    cartas_usuario = list(col_cartas_usuario.find({"user_id": user_id}))
+    sets    = obtener_sets_disponibles()
+    cartas_usuario  = list(col_cartas_usuario.find({"user_id": user_id}))
+    cartas_u_unicas = set((c.get("grupo", c.get("set")), c["nombre"], c["version"]) for c in cartas_usuario)
 
-    # Diferencia por grupo/set, nombre y versión
-    cartas_usuario_unicas = set(
-        (c.get("grupo", c.get("set")), c["nombre"], c["version"])
-        for c in cartas_usuario
-    )
+    por_pagina = 5; total = len(sets)
+    paginas    = (total-1)//por_pagina+1
+    pagina     = max(1, min(pagina, paginas))
+    inicio     = (pagina-1)*por_pagina; fin = min(inicio+por_pagina, total)
+    texto = "<b>📚 Progreso de sets:</b>\n\n"
 
-    por_pagina = 5
-    total = len(sets)
-    paginas = (total - 1) // por_pagina + 1
-    if pagina < 1: pagina = 1
-    if pagina > paginas: pagina = paginas
-    inicio = (pagina - 1) * por_pagina
-    fin = min(inicio + por_pagina, total)
-    texto = "<b>📚 Progreso de sets/colecciones:</b>\n\n"
     for s in sets[inicio:fin]:
-        # Diferencia por grupo/set, nombre y versión aquí también
-        cartas_set_unicas = set(
-            (c.get("grupo", c.get("set")), c["nombre"], c["version"])
-            for c in cartas if (c.get("set") == s or c.get("grupo") == s)
-        )
-        total_set = len(cartas_set_unicas)
-        usuario_tiene = sum(1 for carta in cartas_set_unicas if carta in cartas_usuario_unicas)
-        if usuario_tiene == 0:
-            emoji = "⬜"
-        elif usuario_tiene == total_set:
-            emoji = "🌟"
-        elif usuario_tiene >= total_set // 2:
-            emoji = "⭐"
-        else:
-            emoji = "🔸"
-        bloques = 10
-        bloques_llenos = int((usuario_tiene / total_set) * bloques) if total_set > 0 else 0
-        barra = "🟩" * bloques_llenos + "⬜" * (bloques - bloques_llenos)
+        cartas_set = SETS_PRECALCULADOS.get(s, set())
+        total_set  = len(cartas_set)
+        usuario_tiene = sum(1 for (n, v) in cartas_set if (s, n, v) in cartas_u_unicas)
+        emoji = "🌟" if usuario_tiene == total_set else ("⭐" if usuario_tiene >= total_set//2 else ("🔸" if usuario_tiene > 0 else "⬜"))
+        bloques_llenos = int((usuario_tiene / total_set) * 10) if total_set > 0 else 0
+        barra = "🟩" * bloques_llenos + "⬜" * (10 - bloques_llenos)
         texto += f"{emoji} <b>{s}</b>: {usuario_tiene}/{total_set}\n{barra}\n\n"
-    texto += f"Página {pagina}/{paginas}\n"
-    texto += "📖 Escribe <b>/set &lt;nombre_set&gt;</b> para ver los detalles de un set.\nEjemplo: <code>/set Twice</code>"
-    botones = []
-    if pagina > 1:
-        botones.append(InlineKeyboardButton("⬅️", callback_data=f"setsprogreso_{pagina-1}"))
-    if pagina < paginas:
-        botones.append(InlineKeyboardButton("➡️", callback_data=f"setsprogreso_{pagina+1}"))
-    teclado = InlineKeyboardMarkup([botones]) if botones else None
-    if editar and mensaje:
-        try:
-            mensaje.edit_text(texto, reply_markup=teclado, parse_mode="HTML")
-        except Exception:
-            context.bot.send_message(
-                chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML",
-                message_thread_id=thread_id
-            )
-    else:
-        context.bot.send_message(
-            chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML",
-            message_thread_id=thread_id
-        )
 
+    texto += f"Página {pagina}/{paginas}\nUsa <code>/set NombreSet</code> para ver detalles."
+    botones = []
+    if pagina > 1:       botones.append(InlineKeyboardButton("⬅️", callback_data=f"setsprogreso_{pagina-1}"))
+    if pagina < paginas: botones.append(InlineKeyboardButton("➡️", callback_data=f"setsprogreso_{pagina+1}"))
+    teclado = InlineKeyboardMarkup([botones]) if botones else None
+
+    if editar and mensaje:
+        try: mensaje.edit_text(texto, reply_markup=teclado, parse_mode="HTML")
+        except Exception: context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML", message_thread_id=thread_id)
+    else:
+        context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML", message_thread_id=thread_id)
 
 @log_command
 @solo_en_tema_asignado("set")
 def comando_set_detalle(update, context):
-    user_id = update.effective_user.id
-    chat_id = update.effective_chat.id
-    thread_id = getattr(update.message, "message_thread_id", None)  # Toma el thread_id del mensaje
-
+    user_id   = update.effective_user.id
+    thread_id = getattr(update.message, "message_thread_id", None)
     if not context.args:
-        mostrar_lista_set(update, context, pagina=1, thread_id=thread_id)
-        return
+        mostrar_lista_set(update, context, pagina=1, thread_id=thread_id); return
     nombre_set = " ".join(context.args)
-    sets = obtener_sets_disponibles()
-    nombre_set_normalizado = nombre_set.lower()
-    set_match = None
-    for s in sets:
-        if s.lower() == nombre_set_normalizado:
-            set_match = s
-            break
+    sets       = obtener_sets_disponibles()
+    set_match  = next((s for s in sets if s.lower() == nombre_set.lower()), None)
     if not set_match:
-        mostrar_lista_set(update, context, pagina=1, error=nombre_set, thread_id=thread_id)
-        return
+        mostrar_lista_set(update, context, pagina=1, error=nombre_set, thread_id=thread_id); return
     mostrar_detalle_set(update, context, set_match, user_id, pagina=1, thread_id=thread_id)
 
-
 def mostrar_lista_set(update, context, pagina=1, mensaje=None, editar=False, error=None, thread_id=None):
-    sets = obtener_sets_disponibles()
-    por_pagina = 8
-    total = len(sets)
-    paginas = (total - 1) // por_pagina + 1
-    if pagina < 1: pagina = 1
-    if pagina > paginas: pagina = paginas
-    inicio = (pagina - 1) * por_pagina
-    fin = min(inicio + por_pagina, total)
-    texto = "<b>Sets disponibles:</b>\n"
-    texto += "\n".join([f"• <code>{s}</code>" for s in sets[inicio:fin]])
-    if error:
-        texto = f"❌ No se encontró el set <b>{error}</b>.\n\n" + texto
-    texto += f"\n\nEjemplo de uso: <code>/set Twice</code>\nPágina {pagina}/{paginas}"
+    sets    = obtener_sets_disponibles()
+    por_pagina = 8; total = len(sets)
+    paginas = (total-1)//por_pagina+1
+    pagina  = max(1, min(pagina, paginas))
+    inicio  = (pagina-1)*por_pagina; fin = min(inicio+por_pagina, total)
+    texto   = "<b>Sets disponibles:</b>\n" + "\n".join(f"• <code>{s}</code>" for s in sets[inicio:fin])
+    if error: texto = f"❌ No se encontró: <b>{error}</b>\n\n" + texto
+    texto  += f"\n\nEjemplo: <code>/set Twice</code>\nPágina {pagina}/{paginas}"
     botones = []
-    if pagina > 1:
-        botones.append(InlineKeyboardButton("⬅️", callback_data=f"setlist_{pagina-1}"))
-    if pagina < paginas:
-        botones.append(InlineKeyboardButton("➡️", callback_data=f"setlist_{pagina+1}"))
+    if pagina > 1:      botones.append(InlineKeyboardButton("⬅️", callback_data=f"setlist_{pagina-1}"))
+    if pagina < paginas:botones.append(InlineKeyboardButton("➡️", callback_data=f"setlist_{pagina+1}"))
     teclado = InlineKeyboardMarkup([botones]) if botones else None
     chat_id = update.effective_chat.id
-
     if editar and mensaje:
-        try:
-            mensaje.edit_text(texto, reply_markup=teclado, parse_mode="HTML")
-        except Exception:
-            context.bot.send_message(
-                chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML",
-                message_thread_id=thread_id
-            )
+        try: mensaje.edit_text(texto, reply_markup=teclado, parse_mode="HTML")
+        except Exception: context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML", message_thread_id=thread_id)
     else:
-        context.bot.send_message(
-            chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML",
-            message_thread_id=thread_id
-        )
-
+        context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode="HTML", message_thread_id=thread_id)
 
 def mostrar_detalle_set(update, context, set_name, user_id, pagina=1, mensaje=None, editar=False, thread_id=None):
-    chat_id = update.effective_chat.id
-
+    chat_id    = update.effective_chat.id
     cartas_set = [c for c in cartas if (c.get("set") == set_name or c.get("grupo") == set_name)]
-    cartas_set_unicas = []
-    vistos = set()
+    # Deduplicar por (nombre, version, grupo) — usa separador que no aparezca en nombres
+    vistos     = {}
     for c in cartas_set:
-        # Ahora considera grupo también
-        key = (c["nombre"], c["version"], c.get("grupo", set_name))
+        key = f"{c['nombre']}|||{c['version']}|||{c.get('grupo', set_name)}"
         if key not in vistos:
-            cartas_set_unicas.append(c)
-            vistos.add(key)
+            vistos[key] = c
+    cartas_set_unicas = list(vistos.values())
 
-    por_pagina = 8
-    total = len(cartas_set_unicas)
-    paginas = (total - 1) // por_pagina + 1
-    if pagina < 1: pagina = 1
-    if pagina > paginas: pagina = paginas
-    inicio = (pagina - 1) * por_pagina
-    fin = min(inicio + por_pagina, total)
+    por_pagina = 8; total = len(cartas_set_unicas)
+    paginas    = (total-1)//por_pagina+1 if total > 0 else 1
+    pagina     = max(1, min(pagina, paginas))
+    inicio     = (pagina-1)*por_pagina; fin = min(inicio+por_pagina, total)
 
-    cartas_usuario = list(col_cartas_usuario.find({"user_id": user_id}))
-    cartas_usuario_unicas = set(
-        (c["nombre"], c["version"], c.get("grupo", set_name))
-        for c in cartas_usuario
-    )
+    cartas_usuario  = list(col_cartas_usuario.find({"user_id": user_id}))
+    cartas_u_unicas = set((c["nombre"], c["version"], c.get("grupo", set_name)) for c in cartas_usuario)
+    user_doc        = col_usuarios.find_one({"user_id": user_id}) or {}
+    favoritos       = user_doc.get("favoritos", [])
 
-    user_doc = col_usuarios.find_one({"user_id": user_id}) or {}
-    favoritos = user_doc.get("favoritos", [])
-
-    usuario_tiene = sum(
-        1 for c in cartas_set_unicas
-        if (c["nombre"], c["version"], c.get("grupo", set_name)) in cartas_usuario_unicas
-    )
-    bloques = 10
-    bloques_llenos = int((usuario_tiene / total) * bloques) if total > 0 else 0
-    barra = "🟩" * bloques_llenos + "⬜" * (bloques - bloques_llenos)
+    usuario_tiene   = sum(1 for c in cartas_set_unicas if (c["nombre"], c["version"], c.get("grupo", set_name)) in cartas_u_unicas)
+    bloques_llenos  = int((usuario_tiene / total) * 10) if total > 0 else 0
+    barra = "🟩" * bloques_llenos + "⬜" * (10 - bloques_llenos)
     texto = f"<b>🌟 Set: {set_name} ({usuario_tiene}/{total})</b>\n{barra}\n\n"
 
     for carta in cartas_set_unicas[inicio:fin]:
-        key = (carta["nombre"], carta["version"], carta.get("grupo", set_name))
-        nombre = carta["nombre"]
-        version = carta["version"]
-        grupo = carta.get("grupo", set_name)
-        nombre_version = f"{grupo} [{version}] {nombre}"
+        nombre  = carta["nombre"]; version = carta["version"]; grupo = carta.get("grupo", set_name)
+        key_t   = (nombre, version, grupo)
+        nvg     = f"{grupo} [{version}] {nombre}"
+        nvg_norm= normalizar_nombre_carta(nvg)
+        es_fav  = any(normalizar_nombre_carta(f"{fav.get('grupo',grupo)} [{fav.get('version',version)}] {fav.get('nombre',nombre)}") == nvg_norm for fav in favoritos)
+        icon_fav= " ⭐" if es_fav else ""
+        texto  += ("✅" if key_t in cartas_u_unicas else "❌") + f" {nvg}{icon_fav}\n"
 
-        nombre_carta_normalizado = normalizar_nombre_carta(nombre_version)
-        es_fav = any(
-            normalizar_nombre_carta(f"{fav.get('grupo', grupo)} [{fav.get('version', version)}] {fav.get('nombre', nombre)}") == nombre_carta_normalizado
-            for fav in favoritos
-        )
-        icono_fav = " ⭐" if es_fav else ""
-        if key in cartas_usuario_unicas:
-            texto += f"✅ {nombre_version}{icono_fav}\n"
-        else:
-            texto += f"❌ {nombre_version}{icono_fav}\n"
-
-
-    texto += (
-        "\n<i>Para añadir una carta a favoritos:</i>\n"
-        "Copia el nombre (incluyendo grupo y corchetes) y usa:\n"
-        f"<code>/fav {set_name} [V1] Tzuyu</code>\n"
-    )
-    if usuario_tiene == total and total > 0:
-        texto += "\n🎉 <b>¡Completaste este set!</b> 🎉"
-
-    botones = []
-    if pagina > 1:
-        botones.append(InlineKeyboardButton("⬅️", callback_data=f"setdet_{set_name}_{user_id}_{pagina-1}"))
-    if pagina < paginas:
-        botones.append(InlineKeyboardButton("➡️", callback_data=f"setdet_{set_name}_{user_id}_{pagina+1}"))
+    # ─── Botones de paginación usando separador seguro ────────────────────────
+    # Usamos el nombre del set codificado en base64 para evitar problemas con guiones bajos
+    import base64
+    set_b64  = base64.urlsafe_b64encode(set_name.encode()).decode()
+    botones  = []
+    if pagina > 1:       botones.append(InlineKeyboardButton("⬅️", callback_data=f"setdet|{set_b64}|{user_id}|{pagina-1}"))
+    if pagina < paginas: botones.append(InlineKeyboardButton("➡️", callback_data=f"setdet|{set_b64}|{user_id}|{pagina+1}"))
     teclado = InlineKeyboardMarkup([botones]) if botones else None
 
     if editar and mensaje:
-        try:
-            mensaje.edit_text(texto, reply_markup=teclado, parse_mode='HTML')
-        except Exception:
-            context.bot.send_message(
-                chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode='HTML',
-                message_thread_id=thread_id
-            )
+        try: mensaje.edit_text(texto, reply_markup=teclado, parse_mode='HTML')
+        except Exception: context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode='HTML', message_thread_id=thread_id)
     else:
-        context.bot.send_message(
-            chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode='HTML',
-            message_thread_id=thread_id
-        )
+        context.bot.send_message(chat_id=chat_id, text=texto, reply_markup=teclado, parse_mode='HTML', message_thread_id=thread_id)
 
+# ─── Callbacks de Sets ────────────────────────────────────────────────────────
+def manejador_callback_setdet(update, context):
+    import base64
+    query  = update.callback_query
+    data   = query.data  # formato: setdet|<set_b64>|<user_id>|<pagina>
+    partes = data.split("|")
+    if len(partes) != 4:
+        query.answer("Error en paginación", show_alert=True); return
+    set_name = base64.urlsafe_b64decode(partes[1].encode()).decode()
+    user_id  = int(partes[2]); pagina = int(partes[3])
+    mostrar_detalle_set(update, context, set_name, user_id, pagina=pagina, mensaje=query.message, editar=True)
+    query.answer()
 
+def manejador_callback_setlist(update, context):
+    query  = update.callback_query
+    partes = query.data.split("_")
+    if len(partes) != 2:
+        query.answer("Error en paginación", show_alert=True); return
+    pagina    = int(partes[1])
+    thread_id = getattr(query.message, "message_thread_id", None)
+    mostrar_lista_set(update, context, pagina=pagina, mensaje=query.message, editar=True, thread_id=thread_id)
+    query.answer()
 
+def manejador_callback_setsprogreso(update, context):
+    query  = update.callback_query
+    partes = query.data.split("_")
+    if len(partes) != 2:
+        query.answer("Error en paginación", show_alert=True); return
+    mostrar_setsprogreso(update, context, pagina=int(partes[1]), mensaje=query.message, editar=True)
+    query.answer()
 
-# ... Igualmente aquí puedes agregar las funciones de setsprogreso, set, etc. como hablamos ...
-
-
-
-
-
-
-
-# --------- CALLBACKS ---------
-
+# ─── Callback ampliar vender ──────────────────────────────────────────────────
 def callback_ampliar_vender(update, context):
-    query = update.callback_query
-    data = query.data
-    if not data.startswith("ampliar_vender_"):
-        return
-    id_unico = data.replace("ampliar_vender_", "")
-    user_id = query.from_user.id
-    carta = col_cartas_usuario.find_one({"user_id": user_id, "id_unico": id_unico})
+    query    = update.callback_query
+    id_unico = query.data.replace("ampliar_vender_", "")
+    user_id  = query.from_user.id
+    carta    = col_cartas_usuario.find_one({"user_id": user_id, "id_unico": id_unico})
     if not carta:
-        query.answer("No tienes esa carta en tu álbum.", show_alert=True)
-        return
+        query.answer("No tienes esa carta.", show_alert=True); return
+    if col_mercado.find_one({"id_unico": id_unico}):
+        query.answer("Esta carta ya está en el mercado.", show_alert=True); return
 
-    nombre = carta['nombre']
-    version = carta['version']      # Puede ser el grupo
-    grupo = carta.get('grupo', version)  # Usa grupo si existe, si no, versión
-    estado = carta['estado']
     estrellas = carta.get('estrellas', '★??')
-    card_id = carta.get('card_id', extraer_card_id_de_id_unico(id_unico))
-    precio = precio_carta_tabla(estrellas, card_id)
-    imagen = carta.get("imagen")
-
-    ya = col_mercado.find_one({"id_unico": id_unico})
-    if ya:
-        query.answer("Esta carta ya está en el mercado.", show_alert=True)
-        return
+    card_id   = carta.get('card_id', extraer_card_id_de_id_unico(id_unico))
+    precio    = precio_carta_tabla(estrellas, card_id)
 
     col_cartas_usuario.delete_one({"user_id": user_id, "id_unico": id_unico})
     col_mercado.insert_one({
-        "id_unico": id_unico,
-        "vendedor_id": user_id,
-        "nombre": nombre,
-        "version": version,
-        "grupo": grupo,
-        "estado": estado,
-        "estrellas": estrellas,
-        "precio": precio,
-        "card_id": card_id,
-        "fecha": datetime.utcnow(),
-        "imagen": imagen
+        "id_unico": id_unico, "vendedor_id": user_id,
+        "nombre": carta['nombre'], "version": carta['version'],
+        "grupo": carta.get('grupo', carta['version']),
+        "estado": carta['estado'], "estrellas": estrellas,
+        "precio": precio, "card_id": card_id,
+        "fecha": datetime.utcnow(), "imagen": carta.get("imagen")
     })
-
     query.answer("Carta puesta en el mercado.", show_alert=True)
-    query.edit_message_caption(
-        caption="📦 Carta puesta en el mercado.",
-        parse_mode='HTML'
-    )
+    query.edit_message_caption(caption="📦 Carta puesta en el mercado.", parse_mode='HTML')
 
-
-
-def manejador_tienda_objeto(update, context):
-    query = update.callback_query
-    data = query.data  # 'tienda_objeto_bono_idolday'
-    obj_id = data.replace("tienda_objeto_", "")
-    obj = CATALOGO_OBJETOS.get(obj_id)
-    if not obj:
-        query.answer("Objeto no válido.", show_alert=True)
-        return
-
-    # Menú de opciones para pagar
-    botones = [
-        [
-            InlineKeyboardButton(
-                f"💸 {obj['precio']} Kponey", callback_data=f"comprar_{obj_id}_kponey"
-            ),
-            InlineKeyboardButton(
-                f"💎 {obj['precio_gemas']} Gemas", callback_data=f"comprar_{obj_id}_gemas"
-            )
-        ],
-        [InlineKeyboardButton("❌ Cancelar", callback_data="cancelar_compra")]
-    ]
-    query.answer()
-    query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(botones))
-
-
-def callback_comprar_objeto(update, context):
-    query = update.callback_query
-    data = query.data  # 'comprar_bono_idolday_kponey' o 'comprar_lightstick_gemas'
-    partes = data.split("_")
-    if len(partes) < 3:
-        query.answer("Error al procesar la compra.", show_alert=True)
-        return
-
-    obj_id = "_".join(partes[1:-1])
-    moneda = partes[-1]
-    obj = CATALOGO_OBJETOS.get(obj_id)
-    if not obj:
-        query.answer("Objeto no válido.", show_alert=True)
-        return
-
-    user_id = query.from_user.id
-    precio = obj["precio"] if moneda == "kponey" else obj["precio_gemas"]
-    campo = "kponey" if moneda == "kponey" else "gemas"
-
-    usuario = col_usuarios.find_one({"user_id": user_id}) or {}
-    saldo = usuario.get(campo, 0)
-    if saldo < precio:
-        query.answer(f"No tienes suficiente {'Kponey' if moneda=='kponey' else 'Gemas'}.", show_alert=True)
-        return
-
-    # Descontar y dar objeto
-    col_usuarios.update_one({"user_id": user_id}, {"$inc": {campo: -precio, f"objetos.{obj_id}": 1}})
-    query.answer(f"¡Compraste {obj['emoji']} {obj['nombre']} usando {precio} {'Kponey' if campo=='kponey' else 'Gemas'}!", show_alert=True)
-    query.edit_message_reply_markup(reply_markup=None)  # Quita los botones
-
-def callback_cancelar_compra(update, context):
-    query = update.callback_query
-    query.answer("Compra cancelada.")
-    query.edit_message_reply_markup(reply_markup=None)
-
-
+# ─── Callbacks de tienda / mejora ────────────────────────────────────────────
+def callback_comprarobj(update, context):
+    query  = update.callback_query
+    obj_id = query.data.replace("comprarobj_", "")
+    user_id= query.from_user.id
+    comprar_objeto(user_id, obj_id, context, query.message.chat_id,
+                   lambda text, **kwargs: query.answer(text=text, show_alert=True))
 
 def callback_comprarG_objeto(update, context):
-    query = update.callback_query
-    data = query.data  # 'comprarG_bono_idolday'
-    if not data.startswith("comprarG_"):
-        return
-    obj_id = data.replace("comprarG_", "")
-    obj = CATALOGO_OBJETOSG.get(obj_id)
+    query  = update.callback_query
+    obj_id = query.data.replace("comprarG_", "")
+    obj    = CATALOGO_OBJETOSG.get(obj_id)
     if not obj or "precio_gemas" not in obj:
-        query.answer("Objeto no válido o no disponible por gemas.", show_alert=True)
-        return
-
+        query.answer("Objeto no válido.", show_alert=True); return
     user_id = query.from_user.id
-    usuario = col_usuarios.find_one({"user_id": user_id}) or {}
-    saldo = usuario.get("gemas", 0)
-    precio = obj["precio_gemas"]
-
+    saldo   = (col_usuarios.find_one({"user_id": user_id}) or {}).get("gemas", 0)
+    precio  = obj["precio_gemas"]
     if saldo < precio:
-        query.answer("No tienes suficientes gemas.", show_alert=True)
-        return
-
-    # Descontar y dar objeto
+        query.answer("No tienes suficientes gemas.", show_alert=True); return
     col_usuarios.update_one({"user_id": user_id}, {"$inc": {"gemas": -precio, f"objetos.{obj_id}": 1}})
     query.answer(f"¡Compraste {obj['emoji']} {obj['nombre']} por {precio} gemas!", show_alert=True)
-    # NO ponemos: query.edit_message_reply_markup(reply_markup=None)
-
-
-
-
-
-
-
-#-------------mostrar_menu_mercado------------
-
-@solo_en_tema_asignado("mercado")
-def manejador_callback(update, context):
-    from telegram.error import RetryAfter, BadRequest
-    query = update.callback_query
-    data = query.data
-    user_id = query.from_user.id
-
-    partes = data.split("_")
-    def obtener_thread_id():
-        if len(partes) > 0 and partes[-1].isdigit():
-            return int(partes[-1])
-        return getattr(query.message, "message_thread_id", None)
-
-    # Solo puedes interactuar con tu propio mercado
-    if data.startswith("mercado"):
-        try:
-            dueño_id = None
-            for part in partes:
-                if part.isdigit() and len(part) >= 5:
-                    dueño_id = int(part)
-                    break
-        except Exception:
-            dueño_id = None
-
-        if dueño_id and user_id != dueño_id:
-            query.answer("Solo puedes interactuar con tu propio mercado.", show_alert=True)
-            return
-
-    if not data.startswith("mercado"):
-        return
-
-    thread_id = obtener_thread_id()
-
-    # Filtros y navegación
-    if data.startswith("mercado_filtros_"):
-        user_id = int(partes[2])
-        pagina = int(partes[3])
-        if len(partes) > 4 and partes[4].isdigit():
-            thread_id = int(partes[4])
-        try:
-            query.edit_message_reply_markup(
-                reply_markup=mostrar_menu_filtros(user_id, pagina)
-            )
-        except RetryAfter as e:
-            query.answer(f"⏳ El bot alcanzó el límite de cambios. Intenta en {int(e.retry_after)} segundos.", show_alert=True)
-            return
-        return
-
-    elif data.startswith("mercado_filtro_estado_"):
-        user_id = int(partes[3])
-        pagina = int(partes[4])
-        if len(partes) > 5 and partes[5].isdigit():
-            thread_id = int(partes[5])
-        try:
-            query.edit_message_reply_markup(
-                reply_markup=mostrar_menu_estrellas(user_id, pagina)
-            )
-        except RetryAfter as e:
-            query.answer(f"⏳ El bot alcanzó el límite de cambios. Intenta en {int(e.retry_after)} segundos.", show_alert=True)
-            return
-        return
-
-    elif data.startswith("mercado_filtraestrella_"):
-        user_id = int(partes[2])
-        pagina = int(partes[3])
-        estrellas = partes[4]
-        if len(partes) > 5 and partes[5].isdigit():
-            thread_id = int(partes[5])
-        try:
-            mostrar_mercado_pagina(
-                query.message.chat_id, query.message.message_id, context,
-                user_id, int(pagina), filtro="estrellas", valor_filtro=estrellas, thread_id=thread_id
-            )
-        except RetryAfter as e:
-            query.answer(f"⏳ El bot alcanzó el límite de cambios. Intenta en {int(e.retry_after)} segundos.", show_alert=True)
-            return
-        return
-
-    elif data.startswith("mercado_filtro_grupo_"):
-        user_id = int(partes[-3])
-        pagina = int(partes[-2])
-        if partes[-1].isdigit():
-            thread_id = int(partes[-1])
-        else:
-            thread_id = None
-        grupos = obtener_grupos_del_mercado()
-        try:
-            query.edit_message_reply_markup(reply_markup=mostrar_menu_grupos(user_id, pagina, grupos))
-        except RetryAfter as e:
-            query.answer(f"⏳ El bot alcanzó el límite de cambios. Intenta en {int(e.retry_after)} segundos.", show_alert=True)
-            return
-        except BadRequest as e:
-            if "Message is not modified" not in str(e):
-                print("Error en menu grupos:", e)
-        return
-
-    elif data.startswith("mercado_filtragrupo_"):
-        user_id = int(partes[2])
-        pagina = int(partes[3])
-        grupo_codificado = partes[4]
-        grupo = urllib.parse.unquote_plus(grupo_codificado)
-        thread_id = int(partes[5]) if len(partes) > 5 and partes[5].isdigit() else None
-        try:
-            mostrar_mercado_pagina(
-                query.message.chat_id, query.message.message_id, context,
-                user_id, int(pagina), filtro="grupo", valor_filtro=grupo, thread_id=thread_id
-            )
-        except RetryAfter as e:
-            query.answer(f"⏳ El bot alcanzó el límite de cambios. Intenta en {int(e.retry_after)} segundos.", show_alert=True)
-            return
-        return
-
-    elif data.startswith("mercado_filtro_numero_"):
-        user_id = int(partes[3])
-        pagina = int(partes[4])
-        if len(partes) > 5 and partes[5].isdigit():
-            thread_id = int(partes[5])
-        try:
-            query.edit_message_reply_markup(reply_markup=mostrar_menu_ordenar(user_id, pagina))
-        except RetryAfter as e:
-            query.answer(f"⏳ El bot alcanzó el límite de cambios. Intenta en {int(e.retry_after)} segundos.", show_alert=True)
-            return
-        return
-
-    elif data.startswith("mercado_ordennum_"):
-        user_id = int(partes[2])
-        pagina = int(partes[3])
-        orden = partes[4]
-        if len(partes) > 5 and partes[5].isdigit():
-            thread_id = int(partes[5])
-        try:
-            mostrar_mercado_pagina(
-                query.message.chat_id, query.message.message_id, context,
-                user_id, int(pagina), orden=orden, thread_id=thread_id
-            )
-        except RetryAfter as e:
-            query.answer(f"⏳ El bot alcanzó el límite de cambios. Intenta en {int(e.retry_after)} segundos.", show_alert=True)
-            return
-        return
-
-    elif data.startswith("mercado_pagina_"):
-        user_id = int(partes[2])
-        pagina = int(partes[3])
-        filtro = partes[4] if partes[4] != "none" else None
-        valor_filtro = partes[5] if partes[5] != "none" else None
-        orden = partes[6] if len(partes) > 6 and partes[6] != "none" else None
-        if len(partes) > 7 and partes[7].isdigit():
-            thread_id = int(partes[7])
-        try:
-            mostrar_mercado_pagina(
-                query.message.chat_id, query.message.message_id, context,
-                user_id, int(pagina), filtro=filtro, valor_filtro=valor_filtro, orden=orden, thread_id=thread_id
-            )
-        except RetryAfter as e:
-            query.answer(f"⏳ El bot alcanzó el límite de cambios. Intenta en {int(e.retry_after)} segundos.", show_alert=True)
-            return
-        return
-
-
-
-
-
-
-    #----------Album--------------
-@solo_en_tema_asignado("album")
-@solo_en_tema_asignado("setsprogreso")
-@solo_en_tema_asignado("set")
-def manejador_callback_album(update, context):
-    from telegram.error import RetryAfter
-    query = update.callback_query
-    data = query.data
-    partes = data.split("_")
-    user_id = query.from_user.id
-
-    def obtener_thread_id():
-        if len(partes) > 0 and partes[-1].isdigit():
-            return int(partes[-1])
-        return getattr(query.message, "message_thread_id", None)
-
-    # --- Filtro por estrellas (estado) ---
-    if data.startswith("album_filtro_estado_"):
-        user_id = int(partes[3])
-        pagina = int(partes[4])
-        thread_id = obtener_thread_id()
-        try:
-            context.bot.edit_message_reply_markup(
-                chat_id=query.message.chat_id,
-                message_id=query.message.message_id,
-                reply_markup=mostrar_menu_estrellas_album(user_id, pagina)
-            )
-        except RetryAfter as e:
-            query.answer(f"⏳ El bot alcanzó el límite de cambios. Intenta en {int(e.retry_after)} segundos.", show_alert=True)
-            return
-        return
-
-    # --- Filtro aplicado por estrella ---
-    if data.startswith("album_filtraestrella_"):
-        user_id = int(partes[2])
-        pagina = int(partes[3])
-        estrellas = partes[4]
-        thread_id = obtener_thread_id()
-        try:
-            mostrar_album_pagina(
-                update, context, query.message.chat_id, query.message.message_id,
-                user_id, int(pagina), filtro="estrellas", valor_filtro=estrellas, thread_id=thread_id
-            )
-        except RetryAfter as e:
-            query.answer(f"⏳ El bot alcanzó el límite de cambios. Intenta en {int(e.retry_after)} segundos.", show_alert=True)
-            return
-        return
-
-    # --- Filtro por grupo ---
-    if data.startswith("album_filtro_grupo_"):
-        partes_split = data.split("_")
-        user_id = int(partes_split[3])
-        if len(partes_split) > 5 and partes_split[-1].isdigit():
-            pagina = int(partes_split[4])
-            thread_id = int(partes_split[5])
-        elif len(partes_split) > 4:
-            pagina = int(partes_split[4])
-            thread_id = None
-        else:
-            pagina = 1
-            thread_id = None
-        grupos = sorted({c.get("grupo", "") for c in col_cartas_usuario.find({"user_id": user_id}) if c.get("grupo")})
-        try:
-            context.bot.edit_message_reply_markup(
-                chat_id=query.message.chat_id,
-                message_id=query.message.message_id,
-                reply_markup=mostrar_menu_grupos_album(user_id, pagina, grupos)
-            )
-        except RetryAfter as e:
-            query.answer(f"⏳ El bot alcanzó el límite de cambios. Intenta en {int(e.retry_after)} segundos.", show_alert=True)
-            return
-        return
-
-    # --- Filtro aplicado por grupo ---
-    if data.startswith("album_filtragrupo_"):
-        user_id = int(partes[2])
-        pagina = int(partes[3])
-        grupo = "_".join(partes[4:-1]) if partes[-1].isdigit() else "_".join(partes[4:])
-        thread_id = obtener_thread_id()
-        try:
-            mostrar_album_pagina(
-                update, context, query.message.chat_id, query.message.message_id,
-                user_id, int(pagina), filtro="grupo", valor_filtro=grupo, thread_id=thread_id
-            )
-        except RetryAfter as e:
-            query.answer(f"⏳ El bot alcanzó el límite de cambios. Intenta en {int(e.retry_after)} segundos.", show_alert=True)
-            return
-        return
-
-    # --- Menú de filtros principal ---
-    if data.startswith("album_filtros_"):
-        user_id = int(partes[2])
-        pagina = int(partes[3])
-        thread_id = obtener_thread_id()
-        try:
-            context.bot.edit_message_reply_markup(
-                chat_id=query.message.chat_id,
-                message_id=query.message.message_id,
-                reply_markup=mostrar_menu_filtros_album(user_id, pagina)
-            )
-        except RetryAfter as e:
-            query.answer(f"⏳ El bot alcanzó el límite de cambios. Intenta en {int(e.retry_after)} segundos.", show_alert=True)
-            return
-        return
-
-    # --- Filtro ordenar por número ---
-    if data.startswith("album_filtro_numero_"):
-        user_id = int(partes[3])
-        pagina = int(partes[4])
-        thread_id = obtener_thread_id()
-        try:
-            context.bot.edit_message_reply_markup(
-                chat_id=query.message.chat_id,
-                message_id=query.message.message_id,
-                reply_markup=mostrar_menu_ordenar_album(user_id, pagina)
-            )
-        except RetryAfter as e:
-            query.answer(f"⏳ El bot alcanzó el límite de cambios. Intenta en {int(e.retry_after)} segundos.", show_alert=True)
-            return
-        return
-
-    # --- Orden aplicado ---
-    if data.startswith("album_ordennum_"):
-        user_id = int(partes[2])
-        pagina = int(partes[3])
-        orden = partes[4]
-        thread_id = obtener_thread_id()
-        try:
-            mostrar_album_pagina(
-                update, context, query.message.chat_id, query.message.message_id,
-                user_id, int(pagina), orden=orden, thread_id=thread_id
-            )
-        except RetryAfter as e:
-            query.answer(f"⏳ El bot alcanzó el límite de cambios. Intenta en {int(e.retry_after)} segundos.", show_alert=True)
-            return
-        return
-
-    # --- Volver al álbum completo (sin filtros) ---
-    if data.startswith("album_pagina_"):
-        user_id = int(partes[2])
-        pagina = int(partes[3])
-        filtro = partes[4] if len(partes) > 4 and partes[4] != "none" else None
-        valor_filtro = partes[5] if len(partes) > 5 and partes[5] != "none" else None
-        orden = partes[6] if len(partes) > 6 and partes[6] != "none" else None
-        thread_id = obtener_thread_id()
-        try:
-            mostrar_album_pagina(
-                update, context, query.message.chat_id, query.message.message_id,
-                user_id, int(pagina), filtro=filtro, valor_filtro=valor_filtro, orden=orden, thread_id=thread_id
-            )
-        except RetryAfter as e:
-            query.answer(f"⏳ El bot alcanzó el límite de cambios. Intenta en {int(e.retry_after)} segundos.", show_alert=True)
-            return
-        return
-
-
-
-   
-    
-    
-    # --- RECLAMAR DROP ---
-    if data.startswith("reclamar"):
-        manejador_reclamar(update, context)
-        return
-
-    # --- EXPIRADO / RECLAMADA ---
-    if data == "expirado":
-        query.answer("Este drop ha expirado.", show_alert=True)
-        return
-    if data == "reclamada":
-        query.answer("Esta carta ya fue reclamada.", show_alert=True)
-        return
-
-    # --- VER CARTA INDIVIDUAL ---
-    if data.startswith("vercarta"):
-        partes = data.split("_")
-        if len(partes) != 3:
-            query.answer()
-            return
-        user_id = int(partes[1])
-        id_unico = partes[2]
-        if query.from_user.id != user_id:
-            query.answer(text="Solo puedes ver tus propias cartas.", show_alert=True)
-            return
-        carta = col_cartas_usuario.find_one({"user_id": user_id, "id_unico": id_unico})
-        if not carta:
-            query.answer(text="Esa carta no existe.", show_alert=True)
-            return
-        mostrar_carta_individual(
-            query.message.chat_id,
-            user_id,
-            [carta],
-            0,
-            context,
-            query=query
-        )
-        query.answer()
-        return
-
-
-
-    # --- REGALAR CARTA ---
-    if data.startswith("regalar_"):
-        partes = data.split("_")
-        if len(partes) != 3:
-            query.answer()
-            return
-        user_id = int(partes[1])
-        idx = int(partes[2])
-        if query.from_user.id != user_id:
-            query.answer(text="Solo puedes regalar tus propias cartas.", show_alert=True)
-            return
-        cartas_usuario = list(col_cartas_usuario.find({"user_id": user_id}))
-        def sort_key(x):
-            grupo = grupo_de_carta(x.get('nombre', ''), x.get('version', '')) or ""
-            return (
-                grupo.lower(),
-                x.get('nombre', '').lower(),
-                x.get('card_id', 0)
-            )
-        cartas_usuario.sort(key=sort_key)
-        if idx < 0 or idx >= len(cartas_usuario):
-            query.answer(text="Esa carta no existe.", show_alert=True)
-            return
-        carta = cartas_usuario[idx]
-        SESIONES_REGALO[user_id] = {
-            "carta": carta,
-            "msg_id": query.message.message_id,
-            "chat_id": query.message.chat_id,
-            "tiempo": time.time()
-        }
-        query.edit_message_reply_markup(reply_markup=None)
-        context.bot.send_message(
-            chat_id=query.message.chat_id,
-            text=f"¿A quién quieres regalar esta carta?\n\n"
-                 f"<b>{carta['nombre']}</b> [{carta['version']}] - {carta['estado']}\n"
-                 f"ID: <code>{carta['id_unico']}</code>\n\n"
-                 f"Escribe el @usuario, el ID numérico, o <b>cancelar</b> para abortar.",
-            parse_mode="HTML"
-        )
-        query.answer()
-        return
-
-    # --- PAGINACIÓN PROGRESO SETS ---
-    if data.startswith("setsprogreso_"):
-        pagina = int(data.split("_")[1])
-        mostrar_setsprogreso(update, context, pagina=pagina, mensaje=query.message, editar=True)
-        query.answer()
-        return
-
-    # --- PAGINACIÓN LISTA SETS ---
-    if data.startswith("setlist_"):
-        pagina = int(data.split("_")[1])
-        mostrar_lista_set(update, context, pagina=pagina, mensaje=query.message, editar=True)
-        query.answer()
-        return
-
-    # --- PAGINACIÓN DETALLE SET ---
-    if data.startswith("setdet_"):
-        partes = data.split("_")
-        set_name = "_".join(partes[1:-1])
-        pagina = int(partes[-1])
-        mostrar_detalle_set(update, context, set_name, pagina=pagina, mensaje=query.message, editar=True)
-        query.answer()
-        return
-
-    # --- PAGINACIÓN ÁLBUM CON FILTRO ---
-    partes = data.split("_", 3)
-    if len(partes) >= 3 and partes[0] == "lista":
-        pagina = int(partes[1])
-        user_id = int(partes[2])
-        filtro = partes[3].strip().lower() if len(partes) > 3 and partes[3] else None
-        if query.from_user.id != user_id:
-            query.answer(text="Este álbum no es tuyo.", show_alert=True)
-            return
-        cartas_usuario = list(col_cartas_usuario.find({"user_id": user_id}))
-        if filtro:
-            cartas_usuario = [
-                carta for carta in cartas_usuario if
-                filtro in carta.get('nombre', '').lower() or
-                filtro in carta.get('grupo', '').lower() or
-                filtro in carta.get('version', '').lower()
-            ]
-        def sort_key(x):
-            grupo = grupo_de_carta(x.get('nombre', ''), x.get('version', '')) or ""
-            return (
-                grupo.lower(),
-                x.get('nombre', '').lower(),
-                x.get('card_id', 0)
-            )
-        cartas_usuario.sort(key=sort_key)
-        enviar_lista_pagina(
-            query.message.chat_id,
-            user_id,
-            cartas_usuario,
-            pagina,
-            context,
-            editar=True,
-            mensaje=query.message,
-            filtro=filtro
-        )
-        query.answer()
-        return
-
-    # --- PAGINACIÓN DE MEJORAR ---
-    if data.startswith("mejorarpag_"):
-        partes = data.split("_")
-        pagina = int(partes[1])
-        user_id = int(partes[2])
-        if query.from_user.id != user_id:
-            query.answer("Solo puedes ver tu propio menú de mejora.", show_alert=True)
-            return
-        cartas_usuario = list(col_cartas_usuario.find({"user_id": user_id}))
-        cartas_mejorables = [
-            c for c in cartas_usuario
-            if c.get("estrellas", "") != "★★★"
-        ]
-        # ORDENAR SIEMPRE antes de mostrar
-        cartas_mejorables.sort(
-            key=lambda x: (
-                x.get("nombre", "").lower(),
-                x.get("version", "").lower()
-            )
-        )
-        mostrar_lista_mejorables(
-            update, context, user_id, cartas_mejorables, pagina,
-            mensaje=query.message, editar=True
-        )
-        query.answer()
-        return
-
-
-
-        
-
-def callback_comprarobj(update, context):
-    query = update.callback_query
-    data = query.data
-    if not data.startswith("comprarobj_"):
-        return
-    obj_id = data.replace("comprarobj_", "")
-    user_id = query.from_user.id
-    chat_id = query.message.chat_id
-
-    def reply_func(text, **kwargs):
-        query.answer(text=text, show_alert=True)
-
-    comprar_objeto(user_id, obj_id, context, chat_id, reply_func)
-    
-
-
-
-   
-    # --- VER CARTA INDIVIDUAL ---
-    if data.startswith("vercarta"):
-        partes = data.split("_")
-        if len(partes) != 3:
-            query.answer()
-            return
-        user_id = int(partes[1])
-        id_unico = partes[2]
-        if query.from_user.id != user_id:
-            query.answer(text="Solo puedes ver tus propias cartas.", show_alert=True)
-            return
-        carta = col_cartas_usuario.find_one({"user_id": user_id, "id_unico": id_unico})
-        if not carta:
-            query.answer(text="Esa carta no existe.", show_alert=True)
-            return
-        mostrar_carta_individual(
-            query.message.chat_id,
-            user_id,
-            [carta],
-            0,
-            context,
-            query=query
-        )
-        query.answer()
-        return
-
-
-
-
-    # --- REGALAR CARTA ---
-    if data.startswith("regalar_"):
-        partes = data.split("_")
-        if len(partes) != 3:
-            query.answer()
-            return
-        user_id = int(partes[1])
-        idx = int(partes[2])
-        if query.from_user.id != user_id:
-            query.answer(text="Solo puedes regalar tus propias cartas.", show_alert=True)
-            return
-        cartas_usuario = list(col_cartas_usuario.find({"user_id": user_id}))
-        def sort_key(x):
-            grupo = grupo_de_carta(x.get('nombre', ''), x.get('version', '')) or ""
-            return (
-                grupo.lower(),
-                x.get('nombre', '').lower(),
-                x.get('card_id', 0)
-            )
-        cartas_usuario.sort(key=sort_key)
-        if idx < 0 or idx >= len(cartas_usuario):
-            query.answer(text="Esa carta no existe.", show_alert=True)
-            return
-        carta = cartas_usuario[idx]
-        SESIONES_REGALO[user_id] = {
-            "carta": carta,
-            "msg_id": query.message.message_id,
-            "chat_id": query.message.chat_id,
-            "tiempo": time.time()
-        }
-        query.edit_message_reply_markup(reply_markup=None)
-        context.bot.send_message(
-            chat_id=query.message.chat_id,
-            text=f"¿A quién quieres regalar esta carta?\n\n"
-                 f"<b>{carta['nombre']}</b> [{carta['version']}] - {carta['estado']}\n"
-                 f"ID: <code>{carta['id_unico']}</code>\n\n"
-                 f"Escribe el @usuario, el ID numérico, o <b>cancelar</b> para abortar.",
-            parse_mode="HTML"
-        )
-        query.answer()
-        return
-
-    # --- PAGINACIÓN PROGRESO SETS ---
-    if data.startswith("setsprogreso_"):
-        pagina = int(data.split("_")[1])
-        mostrar_setsprogreso(update, context, pagina=pagina, mensaje=query.message, editar=True)
-        query.answer()
-        return
-
-    # --- PAGINACIÓN LISTA SETS ---
-    if data.startswith("setlist_"):
-        pagina = int(data.split("_")[1])
-        mostrar_lista_set(update, context, pagina=pagina, mensaje=query.message, editar=True)
-        query.answer()
-        return
-
-    # --- PAGINACIÓN DETALLE SET ---
-    if data.startswith("setdet_"):
-        partes = data.split("_")
-        set_name = "_".join(partes[1:-1])
-        pagina = int(partes[-1])
-        mostrar_detalle_set(update, context, set_name, pagina=pagina, mensaje=query.message, editar=True)
-        query.answer()
-        return
-
 
 def callback_mejorar_carta(update, context):
-    query = update.callback_query
+    query   = update.callback_query
     user_id = query.from_user.id
-    data = query.data
-
-    if not data.startswith("mejorar_"):
-        return
-    id_unico = data.split("_", 1)[1]
-
-    carta = col_cartas_usuario.find_one({"user_id": user_id, "id_unico": id_unico})
+    id_unico= query.data.split("_", 1)[1]
+    carta   = col_cartas_usuario.find_one({"user_id": user_id, "id_unico": id_unico})
     if not carta:
-        query.answer("No tienes esa carta.", show_alert=True)
-        return
-
-    user = col_usuarios.find_one({"user_id": user_id}) or {}
-    objetos = user.get("objetos", {})
-    lightsticks = objetos.get("lightstick", 0)
+        query.answer("No tienes esa carta.", show_alert=True); return
+    lightsticks = (col_usuarios.find_one({"user_id": user_id}) or {}).get("objetos", {}).get("lightstick", 0)
     if lightsticks < 1:
-        query.answer("No tienes ningún Lightstick.", show_alert=True)
-        return
-
-    # Mejora según estado actual
-    estrellas_actual = carta.get("estrellas", "")
-    mejoras = {
-        "☆☆☆": ("★☆☆", 1.00),
-        "★☆☆": ("★★☆", 0.70),
-        "★★☆": ("★★★", 0.40),
-        "★★★": (None, 0.00)
-    }
-    if estrellas_actual not in mejoras or mejoras[estrellas_actual][0] is None:
-        query.answer("Esta carta no se puede mejorar más.", show_alert=True)
-        return
-
-    estrellas_nuevo, prob = mejoras[estrellas_actual]
-    prob_percent = int(prob * 100)
+        query.answer("No tienes ningún Lightstick.", show_alert=True); return
+    mejoras = {"☆☆☆": ("★☆☆", 1.00), "★☆☆": ("★★☆", 0.70), "★★☆": ("★★★", 0.40), "★★★": (None, 0.00)}
+    est_actual = carta.get("estrellas", "")
+    if est_actual not in mejoras or mejoras[est_actual][0] is None:
+        query.answer("No se puede mejorar más.", show_alert=True); return
+    est_nuevo, prob = mejoras[est_actual]
     texto = (
-        f"Vas a usar 1 💡 Lightstick para intentar mejorar esta carta:\n"
-        f"<b>{carta.get('nombre','')} [{carta.get('version','')}]</b>\n"
-        f"Estado actual: <b>{estrellas_actual}</b>\n"
-        f"Posibilidad de mejora: <b>{prob_percent}%</b>\n\n"
-        f"¿Deseas continuar?"
+        f"Vas a usar 1 💡 Lightstick:\n<b>{carta.get('nombre','')} [{carta.get('version','')}]</b>\n"
+        f"Estado actual: <b>{est_actual}</b>\nPosibilidad: <b>{int(prob*100)}%</b>\n\n¿Continuar?"
     )
-    botones = [
-        [
-            InlineKeyboardButton("✅ Mejorar", callback_data=f"confirmamejora_{id_unico}"),
-            InlineKeyboardButton("❌ Cancelar", callback_data="cancelarmejora")
-        ]
-    ]
+    botones = [[
+        InlineKeyboardButton("✅ Mejorar",  callback_data=f"confirmamejora_{id_unico}"),
+        InlineKeyboardButton("❌ Cancelar", callback_data="cancelarmejora")
+    ]]
     query.edit_message_text(texto, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(botones))
     query.answer()
 
-
-
 def callback_confirmar_mejora(update, context):
-    query = update.callback_query
+    query   = update.callback_query
     user_id = query.from_user.id
-    data = query.data
+    data    = query.data
 
     if data.startswith("confirmamejora_"):
         id_unico = data.split("_", 1)[1]
-        carta = col_cartas_usuario.find_one({"user_id": user_id, "id_unico": id_unico})
+        carta    = col_cartas_usuario.find_one({"user_id": user_id, "id_unico": id_unico})
         if not carta:
-            query.answer("No tienes esa carta.", show_alert=True)
-            return
-        user = col_usuarios.find_one({"user_id": user_id}) or {}
-        objetos = user.get("objetos", {})
-        lightsticks = objetos.get("lightstick", 0)
+            query.answer("No tienes esa carta.", show_alert=True); return
+        lightsticks = (col_usuarios.find_one({"user_id": user_id}) or {}).get("objetos", {}).get("lightstick", 0)
         if lightsticks < 1:
-            query.answer("No tienes ningún Lightstick.", show_alert=True)
-            return
+            query.answer("No tienes ningún Lightstick.", show_alert=True); return
+        mejoras    = {"☆☆☆": ("★☆☆", 1.00), "★☆☆": ("★★☆", 0.70), "★★☆": ("★★★", 0.40)}
+        est_actual = carta.get("estrellas", "")
+        if est_actual not in mejoras:
+            query.answer("No puede mejorar.", show_alert=True); return
+        est_nuevo, prob = mejoras[est_actual]
+        exitosa = random.random() < prob
 
-        mejoras = {
-            "☆☆☆": ("★☆☆", 1.00),
-            "★☆☆": ("★★☆", 0.70),
-            "★★☆": ("★★★", 0.40),
-        }
-        estrellas_actual = carta.get("estrellas", "")
-        if estrellas_actual not in mejoras:
-            query.answer("Esta carta no puede mejorar.", show_alert=True)
-            return
-
-        estrellas_nuevo, prob = mejoras[estrellas_actual]
-        import random
-        mejora_exitosa = random.random() < prob
-
-        if mejora_exitosa:
-            # 1. Buscar en el catálogo la carta con el nuevo estado (estrellas)
-            nombre = carta.get("nombre")
-            version = carta.get("version")
-            # Busca el objeto carta correspondiente al nuevo estado
-            carta_nueva = None
-            for c in cartas:
-                if (
-                    c["nombre"] == nombre and
-                    c["version"] == version and
-                    c.get("estado_estrella", "") == estrellas_nuevo
-                ):
-                    carta_nueva = c
-                    break
-            if carta_nueva:
-                nuevo_estado = carta_nueva.get("estado", carta.get("estado"))
-                nueva_imagen = carta_nueva.get("imagen", carta.get("imagen"))
-            else:
-                # Si no la encuentra, solo cambia las estrellas
-                nuevo_estado = carta.get("estado")
-                nueva_imagen = carta.get("imagen")
-
-            # 2. Actualizar todos los campos sincronizados en Mongo
+        if exitosa:
+            carta_nueva = next((c for c in cartas if c["nombre"] == carta.get("nombre") and c["version"] == carta.get("version") and c.get("estado_estrella", "") == est_nuevo), None)
+            nuevo_estado = carta_nueva.get("estado", carta.get("estado")) if carta_nueva else carta.get("estado")
+            nueva_imagen = carta_nueva.get("imagen", carta.get("imagen")) if carta_nueva else carta.get("imagen")
             col_cartas_usuario.update_one(
                 {"user_id": user_id, "id_unico": id_unico},
-                {
-                    "$set": {
-                        "estrellas": estrellas_nuevo,
-                        "estado": nuevo_estado,
-                        "imagen": nueva_imagen
-                    }
-                }
+                {"$set": {"estrellas": est_nuevo, "estado": nuevo_estado, "imagen": nueva_imagen}}
             )
-            resultado = f"¡Éxito! Tu carta ahora es <b>{estrellas_nuevo}</b> y ha mejorado a <b>{nuevo_estado}</b>."
+            resultado = f"¡Éxito! Tu carta ahora es <b>{est_nuevo}</b> — <b>{nuevo_estado}</b>."
         else:
-            resultado = "Fallaste el intento de mejora. La carta se mantiene igual."
+            resultado = "Fallaste el intento. La carta se mantiene igual."
 
-        # Gasta lightstick (SIEMPRE, falles o aciertes)
         col_usuarios.update_one({"user_id": user_id}, {"$inc": {"objetos.lightstick": -1}})
         query.edit_message_text(resultado, parse_mode="HTML")
         query.answer("¡Listo!")
@@ -6409,227 +3575,222 @@ def callback_confirmar_mejora(update, context):
         query.edit_message_text("Operación cancelada.")
         query.answer("Cancelado.")
 
+# ─── Callback mercado (única definición) ─────────────────────────────────────
+def manejador_callback_mercado(update, context):
+    from telegram.error import RetryAfter, BadRequest
+    query   = update.callback_query
+    data    = query.data
+    user_id = query.from_user.id
+    partes  = data.split("_")
 
-
-
-# ====== FIN MANEJADOR CALLBACK ======
-
-
-#------------------------------------------------------------
-
-
-def handler_regalo_respuesta(update, context):
-    # Detecta si el mensaje viene de un mensaje normal o de un callback
-    if update.message:
-        user_id = update.message.from_user.id
-        mensaje_obj = update.message
-    elif update.callback_query:
-        user_id = update.callback_query.from_user.id
-        mensaje_obj = update.callback_query.message
-    else:
-        # No se puede identificar el usuario
-        return
-
-    if user_id not in SESIONES_REGALO:
-        return  # No está esperando nada
-
-    data = SESIONES_REGALO[user_id]
-    carta = data["carta"]
-
-    # Detecta el texto según el origen
-    destino = None
-    if update.message:
-        destino = update.message.text.strip()
-    elif update.callback_query and update.callback_query.data:
-        destino = update.callback_query.data.strip()
-
-    if not destino:
-        mensaje_obj.reply_text("❌ No se pudo leer el destino.")
-        del SESIONES_REGALO[user_id]
-        return
-
-    # Si usuario escribe 'cancelar' (en cualquier forma)
-    if destino.lower().strip() == "cancelar":
-        mensaje_obj.reply_text("❌ Regalo cancelado. La carta sigue en tu álbum.")
-        del SESIONES_REGALO[user_id]
-        return
-
-    # Buscar id Telegram del destino
-    if destino.startswith('@'):
-        username_dest = destino[1:].lower()
-        posible = col_usuarios.find_one({"username": username_dest})
-        if posible:
-            target_user_id = posible["user_id"]
-        else:
-            mensaje_obj.reply_text("❌ No pude identificar al usuario destino. Usa @username (de alguien que haya usado el bot) o el ID numérico de Telegram.")
-            del SESIONES_REGALO[user_id]
-            return
-    else:
-        try:
-            target_user_id = int(destino)
-        except:
-            mensaje_obj.reply_text("❌ No pude identificar al usuario destino. Usa @username (de alguien que haya usado el bot) o el ID numérico de Telegram.")
-            del SESIONES_REGALO[user_id]
-            return
-
-    if user_id == target_user_id:
-        mensaje_obj.reply_text("No puedes regalarte cartas a ti mismo.")
-        del SESIONES_REGALO[user_id]
-        return
-
-    # Quitar carta al remitente (verifica que aún la tenga)
-    res = col_cartas_usuario.delete_one({"user_id": user_id, "id_unico": carta["id_unico"]})
-    if res.deleted_count == 0:
-        mensaje_obj.reply_text("Parece que ya no tienes esa carta.")
-        del SESIONES_REGALO[user_id]
-        return
-
-    # Entregar carta al destinatario (misma id_unico)
-    carta["user_id"] = target_user_id
-    col_cartas_usuario.insert_one(carta)
-
-    # Notificación pública y privada
+    # Validar dueño
     try:
-        mensaje_obj.reply_text(f"🎁 ¡Carta [{carta['id_unico']}] enviada correctamente!")
-        notif = (
-            f"🎉 <b>¡Has recibido una carta!</b>\n"
-            f"Te han regalado <b>{carta['id_unico']}</b> ({carta['nombre']} [{carta['version']}])\n"
-            f"¡Revisa tu álbum con <code>/album</code>!"
-        )
-        context.bot.send_message(chat_id=target_user_id, text=notif, parse_mode='HTML')
+        dueño_id = next((int(p) for p in partes if p.isdigit() and len(p) >= 5), None)
     except Exception:
-        mensaje_obj.reply_text("La carta fue enviada, pero no pude notificar al usuario destino en privado.")
-    del SESIONES_REGALO[user_id]
+        dueño_id = None
+    if dueño_id and user_id != dueño_id:
+        query.answer("Solo puedes interactuar con tu propio mercado.", show_alert=True); return
 
+    def get_thread():
+        return int(partes[-1]) if partes[-1].isdigit() else None
 
+    if data.startswith("mercado_filtros_"):
+        uid = int(partes[2]); pag = int(partes[3])
+        try: query.edit_message_reply_markup(reply_markup=mostrar_menu_filtros(uid, pag))
+        except RetryAfter as e: query.answer(f"⏳ {int(e.retry_after)}s", show_alert=True)
+        return
 
+    if data.startswith("mercado_filtro_estado_"):
+        uid = int(partes[3]); pag = int(partes[4])
+        try: query.edit_message_reply_markup(reply_markup=mostrar_menu_estrellas(uid, pag))
+        except RetryAfter as e: query.answer(f"⏳ {int(e.retry_after)}s", show_alert=True)
+        return
+
+    if data.startswith("mercado_filtraestrella_"):
+        uid = int(partes[2]); pag = int(partes[3]); est = partes[4]; t = get_thread()
+        try: mostrar_mercado_pagina(query.message.chat_id, query.message.message_id, context, uid, int(pag), filtro="estrellas", valor_filtro=est, thread_id=t)
+        except RetryAfter as e: query.answer(f"⏳ {int(e.retry_after)}s", show_alert=True)
+        return
+
+    if data.startswith("mercado_filtro_grupo_"):
+        uid = int(partes[-3]); pag = int(partes[-2])
+        grupos = obtener_grupos_del_mercado()
+        try: query.edit_message_reply_markup(reply_markup=mostrar_menu_grupos(uid, pag, grupos))
+        except RetryAfter as e: query.answer(f"⏳ {int(e.retry_after)}s", show_alert=True)
+        return
+
+    if data.startswith("mercado_filtragrupo_"):
+        uid = int(partes[2]); pag = int(partes[3]); grupo = urllib.parse.unquote_plus(partes[4]); t = get_thread()
+        try: mostrar_mercado_pagina(query.message.chat_id, query.message.message_id, context, uid, int(pag), filtro="grupo", valor_filtro=grupo, thread_id=t)
+        except RetryAfter as e: query.answer(f"⏳ {int(e.retry_after)}s", show_alert=True)
+        return
+
+    if data.startswith("mercado_filtro_numero_"):
+        uid = int(partes[3]); pag = int(partes[4])
+        try: query.edit_message_reply_markup(reply_markup=mostrar_menu_ordenar(uid, pag))
+        except RetryAfter as e: query.answer(f"⏳ {int(e.retry_after)}s", show_alert=True)
+        return
+
+    if data.startswith("mercado_ordennum_"):
+        uid = int(partes[2]); pag = int(partes[3]); orden = partes[4]; t = get_thread()
+        try: mostrar_mercado_pagina(query.message.chat_id, query.message.message_id, context, uid, int(pag), orden=orden, thread_id=t)
+        except RetryAfter as e: query.answer(f"⏳ {int(e.retry_after)}s", show_alert=True)
+        return
+
+    if data.startswith("mercado_pagina_"):
+        uid = int(partes[2]); pag = int(partes[3])
+        filtro       = partes[4] if partes[4] != "none" else None
+        valor_filtro = partes[5] if partes[5] != "none" else None
+        orden        = partes[6] if len(partes) > 6 and partes[6] != "none" else None
+        t = get_thread()
+        try: mostrar_mercado_pagina(query.message.chat_id, query.message.message_id, context, uid, int(pag), filtro=filtro, valor_filtro=valor_filtro, orden=orden, thread_id=t)
+        except RetryAfter as e: query.answer(f"⏳ {int(e.retry_after)}s", show_alert=True)
+        return
+
+# ─── /setsprogreso / /set comandos ───────────────────────────────────────────
 @log_command
 @solo_en_tema_asignado("setsprogreso")
 def comando_setsprogreso(update, context):
     thread_id = getattr(update.message, "message_thread_id", None)
     mostrar_setsprogreso(update, context, pagina=1, thread_id=thread_id)
 
+# ─── /apodo ───────────────────────────────────────────────────────────────────
 @log_command
 @solo_en_tema_asignado("apodo")
 @cooldown_critico
 def comando_apodo(update, context):
     user_id = update.message.from_user.id
-
     if len(context.args) < 2:
-        update.message.reply_text(
-            'Uso: /apodo <id_unico> "apodo con comillas"\nEjemplo: /apodo fghj7 "Mi bebe"'
-        )
-        return
-
+        update.message.reply_text('Usa: /apodo <id_unico> "apodo"'); return
     id_unico = context.args[0].strip()
-    # Apodo puede contener espacios y comillas, así que une el resto y limpia las comillas
-    apodo = " ".join(context.args[1:])
-    apodo = apodo.strip('"').strip()
-
+    apodo    = " ".join(context.args[1:]).strip('"').strip()
     if not (1 <= len(apodo) <= 8):
-        update.message.reply_text("El apodo debe tener entre 1 y 8 caracteres.")
-        return
-
-    # Buscar la carta
+        update.message.reply_text("El apodo debe tener entre 1 y 8 caracteres."); return
     carta = col_cartas_usuario.find_one({"user_id": user_id, "id_unico": id_unico})
     if not carta:
-        update.message.reply_text("No encontré esa carta en tu álbum.")
-        return
-
-    # Verificar que el usuario tenga el ticket
+        update.message.reply_text("No encontré esa carta."); return
     doc_usuario = col_usuarios.find_one({"user_id": user_id}) or {}
-    objetos = doc_usuario.get("objetos", {})
-    ticket_apodo = objetos.get("ticket_agregar_apodo", 0)
-    if ticket_apodo < 1:
-        update.message.reply_text("No tienes tickets para agregar apodos. Cómpralo en el tema: Tienda KaruKpop.")
+    if doc_usuario.get("objetos", {}).get("ticket_agregar_apodo", 0) < 1:
+        update.message.reply_text("No tienes tickets para agregar apodos."); return
+    col_usuarios.update_one({"user_id": user_id}, {"$inc": {"objetos.ticket_agregar_apodo": -1}})
+    col_cartas_usuario.update_one({"user_id": user_id, "id_unico": id_unico}, {"$set": {"apodo": apodo}})
+    update.message.reply_text(f'✅ Apodo <b>"{apodo}"</b> asignado a <code>{id_unico}</code>.', parse_mode="HTML")
+
+# ─── Regalo ───────────────────────────────────────────────────────────────────
+def handler_regalo_respuesta(update, context):
+    if not getattr(update, "message", None) or not getattr(update.message, "text", None):
         return
+    user_id = update.message.from_user.id
+    if user_id not in SESIONES_REGALO: return
+    data    = SESIONES_REGALO[user_id]
+    carta   = data["carta"]
+    destino = update.message.text.strip()
 
-    # Consumir ticket
-    col_usuarios.update_one(
-        {"user_id": user_id},
-        {"$inc": {"objetos.ticket_agregar_apodo": -1}}
-    )
-    # Actualizar carta con apodo
-    col_cartas_usuario.update_one(
-        {"user_id": user_id, "id_unico": id_unico},
-        {"$set": {"apodo": apodo}}
-    )
-    update.message.reply_text(
-        f'✅ Apodo <b>"{apodo}"</b> asignado correctamente a tu carta <code>{id_unico}</code>.',
-        parse_mode="HTML"
-    )
+    if destino.lower().strip() == "cancelar":
+        update.message.reply_text("❌ Regalo cancelado.")
+        del SESIONES_REGALO[user_id]; return
 
-dispatcher.add_handler(CallbackQueryHandler(callback_kkp_notify, pattern="^kkp_notify_"))
-dispatcher.add_handler(CallbackQueryHandler(callback_sorteo_participar, pattern=r"^sorteopart_"))
-dispatcher.add_handler(CallbackQueryHandler(callback_help, pattern=r"^help_"))
-dispatcher.add_handler(CallbackQueryHandler(callback_invitamenu, pattern="^menu_invitacion|menu_progress$"))
-dispatcher.add_handler(CallbackQueryHandler(manejador_callback_album, pattern="^album_"))
-dispatcher.add_handler(CallbackQueryHandler(manejador_reclamar, pattern="^reclamar_"))
-dispatcher.add_handler(CallbackQueryHandler(callback_comprarobj, pattern="^comprarobj_"))
-dispatcher.add_handler(CallbackQueryHandler(callback_comprarG_objeto, pattern="^comprarG_"))
-dispatcher.add_handler(CallbackQueryHandler(callback_ampliar_vender, pattern="^ampliar_vender_"))
-dispatcher.add_handler(CallbackQueryHandler(callback_mejorar_carta, pattern="^mejorar_"))
+    target_user_id = None
+    if destino.startswith('@'):
+        posible = col_usuarios.find_one({"username": destino[1:].lower()})
+        if posible: target_user_id = posible["user_id"]
+    else:
+        try: target_user_id = int(destino)
+        except Exception: pass
+
+    if not target_user_id:
+        update.message.reply_text("❌ No pude identificar al usuario.")
+        del SESIONES_REGALO[user_id]; return
+    if user_id == target_user_id:
+        update.message.reply_text("No puedes regalarte cartas a ti mismo.")
+        del SESIONES_REGALO[user_id]; return
+
+    res = col_cartas_usuario.delete_one({"user_id": user_id, "id_unico": carta["id_unico"]})
+    if res.deleted_count == 0:
+        update.message.reply_text("Parece que ya no tienes esa carta.")
+        del SESIONES_REGALO[user_id]; return
+
+    carta["user_id"] = target_user_id
+    col_cartas_usuario.insert_one(carta)
+    update.message.reply_text(f"🎁 ¡Carta [{carta['id_unico']}] enviada correctamente!")
+    try:
+        context.bot.send_message(
+            chat_id=target_user_id,
+            text=f"🎉 ¡Recibiste la carta <b>{carta['id_unico']}</b> ({carta['nombre']} [{carta['version']}])!\nRevisa tu /album.",
+            parse_mode='HTML'
+        )
+    except Exception: pass
+    del SESIONES_REGALO[user_id]
+
+# ─── Registro de handlers ─────────────────────────────────────────────────────
+dispatcher.add_handler(CallbackQueryHandler(callback_kkp_notify,      pattern="^kkp_notify_"))
+dispatcher.add_handler(CallbackQueryHandler(callback_sorteo_participar,pattern=r"^sorteopart_"))
+dispatcher.add_handler(CallbackQueryHandler(callback_help,             pattern=r"^help_"))
+dispatcher.add_handler(CallbackQueryHandler(callback_invitamenu,       pattern="^(menu_invitacion|menu_progress)$"))
+dispatcher.add_handler(CallbackQueryHandler(manejador_callback_album,  pattern="^album_"))
+dispatcher.add_handler(CallbackQueryHandler(manejador_reclamar,        pattern="^reclamar_"))
+dispatcher.add_handler(CallbackQueryHandler(callback_comprarobj,       pattern="^comprarobj_"))
+dispatcher.add_handler(CallbackQueryHandler(callback_comprarG_objeto,  pattern="^comprarG_"))
+dispatcher.add_handler(CallbackQueryHandler(callback_ampliar_vender,   pattern="^ampliar_vender_"))
+dispatcher.add_handler(CallbackQueryHandler(callback_mejorar_carta,    pattern="^mejorar_"))
 dispatcher.add_handler(CallbackQueryHandler(callback_confirmar_mejora, pattern="^(confirmamejora_|cancelarmejora)"))
-dispatcher.add_handler(CallbackQueryHandler(manejador_callback_setlist, pattern=r"^setlist_"))
-dispatcher.add_handler(CallbackQueryHandler(manejador_callback_setsprogreso, pattern=r"^setsprogreso_"))
-dispatcher.add_handler(CallbackQueryHandler(manejador_callback_setdet, pattern=r"^setdet_"))
-dispatcher.add_handler(CallbackQueryHandler(manejador_callback, pattern="^mercado_"))
-dispatcher.add_handler(CallbackQueryHandler(manejador_tienda_paypal, pattern=r"^tienda_paypal_"))
-# ESTOS GENERAL SIEMPRE AL FINAL (sin pattern)
-dispatcher.add_handler(CallbackQueryHandler(manejador_callback))
-# === HANDLERS de comandos ===
-dispatcher.add_handler(CommandHandler("start", mensaje_tutorial_privado))
-dispatcher.add_handler(CommandHandler("help", comando_help))
-dispatcher.add_handler(CommandHandler('settema', comando_settema))
-dispatcher.add_handler(CommandHandler('removetema', comando_removetema))
-dispatcher.add_handler(CommandHandler('vertemas', comando_vertemas))
-dispatcher.add_handler(CommandHandler('kkp', comando_kkp))
-dispatcher.add_handler(CommandHandler('sorteo', comando_sorteo))
-dispatcher.add_handler(CommandHandler('topicid', comando_topicid))
-dispatcher.add_handler(CommandHandler('mercado', comando_mercado))
-dispatcher.add_handler(CommandHandler('rankingmercado', comando_rankingmercado))
-dispatcher.add_handler(CommandHandler('tiendagemas', tienda_gemas))
-dispatcher.add_handler(CommandHandler('darGemas', comando_darGemas))
-dispatcher.add_handler(CommandHandler('gemas', comando_gemas))
-dispatcher.add_handler(CommandHandler('estadisticasdrops', comando_estadisticasdrops))
+dispatcher.add_handler(CallbackQueryHandler(manejador_callback_setlist,     pattern=r"^setlist_"))
+dispatcher.add_handler(CallbackQueryHandler(manejador_callback_setsprogreso,pattern=r"^setsprogreso_"))
+dispatcher.add_handler(CallbackQueryHandler(manejador_callback_setdet,      pattern=r"^setdet\|"))
+dispatcher.add_handler(CallbackQueryHandler(manejador_callback_mercado,     pattern="^mercado_"))
+dispatcher.add_handler(CallbackQueryHandler(manejador_tienda_paypal,        pattern=r"^tienda_paypal_"))
+
+# ─── Comandos ─────────────────────────────────────────────────────────────────
+dispatcher.add_handler(CommandHandler("start",                 mensaje_tutorial_privado))
+dispatcher.add_handler(CommandHandler("help",                  comando_help))
+dispatcher.add_handler(CommandHandler('settema',               comando_settema))
+dispatcher.add_handler(CommandHandler('removetema',            comando_removetema))
+dispatcher.add_handler(CommandHandler('vertemas',              comando_vertemas))
+dispatcher.add_handler(CommandHandler('kkp',                   comando_kkp))
+dispatcher.add_handler(CommandHandler('sorteo',                comando_sorteo))
+dispatcher.add_handler(CommandHandler('topicid',               comando_topicid))
+dispatcher.add_handler(CommandHandler('mercado',               comando_mercado))
+dispatcher.add_handler(CommandHandler('rankingmercado',        comando_rankingmercado))
+dispatcher.add_handler(CommandHandler('tiendagemas',           tienda_gemas))
+dispatcher.add_handler(CommandHandler('darGemas',              comando_darGemas))
+dispatcher.add_handler(CommandHandler('gemas',                 comando_gemas))
+dispatcher.add_handler(CommandHandler('estadisticasdrops',     comando_estadisticasdrops))
 dispatcher.add_handler(CommandHandler("estadisticasdrops_semanal", comando_estadisticasdrops_semanal))
-dispatcher.add_handler(CommandHandler('usar', comando_usar))
-dispatcher.add_handler(CommandHandler('apodo', comando_apodo))
-dispatcher.add_handler(CommandHandler('inventario', comando_inventario))
-dispatcher.add_handler(CommandHandler('tienda', comando_tienda))
-dispatcher.add_handler(CommandHandler("tiendaG", comando_tiendaG))
-dispatcher.add_handler(CommandHandler('comprarobjeto', comando_comprarobjeto))
-dispatcher.add_handler(CommandHandler('idolday', comando_idolday))
-dispatcher.add_handler(CommandHandler('album', comando_album))
-dispatcher.add_handler(CommandHandler('album2', comando_album2))
-dispatcher.add_handler(CommandHandler('darobjeto', comando_darobjeto))
-dispatcher.add_handler(CommandHandler('miid', comando_miid))
-dispatcher.add_handler(CommandHandler('bonoidolday', comando_bonoidolday))
-dispatcher.add_handler(CommandHandler('comandos', comando_comandos))
-dispatcher.add_handler(CommandHandler('trk', comando_trk))
-dispatcher.add_handler(CommandHandler('giveidol', comando_giveidol))
-dispatcher.add_handler(CommandHandler('setsprogreso', comando_setsprogreso))
-dispatcher.add_handler(CommandHandler('set', comando_set_detalle))
+dispatcher.add_handler(CommandHandler('usar',                  comando_usar))
+dispatcher.add_handler(CommandHandler('apodo',                 comando_apodo))
+dispatcher.add_handler(CommandHandler('inventario',            comando_inventario))
+dispatcher.add_handler(CommandHandler('tienda',                comando_tienda))
+dispatcher.add_handler(CommandHandler("tiendaG",               comando_tiendaG))
+dispatcher.add_handler(CommandHandler('comprarobjeto',         comando_comprarobjeto))
+dispatcher.add_handler(CommandHandler('idolday',               comando_idolday))
+dispatcher.add_handler(CommandHandler('album',                 comando_album))
+dispatcher.add_handler(CommandHandler('album2',                comando_album2))
+dispatcher.add_handler(CommandHandler('darobjeto',             comando_darobjeto))
+dispatcher.add_handler(CommandHandler('miid',                  comando_miid))
+dispatcher.add_handler(CommandHandler('bonoidolday',           comando_bonoidolday))
+dispatcher.add_handler(CommandHandler('comandos',              comando_comandos))
+dispatcher.add_handler(CommandHandler('trk',                   comando_trk))
+dispatcher.add_handler(CommandHandler('giveidol',              comando_giveidol))
+dispatcher.add_handler(CommandHandler('setsprogreso',          comando_setsprogreso))
+dispatcher.add_handler(CommandHandler('set',                   comando_set_detalle))
+dispatcher.add_handler(CommandHandler('ampliar',               comando_ampliar))
+dispatcher.add_handler(CommandHandler('kponey',                comando_saldo))
+dispatcher.add_handler(CommandHandler('darKponey',             comando_darKponey))
+dispatcher.add_handler(CommandHandler('fav',                   comando_fav))
+dispatcher.add_handler(CommandHandler('favoritos',             comando_favoritos))
+dispatcher.add_handler(CommandHandler('precio',                comando_precio))
+dispatcher.add_handler(CommandHandler('vender',                comando_vender))
+dispatcher.add_handler(CommandHandler('comprar',               comando_comprar))
+dispatcher.add_handler(CommandHandler('retirar',               comando_retirar))
+dispatcher.add_handler(CommandHandler('mejorar',               comando_mejorar))
+
 dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, mensaje_trade_id))
-dispatcher.add_handler(MessageHandler(Filters.text & (~Filters.command), handler_regalo_respuesta))
-dispatcher.add_handler(CommandHandler('ampliar', comando_ampliar))
-dispatcher.add_handler(CommandHandler('kponey', comando_saldo))
-dispatcher.add_handler(CommandHandler('darKponey', comando_darKponey))
-dispatcher.add_handler(CommandHandler('fav', comando_fav))
-dispatcher.add_handler(CommandHandler('favoritos', comando_favoritos))
-dispatcher.add_handler(CommandHandler('precio', comando_precio))
-dispatcher.add_handler(CommandHandler('vender', comando_vender))
-dispatcher.add_handler(CommandHandler('comprar', comando_comprar))
-dispatcher.add_handler(CommandHandler('retirar', comando_retirar))
-dispatcher.add_handler(CommandHandler('mejorar', comando_mejorar))
+dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, handler_regalo_respuesta))
 dispatcher.add_handler(MessageHandler(Filters.all, borrar_mensajes_no_idolday), group=99)
 
-# ... después de todos tus handlers:
-
-# Proceso de sorteos, SIEMPRE antes de arrancar el servidor o polling:
+# ─── Arranque ─────────────────────────────────────────────────────────────────
 iniciar_proceso_sorteos(dispatcher)
 
-# --- SI USAS FLASK + WEBHOOK, NO uses start_polling() ---
 @app.route("/", methods=["GET"])
 def home():
     return "Bot activo."
