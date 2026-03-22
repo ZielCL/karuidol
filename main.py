@@ -1374,19 +1374,43 @@ FRASES_ESTADO = {
 
 # ─── Dar objeto (admin) ───────────────────────────────────────────────────────
 @log_command
-@grupo_oficial
 def comando_darobjeto(update, context):
-    if not es_admin(update):
+    # Funciona desde privado Y desde grupo — solo requiere ser admin o TU_USER_ID
+    user_id = update.message.from_user.id
+    chat    = update.effective_chat
+
+    es_admin_global = user_id in ADMIN_IDS
+    es_admin_grupo  = False
+    if chat.type in ["group", "supergroup"]:
+        try:
+            member = context.bot.get_chat_member(chat.id, user_id)
+            es_admin_grupo = member.status in ("administrator", "creator")
+        except Exception:
+            pass
+
+    if not es_admin_global and not es_admin_grupo:
         update.message.reply_text("Solo los administradores pueden usar este comando.")
         return
-    dest_id = None; objeto = None; cantidad = None; nombre_dest = None
+
+    # Lista de objetos válidos para mostrar en errores
+    lista_objetos = "
+".join(
+        f"• <code>{k}</code> — {v['emoji']} {v['nombre']}"
+        for k, v in CATALOGO_OBJETOS.items()
+    )
+
     args = context.args
+    dest_id = None; objeto = None; cantidad = None; nombre_dest = None
+
     if update.message.reply_to_message:
-        dest_user  = update.message.reply_to_message.from_user
-        dest_id    = dest_user.id
-        nombre_dest= dest_user.full_name
+        dest_user   = update.message.reply_to_message.from_user
+        dest_id     = dest_user.id
+        nombre_dest = dest_user.full_name
         if len(args) != 2:
-            update.message.reply_text("Uso: responde a un mensaje y escribe /darobjeto <objeto> <cantidad>")
+            update.message.reply_text(
+                f"Uso (respondiendo): /darobjeto <objeto_id> <cantidad>\n\n"
+                f"<b>Objetos válidos:</b>\n{lista_objetos}", parse_mode="HTML"
+            )
             return
         objeto = args[0]
         try:
@@ -1394,37 +1418,65 @@ def comando_darobjeto(update, context):
         except Exception:
             update.message.reply_text("La cantidad debe ser un número.")
             return
+
     elif args and args[0].startswith("@"):
-        username  = args[0][1:].lower()
-        user_doc  = col_usuarios.find_one({"username": username})
+        username = args[0][1:].lower()
+        user_doc = col_usuarios.find_one({"username": username})
         if not user_doc:
-            update.message.reply_text("Usuario no encontrado.")
+            update.message.reply_text(f"Usuario @{username} no encontrado. Debe haber usado el bot al menos una vez.")
             return
-        dest_id    = user_doc["user_id"]
-        nombre_dest= user_doc.get("nombre", f"@{username}")
-        objeto     = args[1] if len(args) > 1 else None
+        dest_id     = user_doc["user_id"]
+        nombre_dest = f"@{username}"
+        if len(args) < 3:
+            update.message.reply_text(
+                f"Uso: /darobjeto @usuario <objeto_id> <cantidad>\n\n"
+                f"<b>Objetos válidos:</b>\n{lista_objetos}", parse_mode="HTML"
+            )
+            return
+        objeto = args[1]
         try:
-            cantidad = int(args[2]) if len(args) > 2 else None
+            cantidad = int(args[2])
         except Exception:
             update.message.reply_text("La cantidad debe ser un número.")
             return
+
     elif len(args) == 3:
         try:
-            dest_id = int(args[0]); objeto = args[1]; cantidad = int(args[2])
+            dest_id     = int(args[0])
+            objeto      = args[1]
+            cantidad    = int(args[2])
             nombre_dest = f"<code>{dest_id}</code>"
         except Exception:
-            update.message.reply_text("Uso: /darobjeto <user_id> <objeto> <cantidad>")
+            update.message.reply_text(
+                f"Uso: /darobjeto <user_id> <objeto_id> <cantidad>\n\n"
+                f"<b>Objetos válidos:</b>\n{lista_objetos}", parse_mode="HTML"
+            )
             return
     else:
-        update.message.reply_text("Uso: /darobjeto <user_id> <objeto> <cantidad>")
+        update.message.reply_text(
+            f"<b>Uso de /darobjeto:</b>\n"
+            f"• Respondiendo: <code>/darobjeto bono_idolday 2</code>\n"
+            f"• Por username: <code>/darobjeto @usuario bono_idolday 2</code>\n"
+            f"• Por ID: <code>/darobjeto 123456789 bono_idolday 2</code>\n\n"
+            f"<b>Objetos válidos:</b>\n{lista_objetos}",
+            parse_mode="HTML"
+        )
         return
 
     if not objeto or not cantidad or cantidad < 1:
         update.message.reply_text("Objeto y cantidad válidos son requeridos.")
         return
+
+    # Normalizar: aceptar con espacios o guiones además del id exacto
     if objeto not in CATALOGO_OBJETOS:
-        update.message.reply_text("Objeto no válido.")
-        return
+        objeto_norm = objeto.lower().replace(" ", "_").replace("-", "_")
+        if objeto_norm not in CATALOGO_OBJETOS:
+            update.message.reply_text(
+                f"❌ Objeto <code>{objeto}</code> no válido.\n\n"
+                f"<b>Objetos válidos:</b>\n{lista_objetos}", parse_mode="HTML"
+            )
+            return
+        objeto = objeto_norm
 
     col_usuarios.update_one({"user_id": dest_id}, {"$inc": {f"objetos.{objeto}": cantidad}}, upsert=True)
     info_obj = CATALOGO_OBJETOS[objeto]
