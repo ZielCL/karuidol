@@ -1437,7 +1437,7 @@ def comando_darobjeto(update, context):
         nombre_dest = dest_user.full_name
         if len(args) != 2:
             update.message.reply_text(
-                f"Uso (respondiendo): /darobjeto <objeto_id> <cantidad>\n\n"
+                "Uso (respondiendo): /darobjeto [objeto_id] [cantidad]\n\n"
                 f"<b>Objetos válidos:</b>\n{lista_objetos}", parse_mode="HTML"
             )
             return
@@ -1452,13 +1452,17 @@ def comando_darobjeto(update, context):
         username = args[0][1:].lower()
         user_doc = col_usuarios.find_one({"username": username})
         if not user_doc:
-            update.message.reply_text(f"Usuario @{username} no encontrado. Debe haber usado el bot al menos una vez.")
+            update.message.reply_text(
+                f"❌ @{username} no encontrado.\n"
+                "Para usar @usuario, el usuario debe haber interactuado con el bot al menos una vez.\n"
+                "Alternativa: responde directamente a un mensaje suyo con /darobjeto"
+            )
             return
         dest_id     = user_doc["user_id"]
         nombre_dest = f"@{username}"
         if len(args) < 3:
             update.message.reply_text(
-                f"Uso: /darobjeto @usuario <objeto_id> <cantidad>\n\n"
+                "Uso: /darobjeto @usuario [objeto_id] [cantidad]\n\n"
                 f"<b>Objetos válidos:</b>\n{lista_objetos}", parse_mode="HTML"
             )
             return
@@ -1477,7 +1481,7 @@ def comando_darobjeto(update, context):
             nombre_dest = f"<code>{dest_id}</code>"
         except Exception:
             update.message.reply_text(
-                f"Uso: /darobjeto <user_id> <objeto_id> <cantidad>\n\n"
+                "Uso: /darobjeto [user_id] [objeto_id] [cantidad]\n\n"
                 f"<b>Objetos válidos:</b>\n{lista_objetos}", parse_mode="HTML"
             )
             return
@@ -1772,7 +1776,7 @@ def comando_usar(update, context):
     }
     user_id = update.message.from_user.id
     if not context.args:
-        update.message.reply_text('Usa: /usar <objeto>')
+        update.message.reply_text('Usa: /usar [objeto]')
         return
     obj_norm = " ".join(context.args).lower().replace("_", " ").replace('"', '').strip()
     obj_id   = OBJETOS_USABLES.get(obj_norm)
@@ -2812,7 +2816,7 @@ def comprar_objeto(user_id, obj_id, context, chat_id, reply_func):
 def comando_comprarobjeto(update, context):
     user_id = update.message.from_user.id
     if not context.args:
-        update.message.reply_text("Usa: /comprarobjeto <objeto_id>"); return
+        update.message.reply_text("Usa: /comprarobjeto [objeto_id]"); return
     comprar_objeto(update.message.from_user.id, context.args[0].strip(), context,
                    update.effective_chat.id,
                    lambda text, **kwargs: update.message.reply_text(text, **kwargs))
