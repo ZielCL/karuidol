@@ -1272,16 +1272,21 @@ def comando_idolday(update, context):
     if len(cartas_excelentes) < 2:
         cartas_excelentes = cartas_excelentes * 2
 
-    cartas_drop = random.choices(cartas_excelentes, k=2)
+    # Sin repetición: sample por (nombre, version) únicos
+    pool = list({(c['nombre'], c['version']): c for c in cartas_excelentes}.values())
+    cartas_drop = random.sample(pool, min(2, len(pool)))
+    if len(cartas_drop) < 2:
+        cartas_drop = random.choices(cartas_excelentes, k=2)
+
     media_group = []
     cartas_info = []
 
-    for carta in cartas_drop:
-        nombre    = carta['nombre']
-        version   = carta['version']
-        grupo     = carta.get('grupo', '')
-        imagen_url= carta.get('imagen')
-
+    # Preparar imágenes en paralelo (no bloquea el thread principal)
+    def preparar_carta(carta):
+        nombre     = carta['nombre']
+        version    = carta['version']
+        grupo      = carta.get('grupo', '')
+        imagen_url = carta.get('imagen')
         doc_cont = col_contadores.find_one_and_update(
             {"nombre": nombre, "version": version, "grupo": grupo},
             {"$inc": {"contador": 1}},
@@ -1289,29 +1294,44 @@ def comando_idolday(update, context):
             return_document=True
         )
         nuevo_id = doc_cont['contador'] if doc_cont else 1
-        imagen_con_numero = agregar_numero_a_imagen(imagen_url, nuevo_id)
+        try:
+            imagen_con_numero = agregar_numero_a_imagen(imagen_url, nuevo_id)
+        except Exception as e:
+            logger.warning(f"[drop] Imagen no disponible para {nombre}: {e}")
+            imagen_con_numero = None
+        return nombre, version, grupo, imagen_url, nuevo_id, imagen_con_numero
 
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        resultados = list(ex.map(preparar_carta, cartas_drop))
+
+    # Restaurar cooldown si ninguna imagen se pudo cargar
+    if all(r[5] is None for r in resultados):
+        col_usuarios.update_one({"user_id": user_id}, {"$unset": {"last_idolday": ""}})
+        update.message.reply_text("⚠️ No se pudo cargar las imágenes del drop. Tu cooldown no fue consumido, intenta de nuevo.")
+        return
+
+    for nombre, version, grupo, imagen_url, nuevo_id, imagen_con_numero in resultados:
         caption = f"<b>{nombre}</b>\n{grupo} [{version}]"
-        media_group.append(InputMediaPhoto(media=imagen_con_numero, caption=caption, parse_mode="HTML"))
+        if imagen_con_numero:
+            media_group.append(InputMediaPhoto(media=imagen_con_numero, caption=caption, parse_mode="HTML"))
+        else:
+            media_group.append(InputMediaPhoto(media=imagen_url, caption=f"{caption}\n<i>(#número no disponible)</i>", parse_mode="HTML"))
         cartas_info.append({
             "nombre": nombre, "version": version, "grupo": grupo,
             "imagen": imagen_url, "reclamada": False, "usuario": None,
             "hora_reclamada": None, "card_id": nuevo_id
         })
 
-    msgs = context.bot.send_media_group(chat_id=chat_id, media=media_group, message_thread_id=thread_id)
+    context.bot.send_media_group(chat_id=chat_id, media=media_group, message_thread_id=thread_id)
 
-    texto_drop  = f"@{update.effective_user.username or update.effective_user.first_name} está dropeando 2 cartas!"
+    # Enviar texto primero sin botones para obtener message_id real, luego editar
+    texto_drop  = f"@{update.effective_user.username or update.effective_user.first_name} está dropeando 2 cartas!\n<i>El dueño tiene 15s de prioridad.</i>"
     msg_botones = context.bot.send_message(
         chat_id=chat_id,
         text=texto_drop,
-        reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton("1️⃣", callback_data=f"reclamar_{chat_id}_{0}_0"),
-            InlineKeyboardButton("2️⃣", callback_data=f"reclamar_{chat_id}_{0}_1"),
-        ]]),
+        parse_mode="HTML",
         message_thread_id=thread_id
     )
-
     botones_reclamar = [
         InlineKeyboardButton("1️⃣", callback_data=f"reclamar_{chat_id}_{msg_botones.message_id}_0"),
         InlineKeyboardButton("2️⃣", callback_data=f"reclamar_{chat_id}_{msg_botones.message_id}_1"),
@@ -1322,7 +1342,7 @@ def comando_idolday(update, context):
             reply_markup=InlineKeyboardMarkup([botones_reclamar])
         )
     except Exception as e:
-        print("[edit_message_reply_markup] Error:", e)
+        logger.warning(f"[drop] Error al agregar botones: {e}")
 
     drop_id   = crear_drop_id(chat_id, msg_botones.message_id)
     drop_data = {
