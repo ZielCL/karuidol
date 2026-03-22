@@ -3940,20 +3940,19 @@ def telegram_webhook():
     dispatcher.process_update(update)
     return "OK"
 
-@app.before_first_request
 def on_startup():
-    """Se ejecuta una sola vez cuando Gunicorn recibe la primera request."""
-    # Registrar webhook con Telegram
+    """Se ejecuta una sola vez al arrancar."""
     webhook_url = f"https://karuidol.onrender.com/{TOKEN}"
     try:
         bot.set_webhook(url=webhook_url)
         logger.info(f"[startup] Webhook registrado: {webhook_url}")
     except Exception as e:
         logger.error(f"[startup] Error registrando webhook: {e}")
-
-    # Iniciar proceso de sorteos en background
     iniciar_proceso_sorteos(dispatcher)
     logger.info("[startup] Bot iniciado correctamente.")
+
+# Ejecutar startup en un hilo para no bloquear Gunicorn
+threading.Thread(target=on_startup, daemon=True).start()
 
 if __name__ == '__main__':
     puerto = int(os.environ.get('PORT', 5000))
