@@ -53,8 +53,10 @@ ADMIN_IDS     = [ADMIN_USER_ID]
 
 app = Flask(__name__)
 
-bot = Bot(TOKEN)
-dispatcher = Dispatcher(bot, None, use_context=True)
+from telegram.utils.request import Request as TGRequest
+_tg_request = TGRequest(con_pool_size=8, read_timeout=20, connect_timeout=10)
+bot = Bot(TOKEN, request=_tg_request)
+dispatcher = Dispatcher(bot, None, use_context=True, workers=4)
 
 primer_mensaje = True
 
@@ -3957,12 +3959,7 @@ def telegram_webhook():
         if not data:
             return "OK", 200
         update = Update.de_json(data, bot)
-        # Procesar en thread separado para no bloquear el worker
-        threading.Thread(
-            target=dispatcher.process_update,
-            args=(update,),
-            daemon=True
-        ).start()
+        dispatcher.process_update(update)
     except Exception as e:
         logger.error(f"[webhook] Error procesando update: {e}")
     return "OK", 200
