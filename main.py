@@ -56,7 +56,8 @@ app = Flask(__name__)
 from telegram.utils.request import Request as TGRequest
 _tg_request = TGRequest(con_pool_size=8, read_timeout=20, connect_timeout=10)
 bot = Bot(TOKEN, request=_tg_request)
-dispatcher = Dispatcher(bot, None, use_context=True, workers=4)
+# workers=0 es correcto para webhook — cada request HTTP de Gunicorn ya es su propio thread
+dispatcher = Dispatcher(bot, None, use_context=True, workers=0)
 
 primer_mensaje = True
 
