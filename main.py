@@ -54,12 +54,13 @@ ADMIN_IDS     = [ADMIN_USER_ID]
 app = Flask(__name__)
 
 from telegram.utils.request import Request as TGRequest
-from queue import Queue
+import warnings
 _tg_request = TGRequest(con_pool_size=8, read_timeout=20, connect_timeout=10)
 bot = Bot(TOKEN, request=_tg_request)
-# Queue real con workers=1 — elimina el warning sin bloquear el dispatcher
-_update_queue = Queue()
-dispatcher = Dispatcher(bot, _update_queue, use_context=True, workers=1)
+# workers=0: correcto para webhook — process_update() es llamado directamente por Gunicorn
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore")
+    dispatcher = Dispatcher(bot, None, use_context=True, workers=0)
 
 primer_mensaje = True
 
@@ -462,7 +463,7 @@ WEBHOOK_SECRET       = os.environ.get("WEBHOOK_SECRET", "")
 
 def get_paypal_token():
     url = "https://api-m.paypal.com/v1/oauth2/token"
-    resp = requests.post(url, auth=(PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET), data={"grant_type": "client_credentials"})
+    resp = requests.post(url, auth=(PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET), data={"grant_type": "client_credentials"}, timeout=10)
     resp.raise_for_status()
     return resp.json()["access_token"]
 
@@ -497,7 +498,7 @@ def create_order():
             "cancel_url": "https://karuidol.onrender.com/paypal/cancel"
         }
     }
-    resp = requests.post("https://api-m.paypal.com/v2/checkout/orders", headers=headers, json=order_data)
+    resp = requests.post("https://api-m.paypal.com/v2/checkout/orders", headers=headers, json=order_data, timeout=10)
     resp.raise_for_status()
     order = resp.json()
     for link in order["links"]:
@@ -588,7 +589,7 @@ def paypal_return():
         headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
         resp = requests.post(
             f"https://api-m.paypal.com/v2/checkout/orders/{order_id}/capture",
-            headers=headers
+            headers=headers, timeout=10
         )
         if resp.ok:
             print("[PayPal] Orden capturada correctamente:", resp.json())
@@ -680,7 +681,7 @@ def cooldown_critico(func):
 
 # ─── Imagen con número ───────────────────────────────────────────────────────
 def agregar_numero_a_imagen(imagen_url, numero):
-    response = requests.get(imagen_url)
+    response = requests.get(imagen_url, timeout=10)
     img  = Image.open(BytesIO(response.content)).convert("RGBA")
     draw = ImageDraw.Draw(img)
     font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
@@ -829,13 +830,29 @@ def manejador_tienda_paypal(update, context):
     pack   = partes[2]
     amount = float(partes[3])
     try:
-        resp = requests.post(
-            "https://karuidol.onrender.com/paypal/create_order",
-            json={"user_id": user_id, "pack": pack, "amount": amount},
-            timeout=10
-        )
+        # Llamada directa (evita deadlock de llamarse a sí mismo por HTTP)
+        access_token = get_paypal_token()
+        headers_pp = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
+        pack_label = pack  # ej: "x100"
+        pack_amounts = {"x50":1.00,"x100":2.00,"x500":8.00,"x1000":13.00,"x5000":60.00,"x10000":100.00}
+        amount_val = pack_amounts.get(pack, amount)
+        order_data_pp = {
+            "intent": "CAPTURE",
+            "purchase_units": [{
+                "reference_id": f"user_{user_id}_{pack}",
+                "amount": {"currency_code": "USD", "value": str(amount_val)},
+                "custom_id": str(user_id)
+            }],
+            "application_context": {
+                "return_url": "https://karuidol.onrender.com/paypal/return",
+                "cancel_url": "https://karuidol.onrender.com/paypal/cancel"
+            }
+        }
+        resp = requests.post("https://api-m.paypal.com/v2/checkout/orders",
+                             headers=headers_pp, json=order_data_pp, timeout=10)
         if resp.ok:
-            url = resp.json().get("url")
+            order_resp = resp.json()
+            url = next((l["href"] for l in order_resp.get("links", []) if l.get("rel") == "approve"), None)
             if url:
                 query.answer("¡Revisa tu chat privado con el bot!", show_alert=True)
                 try:
