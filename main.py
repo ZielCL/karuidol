@@ -54,10 +54,12 @@ ADMIN_IDS     = [ADMIN_USER_ID]
 app = Flask(__name__)
 
 from telegram.utils.request import Request as TGRequest
+from queue import Queue
 _tg_request = TGRequest(con_pool_size=8, read_timeout=20, connect_timeout=10)
 bot = Bot(TOKEN, request=_tg_request)
-# workers=0 es correcto para webhook — cada request HTTP de Gunicorn ya es su propio thread
-dispatcher = Dispatcher(bot, None, use_context=True, workers=0)
+# Queue real con workers=1 — elimina el warning sin bloquear el dispatcher
+_update_queue = Queue()
+dispatcher = Dispatcher(bot, _update_queue, use_context=True, workers=1)
 
 primer_mensaje = True
 
