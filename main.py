@@ -5429,17 +5429,12 @@ def gi_get_participante(ronda_id: int, user_id: int):
         ).fetchone()
 
 def gi_upsert_participante(ronda_id: int, chat_key: str, user_id: int, username: str) -> bool:
-    """Retorna True si fue añadido, False si ya existía."""
+    """Retorna True si fue añadido, False si ya existía.
+    Solo registra en gi_participantes; gi_marcador se crea únicamente si gana puntos.
+    """
     if gi_get_participante(ronda_id, user_id):
         return False
-    # Registrar en marcador si es nuevo (con división correcta)
-    temporada = gi_get_temporada(chat_key)
-    division = gi_get_division(chat_key, user_id)
     with get_conn() as conn:
-        conn.execute(
-            "INSERT OR IGNORE INTO gi_marcador (chat_key, user_id, username, puntos, victorias, division, temporada, victorias_temp) VALUES (?,?,?,0,0,?,?,0)",
-            (chat_key, user_id, username, division, temporada)
-        )
         conn.execute(
             "INSERT OR IGNORE INTO gi_participantes (ronda_id, chat_key, user_id, username, vidas, activo) VALUES (?,?,?,?,5,1)",
             (ronda_id, chat_key, user_id, username)
