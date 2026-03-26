@@ -3706,40 +3706,39 @@ dispatcher.add_handler(MessageHandler(Filters.all, borrar_mensajes_no_idolday), 
 # ─── Arranque ─────────────────────────────────────────────────────────────────
 
 if __name__ == '__main__':
-    # Prevenir doble arranque si el módulo se importa dos veces
-    import os as _os
-    if _os.environ.get("_BOT_STARTED"):
-        logger.warning("[startup] Proceso duplicado detectado, saliendo.")
-        import sys; sys.exit(0)
-    _os.environ["_BOT_STARTED"] = "1"
+    import fcntl, sys
+
+    # Lock de archivo — solo un proceso puede tener el polling a la vez
+    lock_file = open("/tmp/karukpop_bot.lock", "w")
+    try:
+        fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except IOError:
+        logger.warning("[startup] Otra instancia ya está corriendo. Saliendo.")
+        sys.exit(0)
 
     logger.info("[startup] Iniciando bot en modo polling...")
 
-    # Borrar webhook y esperar a que Telegram libere el polling
-    for intento in range(5):
-        try:
-            bot.delete_webhook(drop_pending_updates=True)
-            logger.info("[startup] Webhook borrado.")
-            break
-        except Exception as e:
-            logger.warning(f"[startup] Intento {intento+1} borrar webhook: {e}")
-            time.sleep(3)
+    # Borrar webhook pendiente
+    try:
+        bot.delete_webhook(drop_pending_updates=True)
+        logger.info("[startup] Webhook borrado.")
+    except Exception as e:
+        logger.warning(f"[startup] No se pudo borrar webhook: {e}")
 
-    # Esperar a que cualquier instancia anterior libere el polling
-    import time as _time
-    for intento in range(10):
+    # Esperar hasta 30s a que Telegram libere el polling
+    for intento in range(6):
         try:
             bot.get_updates(offset=-1, timeout=1)
             logger.info("[startup] Polling libre, arrancando...")
             break
         except Exception as e:
-            logger.warning(f"[startup] Esperando polling libre ({intento+1}/10): {e}")
-            _time.sleep(5)
+            logger.warning(f"[startup] Esperando polling libre ({intento+1}/6): {e}")
+            time.sleep(5)
 
     # Iniciar proceso de sorteos en background
     iniciar_proceso_sorteos(updater.dispatcher)
 
-    # Arrancar polling — idle() mantiene el proceso vivo
+    # Arrancar polling
     updater.start_polling(poll_interval=1.0, timeout=20, drop_pending_updates=True)
     logger.info("[startup] Bot corriendo. Ctrl+C para detener.")
     updater.idle()
