@@ -3706,6 +3706,13 @@ dispatcher.add_handler(MessageHandler(Filters.all, borrar_mensajes_no_idolday), 
 # ─── Arranque ─────────────────────────────────────────────────────────────────
 
 if __name__ == '__main__':
+    # Prevenir doble arranque si el módulo se importa dos veces
+    import os as _os
+    if _os.environ.get("_BOT_STARTED"):
+        logger.warning("[startup] Proceso duplicado detectado, saliendo.")
+        import sys; sys.exit(0)
+    _os.environ["_BOT_STARTED"] = "1"
+
     logger.info("[startup] Iniciando bot en modo polling...")
 
     # Borrar webhook y esperar a que Telegram libere el polling
