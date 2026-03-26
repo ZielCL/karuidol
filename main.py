@@ -3708,11 +3708,26 @@ dispatcher.add_handler(MessageHandler(Filters.all, borrar_mensajes_no_idolday), 
 if __name__ == '__main__':
     logger.info("[startup] Iniciando bot en modo polling...")
 
-    # Borrar webhook pendiente si hubiera uno registrado antes
-    try:
-        bot.delete_webhook()
-    except Exception as e:
-        logger.warning(f"[startup] No se pudo borrar webhook: {e}")
+    # Borrar webhook y esperar a que Telegram libere el polling
+    for intento in range(5):
+        try:
+            bot.delete_webhook(drop_pending_updates=True)
+            logger.info("[startup] Webhook borrado.")
+            break
+        except Exception as e:
+            logger.warning(f"[startup] Intento {intento+1} borrar webhook: {e}")
+            time.sleep(3)
+
+    # Esperar a que cualquier instancia anterior libere el polling
+    import time as _time
+    for intento in range(10):
+        try:
+            bot.get_updates(offset=-1, timeout=1)
+            logger.info("[startup] Polling libre, arrancando...")
+            break
+        except Exception as e:
+            logger.warning(f"[startup] Esperando polling libre ({intento+1}/10): {e}")
+            _time.sleep(5)
 
     # Iniciar proceso de sorteos en background
     iniciar_proceso_sorteos(updater.dispatcher)
