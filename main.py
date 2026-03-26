@@ -5,7 +5,6 @@ import telegram
 import re
 from telegram import InlineQueryResultPhoto
 from telegram.ext import InlineQueryHandler
-from flask import Flask, request, jsonify, redirect
 from telegram.error import BadRequest, RetryAfter
 from telegram import ParseMode
 from translations import translations
@@ -17,7 +16,7 @@ from telegram import (
     InlineKeyboardMarkup,
     InputMediaPhoto,
 )
-from telegram.ext import Dispatcher, CommandHandler, CallbackQueryHandler
+from telegram.ext import Updater, Dispatcher, CommandHandler, CallbackQueryHandler
 import json
 import uuid
 import logging
@@ -51,16 +50,11 @@ TU_USER_ID    = int(os.getenv('ADMIN_USER_ID', '0'))
 ADMIN_IDS     = [ADMIN_USER_ID]
 # ─────────────────────────────────────────────────────────────────────────────
 
-app = Flask(__name__)
-
 from telegram.utils.request import Request as TGRequest
-import warnings
-_tg_request = TGRequest(con_pool_size=8, read_timeout=20, connect_timeout=10)
-bot = Bot(TOKEN, request=_tg_request)
-# workers=0: correcto para webhook — process_update() es llamado directamente por Gunicorn
-with warnings.catch_warnings():
-    warnings.simplefilter("ignore")
-    dispatcher = Dispatcher(bot, None, use_context=True, workers=0)
+_tg_request = TGRequest(con_pool_size=4, read_timeout=20, connect_timeout=10)
+updater    = Updater(TOKEN, use_context=True, request_kwargs={"read_timeout": 20, "connect_timeout": 10})
+bot        = updater.bot
+dispatcher = updater.dispatcher
 
 primer_mensaje = True
 
@@ -456,154 +450,6 @@ def mensaje_tutorial_privado(update, context):
     except Exception as e:
         print("[/start privado] Error:", e)
 
-# ─── PayPal ───────────────────────────────────────────────────────────────────
-PAYPAL_CLIENT_ID     = os.environ.get("PAYPAL_CLIENT_ID")
-PAYPAL_CLIENT_SECRET = os.environ.get("PAYPAL_CLIENT_SECRET")
-WEBHOOK_SECRET       = os.environ.get("WEBHOOK_SECRET", "")
-
-def get_paypal_token():
-    url = "https://api-m.paypal.com/v1/oauth2/token"
-    resp = requests.post(url, auth=(PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET), data={"grant_type": "client_credentials"}, timeout=10)
-    resp.raise_for_status()
-    return resp.json()["access_token"]
-
-def buscar_gemas(monto):
-    montos_validos = {
-        "1.00": 50,   "2.00": 100,  "8.00": 500,
-        "13.00": 1000, "60.00": 5000, "100.00": 10000,
-    }
-    try:
-        key = f"{float(monto):.2f}"
-        return montos_validos.get(key)
-    except Exception:
-        return None
-
-@app.route("/paypal/create_order", methods=["POST"])
-def create_order():
-    data = request.json
-    user_id   = data["user_id"]
-    pack_gemas= data["pack"]
-    amount    = data["amount"]
-    access_token = get_paypal_token()
-    headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
-    order_data = {
-        "intent": "CAPTURE",
-        "purchase_units": [{
-            "reference_id": f"user_{user_id}_{pack_gemas}",
-            "amount": {"currency_code": "USD", "value": str(amount)},
-            "custom_id": str(user_id)
-        }],
-        "application_context": {
-            "return_url": "https://karuidol.onrender.com/paypal/return",
-            "cancel_url": "https://karuidol.onrender.com/paypal/cancel"
-        }
-    }
-    resp = requests.post("https://api-m.paypal.com/v2/checkout/orders", headers=headers, json=order_data, timeout=10)
-    resp.raise_for_status()
-    order = resp.json()
-    for link in order["links"]:
-        if link["rel"] == "approve":
-            return jsonify({"url": link["href"], "order_id": order["id"]})
-    return "No approve link", 400
-
-@app.route("/paypal/webhook", methods=["POST"])
-def paypal_webhook():
-    # ─── Validación de origen del webhook ────────────────────────────────────
-    secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
-    # PayPal no usa ese header, pero sí puedes verificar firma PayPal aquí si lo implementas.
-    # Por ahora validamos que el body sea procesable.
-    data = request.json
-    if not data:
-        return "", 400
-    # ─────────────────────────────────────────────────────────────────────────
-
-    event_type = data.get("event_type")
-    resource   = data.get("resource", {})
-
-    if (
-        event_type == "PAYMENT.CAPTURE.COMPLETED" or
-        (event_type == "PAYMENT.CAPTURE.PENDING" and resource.get("status") == "COMPLETED")
-    ):
-        try:
-            user_id        = int(resource.get("custom_id", 0))
-            amount         = resource["amount"]["value"]
-            pago_id        = resource.get("id")
-            cantidad_gemas = buscar_gemas(amount)
-
-            if not cantidad_gemas:
-                print(f"❌ Monto no reconocido: {amount} USD")
-                return "", 200
-
-            # ─── Prevención de doble entrega con upsert atómico ──────────────
-            resultado = db.historial_compras_gemas.update_one(
-                {"pago_id": pago_id},
-                {"$setOnInsert": {
-                    "pago_id": pago_id,
-                    "user_id": user_id,
-                    "cantidad_gemas": cantidad_gemas,
-                    "monto_usd": amount,
-                    "fecha": datetime.utcnow()
-                }},
-                upsert=True
-            )
-            if resultado.matched_count > 0:
-                print(f"[PayPal] Pago {pago_id} ya procesado anteriormente.")
-                return "", 200
-            # ─────────────────────────────────────────────────────────────────
-
-            col_usuarios.update_one(
-                {"user_id": user_id},
-                {"$inc": {"gemas": cantidad_gemas}},
-                upsert=True
-            )
-
-            try:
-                bot.send_message(
-                    chat_id=user_id,
-                    text=f"🎉 ¡Compra confirmada! Has recibido {cantidad_gemas} gemas en KaruKpop.\n¡Gracias por tu apoyo! 💎"
-                )
-            except Exception as e:
-                print("No se pudo notificar al usuario:", e)
-
-            try:
-                bot.send_message(
-                    chat_id=ADMIN_USER_ID,
-                    text=f"💸 Nuevo pago confirmado:\n• Usuario: <code>{user_id}</code>\n• Gemas: {cantidad_gemas}\n• Monto: ${amount} USD",
-                    parse_mode="HTML"
-                )
-            except Exception as e:
-                print("No se pudo notificar al admin:", e)
-
-            print(f"✅ Entregadas {cantidad_gemas} gemas a user_id={user_id} por {amount} USD")
-        except Exception as e:
-            print("❌ Error en webhook:", e)
-    return "", 200
-
-@app.route("/paypal/return")
-def paypal_return():
-    order_id = request.args.get("token")
-    if not order_id:
-        return "Error: No se recibió el order_id de PayPal."
-    try:
-        access_token = get_paypal_token()
-        headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
-        resp = requests.post(
-            f"https://api-m.paypal.com/v2/checkout/orders/{order_id}/capture",
-            headers=headers, timeout=10
-        )
-        if resp.ok:
-            print("[PayPal] Orden capturada correctamente:", resp.json())
-        else:
-            print("[PayPal] Orden ya estaba capturada o falló:", resp.text)
-        return "¡Gracias por tu compra! Puedes volver a Telegram."
-    except Exception as e:
-        print("[PayPal] Error capturando orden:", e)
-        return "Hubo un error al procesar tu pago. Contacta soporte."
-
-@app.route("/paypal/cancel")
-def paypal_cancel():
-    return "Pago cancelado."
-
 # ─── Misiones ────────────────────────────────────────────────────────────────
 def actualiza_mision_diaria(user_id, context=None):
     user_doc = col_usuarios.find_one({"user_id": user_id}) or {}
@@ -769,115 +615,10 @@ def revisar_sets_completados(user_id, context):
                 pass
     return premios
 
-PACKS_GEMAS = [
-    {"pack": "x50",    "amount": 1.00,   "label": "💎 x50 Gems (USD $1)"},
-    {"pack": "x100",   "amount": 2.00,   "label": "💎 x100 Gems (USD $2)"},
-    {"pack": "x500",   "amount": 8.00,   "label": "💎 x500 Gems (USD $8)"},
-    {"pack": "x1000",  "amount": 13.00,  "label": "💎 x1000 Gems (USD $13)"},
-    {"pack": "x5000",  "amount": 60.00,  "label": "💎 x5000 Gems (USD $60)"},
-    {"pack": "x10000", "amount": 100.00, "label": "💎 x10000 Gems (USD $100)"},
-]
 
-def tienda_gemas(update, context):
-    user_id = update.message.from_user.id
-    texto = (
-        "💎 <b>Tienda de Gemas KaruKpop</b>\n\n"
-        "Compra gemas de forma segura con PayPal.\n\n"
-        "Elige el pack que deseas comprar:"
-    )
-    botones = [
-        [InlineKeyboardButton(p["label"], callback_data=f"tienda_paypal_{p['pack']}_{p['amount']}")]
-        for p in PACKS_GEMAS
-    ]
-    update.message.reply_text(texto, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(botones))
 
-def historial_gemas_admin(update, context):
-    user_id = update.effective_user.id
-    if user_id != ADMIN_USER_ID:
-        update.message.reply_text("No tienes permiso para usar este comando.")
-        return
-    if not context.args:
-        update.message.reply_text("Usa: /historialgemas <@username o id_usuario>")
-        return
-    arg = context.args[0]
-    query = {}
-    if arg.startswith("@"):
-        query["username"] = arg[1:].lower()
-    else:
-        try:
-            query["user_id"] = int(arg)
-        except ValueError:
-            update.message.reply_text("Debes ingresar un @username válido o un ID numérico.")
-            return
-    compras = list(db.historial_compras_gemas.find(query).sort("fecha", -1).limit(10))
-    if not compras:
-        update.message.reply_text("Ese usuario no tiene compras de gemas registradas.")
-        return
-    msg = "🧾 *Historial de gemas:*\n\n"
-    for c in compras:
-        fecha = c['fecha'].strftime("%d/%m/%Y %H:%M")
-        msg += f"- {c.get('cantidad_gemas','?')} gemas el {fecha}\n"
-    update.message.reply_text(msg, parse_mode="Markdown")
 
-dispatcher.add_handler(CommandHandler("historialgemas", historial_gemas_admin))
 
-def manejador_tienda_paypal(update, context):
-    query   = update.callback_query
-    data    = query.data
-    user_id = query.from_user.id
-    partes  = data.split("_")
-    # formato: tienda_paypal_x100_2.0
-    pack   = partes[2]
-    amount = float(partes[3])
-    try:
-        # Llamada directa (evita deadlock de llamarse a sí mismo por HTTP)
-        access_token = get_paypal_token()
-        headers_pp = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
-        pack_label = pack  # ej: "x100"
-        pack_amounts = {"x50":1.00,"x100":2.00,"x500":8.00,"x1000":13.00,"x5000":60.00,"x10000":100.00}
-        amount_val = pack_amounts.get(pack, amount)
-        order_data_pp = {
-            "intent": "CAPTURE",
-            "purchase_units": [{
-                "reference_id": f"user_{user_id}_{pack}",
-                "amount": {"currency_code": "USD", "value": str(amount_val)},
-                "custom_id": str(user_id)
-            }],
-            "application_context": {
-                "return_url": "https://karuidol.onrender.com/paypal/return",
-                "cancel_url": "https://karuidol.onrender.com/paypal/cancel"
-            }
-        }
-        resp = requests.post("https://api-m.paypal.com/v2/checkout/orders",
-                             headers=headers_pp, json=order_data_pp, timeout=10)
-        if resp.ok:
-            order_resp = resp.json()
-            url = next((l["href"] for l in order_resp.get("links", []) if l.get("rel") == "approve"), None)
-            if url:
-                query.answer("¡Revisa tu chat privado con el bot!", show_alert=True)
-                try:
-                    context.bot.send_message(
-                        chat_id=user_id,
-                        text=(
-                            f"🔗 <b>Pago de Gemas KaruKpop</b>\n\n"
-                            f"Pack: <b>{pack}</b>\nMonto: <b>USD ${amount:.2f}</b>\n\n"
-                            f"<a href='{url}'>Haz clic aquí para pagar con PayPal</a>\n\n"
-                            "Cuando el pago esté confirmado, recibirás las gemas automáticamente."
-                        ),
-                        parse_mode="HTML",
-                        disable_web_page_preview=True
-                    )
-                except Exception:
-                    query.answer(
-                        "No pude enviarte el link. Debes iniciar el chat privado con el bot primero.",
-                        show_alert=True
-                    )
-            else:
-                query.answer("No se pudo generar el enlace de pago.", show_alert=True)
-        else:
-            query.answer("Error al conectar con PayPal.", show_alert=True)
-    except Exception:
-        query.answer("Fallo al generar enlace de pago.", show_alert=True)
 
 # ─── Precios ──────────────────────────────────────────────────────────────────
 def precio_carta_tabla(estado_estrella, card_id):
@@ -3914,7 +3655,6 @@ dispatcher.add_handler(CallbackQueryHandler(manejador_callback_setlist,     patt
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback_setsprogreso,pattern=r"^setsprogreso_"))
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback_setdet,      pattern=r"^setdet\|"))
 dispatcher.add_handler(CallbackQueryHandler(manejador_callback_mercado,     pattern="^mercado_"))
-dispatcher.add_handler(CallbackQueryHandler(manejador_tienda_paypal,        pattern=r"^tienda_paypal_"))
 
 # ─── Comandos ─────────────────────────────────────────────────────────────────
 dispatcher.add_handler(CommandHandler("start",                 mensaje_tutorial_privado))
@@ -3927,7 +3667,6 @@ dispatcher.add_handler(CommandHandler('sorteo',                comando_sorteo))
 dispatcher.add_handler(CommandHandler('topicid',               comando_topicid))
 dispatcher.add_handler(CommandHandler('mercado',               comando_mercado))
 dispatcher.add_handler(CommandHandler('rankingmercado',        comando_rankingmercado))
-dispatcher.add_handler(CommandHandler('tiendagemas',           tienda_gemas))
 dispatcher.add_handler(CommandHandler('darGemas',              comando_darGemas))
 dispatcher.add_handler(CommandHandler('gemas',                 comando_gemas))
 dispatcher.add_handler(CommandHandler('estadisticasdrops',     comando_estadisticasdrops))
@@ -3966,38 +3705,19 @@ dispatcher.add_handler(MessageHandler(Filters.all, borrar_mensajes_no_idolday), 
 
 # ─── Arranque ─────────────────────────────────────────────────────────────────
 
-@app.route("/", methods=["GET"])
-@app.route("/health", methods=["GET", "HEAD"])
-def home():
-    # Respuesta instantánea para health checks de Render/UptimeRobot
-    return "OK", 200
-
-@app.route(f"/{TOKEN}", methods=["POST"])
-def telegram_webhook():
-    try:
-        data = request.get_json(force=True)
-        if not data:
-            return "OK", 200
-        update = Update.de_json(data, bot)
-        dispatcher.process_update(update)
-    except Exception as e:
-        logger.error(f"[webhook] Error procesando update: {e}")
-    return "OK", 200
-
-def on_startup():
-    """Se ejecuta una sola vez al arrancar."""
-    webhook_url = f"https://karuidol.onrender.com/{TOKEN}"
-    try:
-        bot.set_webhook(url=webhook_url)
-        logger.info(f"[startup] Webhook registrado: {webhook_url}")
-    except Exception as e:
-        logger.error(f"[startup] Error registrando webhook: {e}")
-    iniciar_proceso_sorteos(dispatcher)
-    logger.info("[startup] Bot iniciado correctamente.")
-
-# Ejecutar startup en un hilo para no bloquear Gunicorn
-threading.Thread(target=on_startup, daemon=True).start()
-
 if __name__ == '__main__':
-    puerto = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=puerto)
+    logger.info("[startup] Iniciando bot en modo polling...")
+
+    # Borrar webhook pendiente si hubiera uno registrado antes
+    try:
+        bot.delete_webhook()
+    except Exception as e:
+        logger.warning(f"[startup] No se pudo borrar webhook: {e}")
+
+    # Iniciar proceso de sorteos en background
+    iniciar_proceso_sorteos(updater.dispatcher)
+
+    # Arrancar polling — idle() mantiene el proceso vivo
+    updater.start_polling(poll_interval=1.0, timeout=20, drop_pending_updates=True)
+    logger.info("[startup] Bot corriendo. Ctrl+C para detener.")
+    updater.idle()
