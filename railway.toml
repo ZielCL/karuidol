@@ -1,6 +1,9 @@
 [build]
 builder = "nixpacks"
 
+[build.nixpacks]
+nixPackages = ["python310"]
+
 [deploy]
 startCommand = "python main.py"
 restartPolicyType = "on_failure"
