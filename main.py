@@ -37,6 +37,20 @@ from functools import wraps
 
 load_dotenv()
 
+# ─── Descargar fuente si no existe ───────────────────────────────────────────
+_FONT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "DejaVuSans-Bold.ttf")
+if not os.path.isfile(_FONT_PATH):
+    try:
+        _font_url = "https://github.com/dejavu-fonts/dejavu-fonts/raw/refs/heads/master/ttf/DejaVuSans-Bold.ttf"
+        _r = requests.get(_font_url, timeout=15)
+        _r.raise_for_status()
+        with open(_FONT_PATH, "wb") as _f:
+            _f.write(_r.content)
+        print(f"[font] Fuente descargada en {_FONT_PATH}")
+    except Exception as _e:
+        print(f"[font] No se pudo descargar la fuente: {_e}")
+# ─────────────────────────────────────────────────────────────────────────────
+
 TOKEN = os.getenv('TELEGRAM_TOKEN')
 if not TOKEN:
     raise ValueError("No se encontró el token de Telegram")
@@ -530,9 +544,39 @@ def agregar_numero_a_imagen(imagen_url, numero):
     response = requests.get(imagen_url, timeout=10)
     img  = Image.open(BytesIO(response.content)).convert("RGBA")
     draw = ImageDraw.Draw(img)
-    font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-    font_size = int(img.height * 0.02)
-    font  = ImageFont.truetype(font_path, size=font_size)
+    font_size = int(img.height * 0.05)
+    # Buscar fuente en múltiples rutas posibles (Render, Railway, Mac, etc.)
+    font_paths = [
+        _FONT_PATH,
+        os.path.join(os.path.dirname(__file__), "assets", "DejaVuSans-Bold.ttf"),
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        "/usr/share/fonts/liberation/LiberationSans-Bold.ttf",
+        "/nix/store",  # marcador para buscar en nix
+    ]
+    font = None
+    for fp in font_paths:
+        if fp == "/nix/store":
+            # Buscar cualquier fuente TTF en el store de nix
+            import glob
+            nix_fonts = glob.glob("/nix/store/**/DejaVuSans-Bold.ttf", recursive=True)
+            if not nix_fonts:
+                nix_fonts = glob.glob("/nix/store/**/*.ttf", recursive=True)
+            if nix_fonts:
+                try:
+                    font = ImageFont.truetype(nix_fonts[0], size=font_size)
+                    break
+                except Exception:
+                    continue
+        elif os.path.isfile(fp):
+            try:
+                font = ImageFont.truetype(fp, size=font_size)
+                break
+            except Exception:
+                continue
+    if font is None:
+        font = ImageFont.load_default()
     texto = f"#{numero}"
     bbox  = draw.textbbox((0, 0), texto, font=font)
     text_width  = bbox[2] - bbox[0]
